@@ -36,3 +36,8 @@
 - Visual Studio 17 2022 generator
 - tinyexr reader/writer needs explicit miniz linkage on Windows builds; linking the core static lib against tinyexr + miniz avoids unresolved mz_* symbols.
 - SaveEXR writes reliably for a packed RGBA buffer; round-trip tests should use a generated RGBA image even when validating a single channel.
+
+## Task 3 Learnings
+- Channel mapping is CPU-only and should fail fast on missing required Blender channels: Combined RGBA, Depth, and all 4 motion-vector channels.
+- Optional DLSS-RR inputs should be materialized with defaults: diffuse white, specular black, normals +Z, roughness 0.5.
+- Catch2 fixture tests are safe to skip locally when EXRs are absent; keep default behavior covered by the non-fixture unit test.

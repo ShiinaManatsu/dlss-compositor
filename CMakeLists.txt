@@ -96,8 +96,10 @@ target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 add_library(dlss_compositor_core STATIC
     src/core/exr_reader.cpp
     src/core/exr_writer.cpp
+    src/core/channel_mapper.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
     src/
     ${tinyexr_SOURCE_DIR}
     ${tinyexr_SOURCE_DIR}/deps/miniz
