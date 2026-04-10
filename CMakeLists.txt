@@ -102,6 +102,7 @@ add_library(dlss_compositor_core STATIC
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pipeline.cpp
+    src/pipeline/sequence_processor.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src

@@ -94,3 +94,9 @@
 - DLSS-RR feature creation on this machine required both `NVSDK_NGX_DLSS_Feature_Flags_IsHDR` and `NVSDK_NGX_DLSS_Feature_Flags_MVLowRes`; without them NGX creation failed first with `HDR Color required` and then `Low resolution Motion Vectors required`.
 - The processor test passes under `ctest --test-dir build -C Release -R test_dlss_rr_processor --output-on-failure`, and `build/Release/dlss-compositor.exe --test-ngx` still reports `DLSS-RR available: true`.
 - Local verification could not use `lsp_diagnostics` because `clangd` is not installed in the environment.
+
+## [2026-04-11] Task 11: Sequence Processor
+- `SequenceProcessor` streams one EXR frame at a time through read → map → MV convert → upload → evaluate → download → write, then destroys all 8 texture handles before the next frame.
+- Sequence ordering uses trailing digits from the filename stem for natural numeric sort; reset flags are raised on the first frame and on the first frame after any numeric gap.
+- Reused the Task 10 Vulkan command-buffer pattern twice: once for `createDlssRR()` before the frame loop, then per-frame for DLSS-RR evaluation with explicit output transitions `SHADER_READ_ONLY_OPTIMAL -> GENERAL -> SHADER_READ_ONLY_OPTIMAL`.
+- End-to-end verification passed with `ctest -C Release -R test_sequence_processor --output-on-failure` and `build\Release\dlss-compositor.exe --input-dir tests/fixtures/sequence/ --output-dir test_out/ --scale 2`; outputs were written to `.sisyphus/evidence/task-11-sequence.txt` and `.sisyphus/evidence/task-11-e2e.txt`.

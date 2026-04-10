@@ -4,7 +4,9 @@
 #include "cli/cli_parser.h"
 #include "cli/config.h"
 #include "dlss/ngx_wrapper.h"
+#include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
+#include "pipeline/sequence_processor.h"
 
 int main(int argc, char* argv[]) {
     AppConfig config;
@@ -64,6 +66,50 @@ int main(int argc, char* argv[]) {
         ngx.shutdown();
         context.destroy();
         return 1;
+    }
+
+    if (!config.inputDir.empty() || !config.outputDir.empty()) {
+        if (config.inputDir.empty() || config.outputDir.empty()) {
+            fprintf(stderr, "Error: both --input-dir and --output-dir are required for sequence processing.\n");
+            return 1;
+        }
+
+        VulkanContext context;
+        if (!context.init(errorMsg)) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            return 1;
+        }
+
+        NgxContext ngx;
+        if (!ngx.init(context.instance(),
+                      context.physicalDevice(),
+                      context.device(),
+                      nullptr,
+                      errorMsg)) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            context.destroy();
+            return 1;
+        }
+
+        if (!ngx.isDlssRRAvailable()) {
+            fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
+            ngx.shutdown();
+            context.destroy();
+            return 1;
+        }
+
+        TexturePipeline texturePipeline(context);
+        SequenceProcessor processor(context, ngx, texturePipeline);
+        const bool ok = processor.processDirectory(config.inputDir, config.outputDir, config, errorMsg);
+        ngx.shutdown();
+        context.destroy();
+
+        if (!ok) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            return 1;
+        }
+
+        return 0;
     }
 
     printf("dlss-compositor: no action specified. Use --help for usage.\n");
