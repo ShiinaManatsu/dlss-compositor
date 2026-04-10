@@ -1,0 +1,55 @@
+# DLSS Compositor
+
+> First open-source tool for processing offline Blender Cycles renders through NVIDIA DLSS Ray Reconstruction (DLSS-RR) — AI denoising and temporal upscaling for animation sequences.
+
+## What It Does
+DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds them through NVIDIA DLSS-RR for denoising and upscaling, and outputs high-quality EXR sequences. It's designed to bring the real-time AI denoising power of DLSS to offline rendering workflows.
+
+## Features
+- DLSS-RR denoising and upscaling via Vulkan NGX API
+- Multi-layer EXR reading with Blender channel name mapping
+- Motion vector conversion (Blender 4-channel to DLSS-RR 2-channel current to previous)
+- Temporal history management with automatic reset on sequence gaps
+- CLI batch processing mode
+- ImGui viewer with channel preview and before/after comparison
+- Blender script for one-click render pass configuration
+- Python EXR validator tool
+
+## Requirements
+- **GPU**: NVIDIA RTX GPU (Turing, Ampere, Ada, or Blackwell architecture — must support DLSS Ray Reconstruction)
+- **OS**: Windows 10/11 (64-bit)
+- **Driver**: NVIDIA driver 520 or newer
+- **Build tools**: Visual Studio 2022, CMake 3.20 or newer, Vulkan SDK 1.3 or newer
+- **Runtime**: Vulkan SDK runtime DLLs on PATH
+
+## Quick Start
+1. **Build**: Clone the repository and build using CMake (see [Build Guide](docs/build_guide.md)).
+2. **Configure Blender**: Run the `blender/aov_export_preset.py` script in your Blender scene to register the DLSS Compositor panel.
+3. **Render**: Use the panel to configure passes and render your animation as a MultiLayer EXR sequence.
+4. **Process**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
+
+## CLI Usage
+```bash
+# Basic processing with 2x upscale
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2
+
+# Max quality mode
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --quality MaxQuality
+
+# Process and encode to video (requires FFmpeg)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --encode-video result.mp4 --fps 24
+
+# Launch the visual comparison tool
+dlss-compositor.exe --gui
+```
+
+See the [Usage Guide](docs/usage_guide.md) for a full list of flags.
+
+## GUI Usage
+The ImGui-based viewer allows you to inspect individual EXR channels, compare the noisy input with the DLSS-RR output, and verify motion vectors before batch processing.
+
+## Screenshots
+<!-- TODO: Add screenshots -->
+
+## License
+MIT License. See `LICENSE` for details.
