@@ -132,6 +132,7 @@ target_sources(dlss-compositor PRIVATE
     src/cli/cli_parser.cpp
     src/ui/app.cpp
     src/ui/image_viewer.cpp
+    src/ui/settings_panel.cpp
 )
 target_include_directories(dlss-compositor PRIVATE
     src/

@@ -1,11 +1,12 @@
 #pragma once
 
 #include <string>
+#include "cli/config.h"
 
 struct GLFWwindow;
 struct ImGuiContext;
-struct AppConfig;
 class ImageViewer;
+class SettingsPanel;
 class TexturePipeline;
 class VulkanContext;
 struct VmaAllocator_T;
@@ -77,6 +78,8 @@ private:
     bool swapchainRebuild = false;
     
     ImageViewer* m_imageViewer = nullptr;
+    SettingsPanel* m_settingsPanel = nullptr;
+    AppConfig m_config;
 
     void createSwapchain(int w, int h);
     void cleanupSwapchain();

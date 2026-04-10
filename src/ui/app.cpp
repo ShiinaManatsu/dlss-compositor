@@ -13,7 +13,9 @@
 #include <vk_mem_alloc.h>
 
 #include "ui/image_viewer.h"
+#include "ui/settings_panel.h"
 #include "cli/config.h"
+#include <filesystem>
 
 static void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error " << error << ": " << description << "\n";
@@ -31,7 +33,8 @@ App::~App() {
 }
 
 bool App::run(const AppConfig& config, VulkanContext* computeCtx, TexturePipeline* pipeline, std::string& errorMsg) {
-    if (!initWindow(config.testGui, errorMsg)) return false;
+    m_config = config;
+    if (!initWindow(m_config.testGui, errorMsg)) return false;
     if (!initVulkan(errorMsg)) return false;
     if (!initImGui()) {
         errorMsg = "Failed to initialize ImGui";
@@ -39,80 +42,115 @@ bool App::run(const AppConfig& config, VulkanContext* computeCtx, TexturePipelin
     }
 
     m_imageViewer = new ImageViewer();
+    m_settingsPanel = new SettingsPanel(m_config, computeCtx, nullptr, pipeline);
 
-    if (!config.testGuiLoad.empty()) {
-        m_imageViewer->load(config.testGuiLoad, device, allocator, *pipeline);
+    if (!m_config.testGuiLoad.empty()) {
+        m_imageViewer->load(m_config.testGuiLoad, device, allocator, *pipeline);
     }
 
-    // Main loop
-    if (config.testGui) {
-        // Run exactly 5 frames for the test mode, without displaying a window
-        for (int i = 0; i < 5; ++i) {
-            glfwPollEvents();
-            ImGui_ImplVulkan_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
+    if (m_config.testGuiProcess) {
+        m_settingsPanel->triggerProcessing();
+    }
 
+    int maxFrames = m_config.testGui ? (m_config.testGuiProcess ? 300 : 5) : -1;
+    int frameCount = 0;
+    bool processError = false;
+
+    // Main loop
+    while (!glfwWindowShouldClose(window)) {
+        if (maxFrames > 0 && frameCount >= maxFrames) break;
+        frameCount++;
+
+        glfwPollEvents();
+
+        if (swapchainRebuild) {
+            int w, h;
+            glfwGetFramebufferSize(window, &w, &h);
+            if (w > 0 && h > 0) {
+                ImGui_ImplVulkan_SetMinImageCount(minImageCount);
+                createSwapchain(w, h);
+                frameIndex = 0;
+                swapchainRebuild = false;
+            }
+        }
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        if (m_config.testGui) {
             ImGui::Begin("Headless UI Test");
             ImGui::Text("DLSS Compositor v0.1");
             ImGui::End();
-
-            if (m_imageViewer->isLoaded()) {
-                ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Image Viewer");
-                m_imageViewer->render(ImGui::GetContentRegionAvail());
-                ImGui::End();
-            }
-
-            ImGui::Render();
-            frameRender();
-            framePresent();
-        }
-    } else {
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-
-            if (swapchainRebuild) {
-                int w, h;
-                glfwGetFramebufferSize(window, &w, &h);
-                if (w > 0 && h > 0) {
-                    ImGui_ImplVulkan_SetMinImageCount(minImageCount);
-                    createSwapchain(w, h);
-                    frameIndex = 0;
-                    swapchainRebuild = false;
-                }
-            }
-
-            ImGui_ImplVulkan_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-
+        } else {
             ImGui::Begin("DLSS Compositor Viewer");
             ImGui::Text("DLSS Compositor v0.1");
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
+        }
 
-            if (m_imageViewer->isLoaded()) {
-                ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
-                ImGui::Begin("Image Viewer");
-                m_imageViewer->render(ImGui::GetContentRegionAvail());
-                ImGui::End();
+        ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Settings");
+        m_settingsPanel->render();
+        ImGui::End();
+
+        if (m_imageViewer->isLoaded()) {
+            ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Image Viewer");
+            m_imageViewer->render(ImGui::GetContentRegionAvail());
+            ImGui::End();
+        }
+
+        ImGui::Render();
+        frameRender();
+        framePresent();
+
+        if (m_config.testGuiProcess) {
+            if (m_settingsPanel->isProcessingComplete()) break;
+            if (m_settingsPanel->hasProcessingError()) {
+                errorMsg = m_settingsPanel->statusMessage();
+                processError = true;
+                break;
             }
+        }
+    }
 
-            ImGui::Render();
-            frameRender();
-            framePresent();
+    m_settingsPanel->waitForCompletion();
+
+    if (m_config.testGuiProcess && !processError) {
+        if (!m_settingsPanel->isProcessingComplete()) {
+            errorMsg = "Processing did not complete within 300 frames";
+            processError = true;
+        } else {
+            int inCount = 0;
+            if (!m_config.inputDir.empty() && std::filesystem::exists(m_config.inputDir)) {
+                for (const auto& entry : std::filesystem::directory_iterator(m_config.inputDir)) {
+                    if (entry.path().extension() == ".exr") inCount++;
+                }
+            }
+            int outCount = 0;
+            if (!m_config.outputDir.empty() && std::filesystem::exists(m_config.outputDir)) {
+                for (const auto& entry : std::filesystem::directory_iterator(m_config.outputDir)) {
+                    if (entry.path().extension() == ".exr") outCount++;
+                }
+            }
+            if (inCount != outCount) {
+                errorMsg = "Output file count (" + std::to_string(outCount) + ") does not match input (" + std::to_string(inCount) + ")";
+                processError = true;
+            }
         }
     }
 
     delete m_imageViewer;
     m_imageViewer = nullptr;
+    delete m_settingsPanel;
+    m_settingsPanel = nullptr;
 
     cleanup();
-    return true;
+    return !processError;
 }
 
 bool App::initWindow(bool testMode, std::string& errorMsg) {
