@@ -52,6 +52,7 @@ bool ChannelMapper::mapFromExr(const ExrReader& reader, MappedBuffers& out, std:
         return false;
     }
     out.color = reader.readRGBA(m_names.colorR, m_names.colorG, m_names.colorB, m_names.colorA);
+    out.depth.assign(depthChannel, depthChannel + pixelCount);
     out.status["color"] = {true, m_names.colorR + "," + m_names.colorG + "," + m_names.colorB + "," + m_names.colorA, {}};
     out.status["depth"] = {true, m_names.depth, {}};
 
