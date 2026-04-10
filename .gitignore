@@ -1,0 +1,38 @@
+# Build
+build/
+out/
+cmake-build-*/
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Output
+output/
+qa_output/
+test_output/
+test_gui_out/
+
+# Reference sample (read-only, not part of our project)
+DLSS_Sample_App/
+
+# Evidence (generated)
+.sisyphus/evidence/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# LSP / clangd
+compile_commands.json
+build-clangd/
+.cache/

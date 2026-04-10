@@ -1,0 +1,126 @@
+cmake_minimum_required(VERSION 3.20)
+project(dlss-compositor VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# DLSS SDK root (provided by user)
+set(DLSS_SDK_ROOT "" CACHE PATH "Path to DLSS SDK (contains include/ and lib/)")
+if(DLSS_SDK_ROOT STREQUAL "")
+    message(FATAL_ERROR "DLSS_SDK_ROOT must be set to the DLSS SDK directory")
+endif()
+
+# Find Vulkan
+find_package(Vulkan REQUIRED)
+
+# FetchContent for third-party deps
+include(FetchContent)
+
+# tinyexr
+FetchContent_Declare(
+    tinyexr
+    GIT_REPOSITORY https://github.com/syoyo/tinyexr.git
+    GIT_TAG        v1.0.9
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(tinyexr)
+
+# Catch2
+FetchContent_Declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        v3.7.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(Catch2)
+list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
+
+# volk (Vulkan loader)
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        1.3.295
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(volk)
+
+# VulkanMemoryAllocator
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.2.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)
+
+# Dear ImGui
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.91.9
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
+# GLFW (for ImGui window)
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        3.4
+    GIT_SHALLOW    TRUE
+)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
+# ImGui as a library (Vulkan + GLFW backend)
+add_library(imgui_lib STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(imgui_lib PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${Vulkan_INCLUDE_DIRS}
+)
+target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan volk glfw)
+target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
+
+# Main executable
+add_executable(dlss-compositor src/main.cpp)
+target_include_directories(dlss-compositor PRIVATE
+    src/
+    ${DLSS_SDK_ROOT}/include
+    ${tinyexr_SOURCE_DIR}
+    ${VulkanMemoryAllocator_SOURCE_DIR}/include
+)
+target_link_libraries(dlss-compositor PRIVATE
+    Vulkan::Vulkan
+    volk
+    imgui_lib
+    glfw
+)
+target_compile_definitions(dlss-compositor PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+# Copy DLSS DLL/lib to output directory
+if(MSVC)
+    file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
+    foreach(DLL ${DLSS_NGXCORE_DLLS})
+        add_custom_command(TARGET dlss-compositor POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor>
+        )
+    endforeach()
+endif()
+
+# Tests
+enable_testing()
+add_subdirectory(tests)
