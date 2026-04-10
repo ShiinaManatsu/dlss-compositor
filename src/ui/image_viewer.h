@@ -18,6 +18,7 @@ public:
     ~ImageViewer();
 
     void load(const std::string& exrPath, VkDevice device, VmaAllocator allocator, TexturePipeline& pipeline);
+    void setOutputPath(const std::string& exrPath, VkDevice device, VmaAllocator allocator, TexturePipeline& pipeline);
     void unload();
     void render(ImVec2 availSize);
 
@@ -50,6 +51,9 @@ private:
 
     ChannelData m_channels[static_cast<int>(Channel::Count)];
     Channel m_selectedChannel = Channel::Color;
+
+    ChannelData m_outputColorChannel;
+    bool m_outputLoaded = false;
 
     TextureHandle* m_blackPlaceholder = nullptr;
     VkDescriptorSet m_blackImguiTexture = VK_NULL_HANDLE;

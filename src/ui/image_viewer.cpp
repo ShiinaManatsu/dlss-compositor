@@ -115,6 +115,64 @@ void ImageViewer::load(const std::string& exrPath, VkDevice device, VmaAllocator
     uploadChannel(Channel::Roughness, buffers.roughness, 1, 1, VK_FORMAT_R32_SFLOAT);
 }
 
+void ImageViewer::setOutputPath(const std::string& exrPath, VkDevice device, VmaAllocator allocator, TexturePipeline& pipeline) {
+    if (!m_loaded) return;
+
+    ExrReader reader;
+    std::string errorMsg;
+    if (!reader.open(exrPath, errorMsg)) {
+        std::cerr << "ImageViewer: Failed to open output EXR: " << exrPath << " (" << errorMsg << ")\n";
+        return;
+    }
+
+    if (reader.width() != m_width || reader.height() != m_height) {
+        std::cerr << "ImageViewer: Output EXR dimensions do not match input EXR.\n";
+        return;
+    }
+
+    ChannelMapper mapper;
+    MappedBuffers buffers;
+    if (!mapper.mapFromExr(reader, buffers, errorMsg)) {
+        std::cerr << "ImageViewer: Failed to map channels for output EXR: " << errorMsg << "\n";
+        return;
+    }
+
+    if (buffers.color.empty()) return;
+
+    if (m_outputColorChannel.exists) {
+        ImGui_ImplVulkan_RemoveTexture(m_outputColorChannel.imguiTexture);
+        m_pipeline->destroy(*m_outputColorChannel.handle);
+        delete m_outputColorChannel.handle;
+        m_outputColorChannel.exists = false;
+        m_outputColorChannel.imguiTexture = VK_NULL_HANDLE;
+        m_outputColorChannel.handle = nullptr;
+    }
+
+    size_t pixelCount = m_width * m_height;
+    int srcChannels = 4;
+    int dstChannels = 4;
+    std::vector<float> uploadData(pixelCount * dstChannels, 0.0f);
+
+    for (size_t i = 0; i < pixelCount; ++i) {
+        for (int c = 0; c < dstChannels; ++c) {
+            if (c < srcChannels) {
+                uploadData[i * dstChannels + c] = buffers.color[i * srcChannels + c];
+            } else if (c == 3) {
+                uploadData[i * dstChannels + c] = 1.0f; // Alpha = 1
+            }
+        }
+    }
+
+    TextureHandle* handle = new TextureHandle();
+    *handle = pipeline.upload(uploadData.data(), m_width, m_height, dstChannels, VK_FORMAT_R16G16B16A16_SFLOAT);
+    VkDescriptorSet imguiTex = ImGui_ImplVulkan_AddTexture(m_sampler, handle->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    m_outputColorChannel.handle = handle;
+    m_outputColorChannel.imguiTexture = imguiTex;
+    m_outputColorChannel.exists = true;
+    m_outputLoaded = true;
+}
+
 void ImageViewer::unload() {
     if (m_pipeline && m_loaded) {
         for (int i = 0; i < static_cast<int>(Channel::Count); ++i) {
@@ -127,6 +185,16 @@ void ImageViewer::unload() {
             m_channels[i].imguiTexture = VK_NULL_HANDLE;
             m_channels[i].handle = nullptr;
         }
+
+        if (m_outputColorChannel.exists) {
+            ImGui_ImplVulkan_RemoveTexture(m_outputColorChannel.imguiTexture);
+            m_pipeline->destroy(*m_outputColorChannel.handle);
+            delete m_outputColorChannel.handle;
+        }
+        m_outputColorChannel.exists = false;
+        m_outputColorChannel.imguiTexture = VK_NULL_HANDLE;
+        m_outputColorChannel.handle = nullptr;
+        m_outputLoaded = false;
 
         if (m_blackPlaceholder) {
             ImGui_ImplVulkan_RemoveTexture(m_blackImguiTexture);
@@ -235,7 +303,9 @@ void ImageViewer::render(ImVec2 availSize) {
                           m_blackImguiTexture;
 
     if (m_selectedChannel == Channel::Color) {
-        renderSplitView(imageSize, tex, tex);
+        VkDescriptorSet outputTex = (m_outputLoaded && m_outputColorChannel.exists) ? 
+            m_outputColorChannel.imguiTexture : tex;
+        renderSplitView(imageSize, tex, outputTex);
     } else {
         ImGui::Image((ImTextureID)tex, imageSize);
     }

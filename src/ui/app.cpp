@@ -140,6 +140,11 @@ bool App::run(const AppConfig& config, VulkanContext* computeCtx, TexturePipelin
             if (inCount != outCount) {
                 errorMsg = "Output file count (" + std::to_string(outCount) + ") does not match input (" + std::to_string(inCount) + ")";
                 processError = true;
+            } else if (!m_config.outputDir.empty() && std::filesystem::exists(m_config.outputDir)) {
+                std::string firstOut = (std::filesystem::path(m_config.outputDir) / "frame_0001.exr").string();
+                if (std::filesystem::exists(firstOut)) {
+                    m_imageViewer->setOutputPath(firstOut, device, allocator, *pipeline);
+                }
             }
         }
     }
