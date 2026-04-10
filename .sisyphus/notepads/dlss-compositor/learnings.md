@@ -100,3 +100,14 @@
 - Sequence ordering uses trailing digits from the filename stem for natural numeric sort; reset flags are raised on the first frame and on the first frame after any numeric gap.
 - Reused the Task 10 Vulkan command-buffer pattern twice: once for `createDlssRR()` before the frame loop, then per-frame for DLSS-RR evaluation with explicit output transitions `SHADER_READ_ONLY_OPTIMAL -> GENERAL -> SHADER_READ_ONLY_OPTIMAL`.
 - End-to-end verification passed with `ctest -C Release -R test_sequence_processor --output-on-failure` and `build\Release\dlss-compositor.exe --input-dir tests/fixtures/sequence/ --output-dir test_out/ --scale 2`; outputs were written to `.sisyphus/evidence/task-11-sequence.txt` and `.sisyphus/evidence/task-11-e2e.txt`.
+
+### Task 12: ImGui + Vulkan Viewer Scaffold
+- Created App class encapsulating GLFW window, raw Vulkan setup (VkInstance, VkDevice, VkSwapchainKHR), and ImGui context.
+- ImGui backend was initialized with NO_PROTOTYPES. This required explicit dynamic loading of Vulkan pointers via ImGui_ImplVulkan_LoadFunctions.
+- Implemented a headless --test-gui mode using glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE).
+
+### Task 13: Channel Preview + Before/After Split View
+- Implemented ImageViewer class to load, map, and upload EXR channels for UI display.
+- ImGui uses ImGui_ImplVulkan_AddTexture to display Vulkan images, requiring VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL and a sampler.
+- Integrated VMA initialization in the main App and passed a compute VulkanContext and TexturePipeline from main.cpp to the GUI.
+- Added --test-load CLI flag to automatically load a file during the automated smoke test.

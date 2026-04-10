@@ -4,6 +4,13 @@
 
 struct GLFWwindow;
 struct ImGuiContext;
+struct AppConfig;
+class ImageViewer;
+class TexturePipeline;
+class VulkanContext;
+struct VmaAllocator_T;
+typedef VmaAllocator_T* VmaAllocator;
+
 typedef struct VkInstance_T* VkInstance;
 typedef struct VkPhysicalDevice_T* VkPhysicalDevice;
 typedef struct VkDevice_T* VkDevice;
@@ -22,8 +29,7 @@ public:
     App();
     ~App();
 
-    // testMode=true -> run 5 offscreen frames and exit (no window shown)
-    bool run(bool testMode, std::string& errorMsg);
+    bool run(const AppConfig& config, VulkanContext* computeCtx, TexturePipeline* pipeline, std::string& errorMsg);
 
 private:
     bool initWindow(bool testMode, std::string& errorMsg);
@@ -44,14 +50,12 @@ private:
     VkSurfaceKHR surface = nullptr;
     VkDescriptorPool descriptorPool = nullptr;
     VkRenderPass renderPass = nullptr;
+    VmaAllocator allocator = nullptr;
 
-    // We need a proper swapchain wrapper for simplicity, or just raw Vulkan.
-    // Raw Vulkan is verbose but required since we can't use helper libraries.
     VkSwapchainKHR swapchain = nullptr;
     uint32_t minImageCount = 2;
     uint32_t imageCount = 0;
     
-    // We'll dynamically allocate these arrays in app.cpp
     struct FrameData {
         VkCommandPool commandPool;
         struct VkCommandBuffer_T* commandBuffer;
@@ -72,6 +76,9 @@ private:
     int height = 720;
     bool swapchainRebuild = false;
     
+    ImageViewer* m_imageViewer = nullptr;
+
     void createSwapchain(int w, int h);
     void cleanupSwapchain();
 };
+

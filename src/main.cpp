@@ -70,11 +70,20 @@ int main(int argc, char* argv[]) {
     }
 
     if (config.testGui || config.launchGui) {
-        App app;
-        if (!app.run(config.testGui, errorMsg)) {
-            fprintf(stderr, "GUI Error: %s\n", errorMsg.c_str());
+        VulkanContext computeCtx;
+        if (!computeCtx.init(errorMsg)) {
+            fprintf(stderr, "Compute Vulkan Error: %s\n", errorMsg.c_str());
             return 1;
         }
+        TexturePipeline pipeline(computeCtx);
+
+        App app;
+        if (!app.run(config, &computeCtx, &pipeline, errorMsg)) {
+            fprintf(stderr, "GUI Error: %s\n", errorMsg.c_str());
+            computeCtx.destroy();
+            return 1;
+        }
+        computeCtx.destroy();
         return 0;
     }
 

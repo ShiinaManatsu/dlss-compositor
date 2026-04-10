@@ -10,6 +10,10 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
+#include <vk_mem_alloc.h>
+
+#include "ui/image_viewer.h"
+#include "cli/config.h"
 
 static void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error " << error << ": " << description << "\n";
@@ -26,16 +30,22 @@ App::~App() {
     delete[] frames;
 }
 
-bool App::run(bool testMode, std::string& errorMsg) {
-    if (!initWindow(testMode, errorMsg)) return false;
+bool App::run(const AppConfig& config, VulkanContext* computeCtx, TexturePipeline* pipeline, std::string& errorMsg) {
+    if (!initWindow(config.testGui, errorMsg)) return false;
     if (!initVulkan(errorMsg)) return false;
     if (!initImGui()) {
         errorMsg = "Failed to initialize ImGui";
         return false;
     }
 
+    m_imageViewer = new ImageViewer();
+
+    if (!config.testGuiLoad.empty()) {
+        m_imageViewer->load(config.testGuiLoad, device, allocator, *pipeline);
+    }
+
     // Main loop
-    if (testMode) {
+    if (config.testGui) {
         // Run exactly 5 frames for the test mode, without displaying a window
         for (int i = 0; i < 5; ++i) {
             glfwPollEvents();
@@ -46,6 +56,14 @@ bool App::run(bool testMode, std::string& errorMsg) {
             ImGui::Begin("Headless UI Test");
             ImGui::Text("DLSS Compositor v0.1");
             ImGui::End();
+
+            if (m_imageViewer->isLoaded()) {
+                ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Image Viewer");
+                m_imageViewer->render(ImGui::GetContentRegionAvail());
+                ImGui::End();
+            }
 
             ImGui::Render();
             frameRender();
@@ -76,11 +94,22 @@ bool App::run(bool testMode, std::string& errorMsg) {
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
+            if (m_imageViewer->isLoaded()) {
+                ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Image Viewer");
+                m_imageViewer->render(ImGui::GetContentRegionAvail());
+                ImGui::End();
+            }
+
             ImGui::Render();
             frameRender();
             framePresent();
         }
     }
+
+    delete m_imageViewer;
+    m_imageViewer = nullptr;
 
     cleanup();
     return true;
@@ -201,6 +230,21 @@ bool App::initVulkan(std::string& errorMsg) {
     }
     volkLoadDevice(device);
     vkGetDeviceQueue(device, queueFamily, 0, &queue);
+
+    VmaVulkanFunctions vulkanFunctions = {};
+    vulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    vulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo allocatorInfo = {};
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.instance = instance;
+    allocatorInfo.pVulkanFunctions = &vulkanFunctions;
+
+    if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS) {
+        errorMsg = "Failed to create VMA allocator for UI";
+        return false;
+    }
 
     // Create Descriptor Pool
     VkDescriptorPoolSize pool_sizes[] = {
@@ -407,6 +451,11 @@ void App::cleanup() {
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext(imGuiContext);
         imGuiContext = nullptr;
+    }
+
+    if (allocator) {
+        vmaDestroyAllocator(allocator);
+        allocator = nullptr;
     }
 
     if (device) {

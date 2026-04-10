@@ -1,0 +1,308 @@
+[2026-04-11 01:03:37] [NGXSafeInitializeLog:133] App logging hooks successfully initialized
+[2026-04-11 01:03:37] [NGXCheckArchitectureSupport:229] Found matching adapter with NVAPI physical GPU handle: 0x100 and LUID: { 0x0, 0x14bbd }
+[2026-04-11 01:03:37] [NGXGetPathUsingQAI:475] Checking for path to NGX using QueryAdapterInfo
+[2026-04-11 01:03:37] [NGXGetPathUsingQAI:512] Path to driverStore found using QAI: C:\Windows\System32\DriverStore\FileRepository\nvmdsi.inf_amd64_d39f1ab212fcacea
+[2026-04-11 01:03:37] [NGXGetPath:1045] using path for models: C:\ProgramData\NVIDIA\NGX\models
+[2026-04-11 01:03:37] [NGXGetPath:1045] using path for models: C:\ProgramData\NVIDIA\NGX\models
+[2026-04-11 01:03:37] [CreateSecurityDescriptor:94] security attributes generated successfully
+[2026-04-11 01:03:37] [CreateFolderWithACEs:154] using generated security descriptor for creating folder at: C:\ProgramData\NVIDIA\NGX\models
+[2026-04-11 01:03:37] [ModifyExistingFolderDACL:211] updated access control list for NGX cache (NGX cache should now be usable by all authenticated users)
+[2026-04-11 01:03:37] [NGXCreateModelsFolder:1072] model folder created: C:\ProgramData\NVIDIA\NGX\models
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [dlss]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9FEB50=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9FF4BC=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9FD524=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DF510=1.3.106
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9CB0B8=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_87D5278=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9E26B0=2.1.28
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D48D0=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E99B5EC=1.2.109
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DFA64=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9FD6C0=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9CF688=2.2.15
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D6F08=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9BF564=2.1.201
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DB4F4=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D2F5C=1.2.110
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D7388=1.0.108
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9F5618=2.1.29
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DAE68=1.2.109
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D8C54=1.2.109
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_3AC09EF=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D3EF0=2.1.28
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9FACDC=2.1.201
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_F7361DC=2.1.28
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9C3560=2.1.201
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9B0430=2.1.28
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658702=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658701=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_86AA7B4=3.7.10
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_866DA60=3.1.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_86DF0A0=3.1.11
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_8618954=3.1.11
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_863B354=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658700=310.6.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_rec_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_gw_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnr_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.2
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [dlisp]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9CF688=2.1.15
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E99B5EC=1.2.102
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=310.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D8C54=1.2.106
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9D2F5C=1.2.106
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DF510=1.3.101
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_B9DAE68=1.2.106
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_stdvoice_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_pcl_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_gw_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_gs_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_common_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_dlss_g_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_reflex_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [dlssg]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658701=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_86AA7B4=3.7.10
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658702=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_863B354=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_866DA60=3.1.13
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_5FA3A53=3.1.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_87D5278=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658700=310.6.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnr_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [deepdvc]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658702=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658701=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_87D5278=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_86AA7B4=1.0.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_sdk_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [dlss_override]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658700=310.6.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_fd_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnrrec_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [dlssd]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658701=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658700=310.6.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658702=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.0.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_lld_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_lld_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_gw_v0_7]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.7.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_deepdvc_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_dlss_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_dlss_d_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_gs_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_fd_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_rec_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnrrec_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_rl_v0_8]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.8.1
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_nis_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [sl_nvperf_0]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=2.11.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnr_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_gs_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_ar_fd_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_rec_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_bnrrec_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_lld_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.0
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_afx_stdvoice_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [NGXLoadConfig:1144] [nvbcast_vfx_rl_v0_9]
+[2026-04-11 01:03:37] [NGXLoadConfig:1150] app_E658703=0.9.5
+[2026-04-11 01:03:37] [`anonymous-namespace'::LoadMappingFileData:268] listItem.engineVersion .* listItem.genericCMSId 86aa7b4
+[2026-04-11 01:03:37] [`anonymous-namespace'::LoadMappingFileData:282]  project id 3F9D696D4363312194B0ECB2671E899F cms id B9FBD50
+[2026-04-11 01:03:37] [`anonymous-namespace'::LoadMappingFileData:268] listItem.engineVersion .* listItem.genericCMSId 8618954
+[2026-04-11 01:03:37] [`anonymous-namespace'::LoadMappingFileData:268] listItem.engineVersion .* listItem.genericCMSId b9b05cc
+[2026-04-11 01:03:37] [`anonymous-namespace'::LoadMappingFileData:268] listItem.engineVersion .* listItem.genericCMSId 876232c
+[2026-04-11 01:03:37] [MapProjectId:1905] Found cms id 876232c for engine: custom engineVersion 0.1.0 projectID 6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11
+[2026-04-11 01:03:37] [NGXDRSInit:327] NvAPI_DRS_FindApplicationByName -166
+[2026-04-11 01:03:37] [NGXInitContext:245] called from module dlss-compositor.exe at F:\Projects\GitRepos\dlss-compositor\build\Release
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dldenoiser.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXReportStatusFeedback:1060] Override shared memory was opened successfully
+[2026-04-11 01:03:37] [NGXReportStatusFeedback:1072] Override shared memory was mapped successfully
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlss.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlinpainting.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlisr.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlslowmo.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlvsr.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlcolorize.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlstyletransfer.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlvdenoiser.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlisp.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlresolve.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_dlssg.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_deepdvc.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [NGXLoadLibrary:34] Loaded NGXCore from path (F:\Projects\GitRepos\dlss-compositor\build\Release/nvngx_dlssd.dll)
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1509] Validating snippet F:\Projects\GitRepos\dlss-compositor\build\Release/nvngx_dlssd.dll
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1511] NGX CORE API version : 0x15, Snippet requires at least : 0x13
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1515] GPU architecture : 0x1B0, Snippet expects at least : 0x160
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1530] Driver support flags : 0xF(SEAMLESS_OTA|LINUX_EXTENDED_DRIVER_VERSIONS|API_SPECIFIC_POPULATE_PARAMS|REQUIRE_CMSID), Snippet required flags : 0xF(SEAMLESS_OTA|LINUX_EXTENDED_DRIVER_VERSIONS|API_SPECIFIC_POPULATE_PARAMS|REQUIRE_CMSID)
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1558] Driver version : 595.79, Snippet expects at least : 537.2
+[2026-04-11 01:03:37] [NGXValidateSnippetMetaData:1585] Snippet version : 310.5.3, Embedded app Id : E658703 (0)
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1329] Feature dlssd failed to load (cmsid 141959980) from cache (location: C:\ProgramData\NVIDIA\NGX\models\dlssd\versions\0\files, name: 160_876232C.bin)
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1329] Feature dlssd failed to load (cmsid 241534723) from cache (location: C:\ProgramData\NVIDIA\NGX\models\dlssd\versions\0\files, name: 160_E658703.bin)
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1445] app 876232C feature dlssd snippet: F:\Projects\GitRepos\dlss-compositor\build\Release/nvngx_dlssd.dll version: 310.5.3
+[2026-04-11 01:03:37] [NGXLoadFeature:1517] Setting show info tip callback for dlssd
+[2026-04-11 01:03:37] [NGXLoadFeature:1527] Setting telemetry callback for dlssd [schema 3.0+]
+[2026-04-11 01:03:37] [NGXLoadFeature:1532] Setting override status callback for dlssd
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_truehdr.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_latewarp.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_vsr.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1166] unable to read the deny list. Assuming that the feature is allowed.
+[2026-04-11 01:03:37] [`anonymous-namespace'::SnippetLocationInfo::load:695] NGXLoadFromPath failed: -1160773628
+[2026-04-11 01:03:37] [NGXSecureLoadFeature:1231] warning: ModuleName - nvngx_fgx.dll doesn't exist in any of the search paths!
+[2026-04-11 01:03:37] [GetSystemInfo:985] Detected Windows Version 10.0.22621.5624
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:302] Sending Telemetry Init Data
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:303] appExeName = dlss-compositor.exe
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:304] drsProfileName = 
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:305] drsName = 
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:307] AppIdType = RENDERING_ENGINE
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:308] ProjectId = 6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:309] EngineVersion = 0.1.0
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:310] EngineType = custom
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:311] cmsId = 0
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:312] featureType = SuperSamplingDenoising
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:313] gpuDeviceId = 11269
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:314] gpuVendorId = 4318
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:315] gpuSubSys = 1393562722
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:316] gpuRev = 161
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:317] ngxSDKVersion = 1.5
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:318] ngxCoreVersion = 1.4.0.0
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:319] ngxFeatureVersion = 310.5.3
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:320] displayDriverVersion = 595.79
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:321] osVersion = 10.0.22621.5624
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:322] APIType = 0
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:323] FeatureInitResult = NvNGXFeatureInitSuccess
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:324] GpuAPI = 3
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:326] StreamlineVersion = 
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:327] StreamlineGitSHA = 
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:328] ExeModuleName = dlss-compositor.exe
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:329] OTAEnabled = 1
+[2026-04-11 01:03:37] [NGXSendTelemetryInitializeData:335] -- END telemetry init data --
+[2026-04-11 01:03:37] [NVSDK_NGX_CreateFeature_Validate:731] app id is 141959980 
+[2026-04-11 01:03:38] [NGXStoreCallToCreateFeature:780] stored create feature dlssd handle 1
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:467] Sending Telemetry: DLSS Eval Data
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:512] QualityMode = 2
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:513] DenoiseMode = 2
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:514] Width = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:515] Height = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:516] OutWidth = 128
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:517] OutHeight = 128
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:518] MVScaleX = 0.015625
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:519] MVScaleY = 0.015625
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:520] FullscreenMode = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:521] AutoExposure = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:522] Sharpness = 0.000000
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:523] WeightName = diamond_wallaby
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:524] WeightVariantName = NONE
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:525] DepthInverted = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:526] MVJittered = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:528] ColorExtentWidth = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:529] ColorExtentHeight = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:530] ColorExtentBaseX = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:531] ColorExtentBaseY = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:532] MVExtentWidth = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:533] MVExtentHeight = 64
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:534] MVExtentBaseX = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:535] MVExtentBaseY = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:536] VRAMAllocated = 6
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:875] appExeName = dlss-compositor.exe
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:876] drsProfileName = 
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:877] drsName = 
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:879] AppIdType = RENDERING_ENGINE
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:880] ProjectId = 6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:881] EngineVersion = 0.1.0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:882] EngineType = custom
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:883] cmsId = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:884] gpuDeviceId = 11269
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:885] gpuVendorId = 4318
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:886] gpuSubSys = 1393562722
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:887] gpuRev = 161
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:888] ngxSDKVersion = 1.5
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:889] ngxCoreVersion = 1.4.0.0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:890] ngxFeatureVersion = 310.5.3
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:891] displayDriverVersion = 595.79
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:892] osVersion = 10.0.22621.5624
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:893] APIType = 0
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:894] GpuAPI = 3
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:896] StreamlineVersion = 
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:897] StreamlineGitSHA = 
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:898] ExeModuleName = dlss-compositor.exe
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:899] SnippetSchemaVer = 4.2
+[2026-04-11 01:03:38] [NGXSendTelemetryEvaluateDataV3:905] -- END telemetry evaluate data --
+[2026-04-11 01:03:38] [NGXStoreCallToReleaseFeature:1714] Stored release feature dlssd handle 1
+[2026-04-11 01:03:38] [NGXSendTelemetryShutdownData:958] Sending Telemetry Shutdown Data

@@ -1,0 +1,2 @@
+[2026-04-11 01:03:37] [ngx::util::setLogFilename:213] Logging to requested file (./nvsdk_ngx.log) enabled successfully
+[2026-04-11 01:03:37] [NGXSafeInitializeLog:141] App logging hooks successfully initialized
