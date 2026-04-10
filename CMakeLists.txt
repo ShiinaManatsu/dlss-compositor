@@ -98,6 +98,7 @@ add_library(dlss_compositor_core STATIC
     src/core/exr_writer.cpp
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
+    src/dlss/dlss_rr_processor.cpp
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pipeline.cpp

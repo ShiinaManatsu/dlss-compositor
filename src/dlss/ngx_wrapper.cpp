@@ -167,7 +167,8 @@ bool NgxContext::createDlssRR(int inputWidth,
     createParams.InTargetWidth = static_cast<unsigned int>(outputWidth);
     createParams.InTargetHeight = static_cast<unsigned int>(outputHeight);
     createParams.InPerfQualityValue = mapQuality(quality);
-    createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_None;
+    createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
+                                        NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
     createParams.InEnableOutputSubrects = false;
 
     NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_CreationNodeMask, 1);

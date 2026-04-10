@@ -66,8 +66,31 @@
 - GPU selected by: discrete GPU + NVIDIA vendor ID (0x10DE) or "NVIDIA" in device name
 - volk-only linking avoids the access violation seen when also linking Vulkan::Vulkan with volk-managed global entry points
 
+## [2026-04-11] Task 9: NGX DLSS-RR Wrapper
+- VulkanContext uses NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements to dynamically query NGX-required device extensions (VK_NVX_image_view_handle, VK_NVX_binary_import, VK_KHR_push_descriptor etc.) — no static list needed
+- NGX init: use NVSDK_NGX_VULKAN_Init_with_ProjectID, pass vkGetInstanceProcAddr + vkGetDeviceProcAddr from volk
+- DLSS-RR availability: check NVSDK_NGX_Parameter_SuperSamplingDenoising_Available (int) via GetCapabilityParameters
+- nvngx_dlssd.dll must be present in the exe directory — it was already there from DLSS SDK lib copy step
+- GPU arch 0x1B0 = RTX 5070 Ti (Blackwell); snippet requires at least 0x160 (Turing) — compatible
+- FeatureInitResult = NvNGXFeatureInitSuccess confirmed on RTX 5070 Ti with driver 595.79
+- createDlssRR uses NVSDK_NGX_VULKAN_CreateFeature1 (not the NGX_VULKAN_CREATE_DLSSD_EXT1 macro) — both work but the direct API call is cleaner
+- NVSDK_NGX_DLSS_Depth_Type_Linear = 0 (linear depth, not hardware depth buffer)
+
 ## [2026-04-11] Task 8: Vulkan Texture Pipeline
 - Used VMA staging buffers with host-access sequential write for uploads and host-access random read for downloads, plus explicit flush/invalidate around mapped transfers.
 - CPU-side float16 packing/unpacking is handled in TexturePipeline for VK_FORMAT_R16G16_SFLOAT and VK_FORMAT_R16G16B16A16_SFLOAT while R32 formats stay float32 end-to-end.
 - Image layout transitions follow UNDEFINED -> TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL for upload and SHADER_READ_ONLY_OPTIMAL -> TRANSFER_SRC_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL for download.
 - CMake added src/gpu/texture_pipeline.cpp to dlss_compositor_core and tests/test_texture_pipeline.cpp to dlss-compositor-tests.
+## [2026-04-11] Task 9: NGX DLSS-RR Wrapper
+- Used NGX libs: Release `${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib`, Debug `${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib`; runtime DLL copied/used: `DLSS/lib/Windows_x86_64/rel/nvngx_dlssd.dll`
+- NGX init worked reliably with `NVSDK_NGX_VULKAN_Init_with_ProjectID` using a GUID-like custom project id and engine type `NVSDK_NGX_ENGINE_TYPE_CUSTOM`; plain app id `0` caused the DLSSD snippet validation to reject init for runtime availability
+- DLSS-RR availability check uses NGX capability params, primarily `SuperSamplingDenoising.Available`/`FeatureInitResult`, and succeeds only after enabling NGX-required Vulkan instance/device extensions before Vulkan instance/device creation
+- Important Vulkan gotcha: query required NGX Vulkan extensions via `NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements` and `NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements` for `NVSDK_NGX_Feature_RayReconstruction`; missing these left NGX failing on Vulkan entry points and reporting DLSS-RR unavailable
+
+## [2026-04-11] Task 10: DLSS-RR Evaluation
+- `DlssRRProcessor` only performs evaluation; DLSS-RR feature creation stays in `NgxContext::createDlssRR()` via `NVSDK_NGX_VULKAN_CreateFeature1`.
+- Single-frame DLSS-RR evaluation succeeded with seven wrapped Vulkan image/view inputs: color, depth, motion vectors, diffuse albedo, specular albedo, normals, roughness, plus a writable output image.
+- For this SDK, `NVSDK_NGX_Resource_VK` image-view resources can be populated directly with `Type = NVSDK_NGX_RESOURCE_VK_TYPE_VK_IMAGEVIEW`, image/view handles, subresource range, format, dimensions, and `ReadWrite`.
+- DLSS-RR feature creation on this machine required both `NVSDK_NGX_DLSS_Feature_Flags_IsHDR` and `NVSDK_NGX_DLSS_Feature_Flags_MVLowRes`; without them NGX creation failed first with `HDR Color required` and then `Low resolution Motion Vectors required`.
+- The processor test passes under `ctest --test-dir build -C Release -R test_dlss_rr_processor --output-on-failure`, and `build/Release/dlss-compositor.exe --test-ngx` still reports `DLSS-RR available: true`.
+- Local verification could not use `lsp_diagnostics` because `clangd` is not installed in the environment.
