@@ -54,14 +54,20 @@
 ## [2026-04-10] Task 6: EXR Fixtures
 - Used pure Python stdlib + numpy to write minimal EXR files (no OpenEXR package needed)
 - Fixture files are committed to git (*.exr not in .gitignore)
-- missing_channels_64x64.exr includes Combined RGBA + Depth Z + Vector XYZW (9 channels — NOT just 5)
+- missing_channels_64x64.exr includes Combined RGBA + Depth Z + Vector XYZW (9 channels ï¿½ NOT just 5)
 - Script also copies fixtures to build/tests/tests/fixtures/ for ctest to find them at relative paths
-- CRITICAL BUG FIXED: channel_mapper.cpp was not populating out.depth (depthChannel pointer was checked but never copied into out.depth vector) — fixed by adding out.depth.assign(depthChannel, depthChannel + pixelCount)
+- CRITICAL BUG FIXED: channel_mapper.cpp was not populating out.depth (depthChannel pointer was checked but never copied into out.depth vector) ï¿½ fixed by adding out.depth.assign(depthChannel, depthChannel + pixelCount)
 - All 24 Catch2 tests now pass with 0 skipped
 ## [2026-04-10] Task 7: Vulkan Bootstrap
-- Use volkInitialize() NOT manual LoadLibraryA — volk manages the loader internally
+- Use volkInitialize() NOT manual LoadLibraryA ï¿½ volk manages the loader internally
 - GLFW must call glfwVulkanSupported() before volkLoadInstance() to ensure Vulkan is present
 - VMA needs VMA_STATIC_VULKAN_FUNCTIONS=0 and VMA_DYNAMIC_VULKAN_FUNCTIONS=1 with explicit VmaVulkanFunctions struct pointing to vkGetInstanceProcAddr/vkGetDeviceProcAddr
 - VkDevice extensions: VK_KHR_swapchain + VK_KHR_maintenance1 (warn if missing, don't fail)
 - GPU selected by: discrete GPU + NVIDIA vendor ID (0x10DE) or "NVIDIA" in device name
 - volk-only linking avoids the access violation seen when also linking Vulkan::Vulkan with volk-managed global entry points
+
+## [2026-04-11] Task 8: Vulkan Texture Pipeline
+- Used VMA staging buffers with host-access sequential write for uploads and host-access random read for downloads, plus explicit flush/invalidate around mapped transfers.
+- CPU-side float16 packing/unpacking is handled in TexturePipeline for VK_FORMAT_R16G16_SFLOAT and VK_FORMAT_R16G16B16A16_SFLOAT while R32 formats stay float32 end-to-end.
+- Image layout transitions follow UNDEFINED -> TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL for upload and SHADER_READ_ONLY_OPTIMAL -> TRANSFER_SRC_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL for download.
+- CMake added src/gpu/texture_pipeline.cpp to dlss_compositor_core and tests/test_texture_pipeline.cpp to dlss-compositor-tests.

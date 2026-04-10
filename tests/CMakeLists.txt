@@ -5,6 +5,7 @@ add_executable(dlss-compositor-tests
     test_channel_mapper.cpp
     test_mv_converter.cpp
     test_cli.cpp
+    test_texture_pipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE

@@ -98,11 +98,14 @@ add_library(dlss_compositor_core STATIC
     src/core/exr_writer.cpp
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
+    src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
+    src/gpu/texture_pipeline.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     src/
+    ${DLSS_SDK_ROOT}/include
     ${tinyexr_SOURCE_DIR}
     ${tinyexr_SOURCE_DIR}/deps/miniz
     ${VulkanMemoryAllocator_SOURCE_DIR}/include
@@ -113,6 +116,8 @@ target_link_libraries(dlss_compositor_core PUBLIC
     miniz
     volk
     glfw
+    $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_s_dbg.lib>
+    $<$<NOT:$<CONFIG:Debug>>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib>
 )
 target_compile_definitions(dlss_compositor_core PRIVATE
     NOMINMAX

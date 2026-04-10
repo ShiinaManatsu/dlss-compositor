@@ -1,0 +1,23 @@
+Task 8 Evidence - Vulkan Texture Pipeline
+Date: 2026-04-11
+
+Build command:
+cmake --build build --config Release
+
+Build result:
+- Release build succeeded
+- Built dlss_compositor_core, dlss-compositor, and dlss-compositor-tests
+- Compiled src/gpu/texture_pipeline.cpp and tests/test_texture_pipeline.cpp successfully
+
+Test command:
+ctest -C Release
+
+Test result:
+- 25/25 tests passed
+- roundtrip_upload_download passed in Release configuration
+- Total reported ctest time: 0.43 sec
+
+Notes:
+- TexturePipeline supports float32 upload/download with CPU-side float16 packing/unpacking for R16G16_SFLOAT and R16G16B16A16_SFLOAT.
+- Changed files validated by successful Release build and test pass.
+- clangd/LSP diagnostics could not be executed in this environment because clangd is not installed.
