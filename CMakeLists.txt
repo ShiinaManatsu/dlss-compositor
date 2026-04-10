@@ -116,8 +116,8 @@ target_link_libraries(dlss_compositor_core PUBLIC
     miniz
     volk
     glfw
-    $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_s_dbg.lib>
-    $<$<NOT:$<CONFIG:Debug>>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib>
+    $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib>
+    $<$<NOT:$<CONFIG:Debug>>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib>
 )
 target_compile_definitions(dlss_compositor_core PRIVATE
     NOMINMAX

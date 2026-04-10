@@ -5,6 +5,8 @@
 #include "gpu/vulkan_context.h"
 
 #include <GLFW/glfw3.h>
+#include <nvsdk_ngx_defs.h>
+#include <nvsdk_ngx_vk.h>
 #include <vk_mem_alloc.h>
 
 #include <algorithm>
@@ -21,6 +23,9 @@ constexpr uint32_t kNvidiaVendorId = 0x10DE;
 constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 constexpr const char* kNoCompatibleGpuMessage =
     "Error: No compatible NVIDIA RTX GPU found. DLSS Ray Reconstruction requires an NVIDIA RTX GPU.";
+constexpr wchar_t kNgxWorkDir[] = L".";
+constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
+constexpr char kNgxEngineVersion[] = "0.1.0";
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -91,6 +96,79 @@ bool hasNamedExtension(const std::vector<VkExtensionProperties>& extensions, con
     return std::any_of(extensions.begin(), extensions.end(), [name](const VkExtensionProperties& extension) {
         return std::strcmp(extension.extensionName, name) == 0;
     });
+}
+
+bool populateNgxFeatureDiscoveryInfo(NVSDK_NGX_FeatureDiscoveryInfo& featureInfo) {
+    featureInfo = {};
+    featureInfo.SDKVersion = NVSDK_NGX_Version_API;
+    featureInfo.FeatureID = NVSDK_NGX_Feature_RayReconstruction;
+    featureInfo.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
+    featureInfo.Identifier.v.ProjectDesc.ProjectId = kNgxProjectId;
+    featureInfo.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
+    featureInfo.Identifier.v.ProjectDesc.EngineVersion = kNgxEngineVersion;
+    featureInfo.ApplicationDataPath = kNgxWorkDir;
+    featureInfo.FeatureInfo = nullptr;
+    return true;
+}
+
+bool addNgxRequiredInstanceExtensions(std::vector<const char*>& enabledExtensions,
+                                      const std::vector<VkExtensionProperties>& availableInstanceExtensions,
+                                      std::string& errorMsg) {
+    NVSDK_NGX_FeatureDiscoveryInfo featureInfo{};
+    populateNgxFeatureDiscoveryInfo(featureInfo);
+
+    uint32_t extensionCount = 0;
+    VkExtensionProperties* extensionProperties = nullptr;
+    const NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(&featureInfo,
+                                                                                              &extensionCount,
+                                                                                              &extensionProperties);
+    if (NVSDK_NGX_FAILED(result)) {
+        errorMsg = "Failed to query required NGX Vulkan instance extensions.";
+        return false;
+    }
+
+    for (uint32_t i = 0; i < extensionCount; ++i) {
+        const char* extensionName = extensionProperties[i].extensionName;
+        if (!hasNamedExtension(availableInstanceExtensions, extensionName)) {
+            errorMsg = std::string("Required NGX Vulkan instance extension is not available: ") + extensionName;
+            return false;
+        }
+        addUniqueExtension(enabledExtensions, extensionName);
+    }
+
+    return true;
+}
+
+bool addNgxRequiredDeviceExtensions(VkInstance instance,
+                                    VkPhysicalDevice physicalDevice,
+                                    std::vector<const char*>& enabledDeviceExtensions,
+                                    const std::vector<VkExtensionProperties>& availableDeviceExtensions,
+                                    std::string& errorMsg) {
+    NVSDK_NGX_FeatureDiscoveryInfo featureInfo{};
+    populateNgxFeatureDiscoveryInfo(featureInfo);
+
+    uint32_t extensionCount = 0;
+    VkExtensionProperties* extensionProperties = nullptr;
+    const NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(instance,
+                                                                                            physicalDevice,
+                                                                                            &featureInfo,
+                                                                                            &extensionCount,
+                                                                                            &extensionProperties);
+    if (NVSDK_NGX_FAILED(result)) {
+        errorMsg = "Failed to query required NGX Vulkan device extensions.";
+        return false;
+    }
+
+    for (uint32_t i = 0; i < extensionCount; ++i) {
+        const char* extensionName = extensionProperties[i].extensionName;
+        if (!hasNamedExtension(availableDeviceExtensions, extensionName)) {
+            errorMsg = std::string("Required NGX Vulkan device extension is not available: ") + extensionName;
+            return false;
+        }
+        addUniqueExtension(enabledDeviceExtensions, extensionName);
+    }
+
+    return true;
 }
 
 bool queryQueueFamilyIndices(VkPhysicalDevice physicalDevice,
@@ -239,6 +317,11 @@ bool VulkanContext::init(std::string& errorMsg) {
         return false;
     }
 
+    if (!addNgxRequiredInstanceExtensions(enabledExtensions, availableInstanceExtensions, errorMsg)) {
+        destroy();
+        return false;
+    }
+
 #ifndef NDEBUG
     std::vector<const char*> enabledLayers;
     if (hasNamedLayer(availableLayers, kValidationLayerName)) {
@@ -373,6 +456,15 @@ bool VulkanContext::init(std::string& errorMsg) {
         } else {
             std::fprintf(stderr, "Warning: Vulkan device extension not available: %s\n", extensionName);
         }
+    }
+
+    if (!addNgxRequiredDeviceExtensions(m_instance,
+                                        m_physicalDevice,
+                                        enabledDeviceExtensions,
+                                        availableDeviceExtensions,
+                                        errorMsg)) {
+        destroy();
+        return false;
     }
 
     const float queuePriority = 1.0f;

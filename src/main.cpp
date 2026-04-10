@@ -3,6 +3,7 @@
 
 #include "cli/cli_parser.h"
 #include "cli/config.h"
+#include "dlss/ngx_wrapper.h"
 #include "gpu/vulkan_context.h"
 
 int main(int argc, char* argv[]) {
@@ -35,8 +36,34 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     if (config.testNgx) {
-        printf("--test-ngx: NGX support not yet implemented (placeholder)\n");
-        return 0;
+        VulkanContext context;
+        if (!context.init(errorMsg)) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            return 1;
+        }
+
+        NgxContext ngx;
+        if (!ngx.init(context.instance(),
+                      context.physicalDevice(),
+                      context.device(),
+                      nullptr,
+                      errorMsg)) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            context.destroy();
+            return 1;
+        }
+
+        if (ngx.isDlssRRAvailable()) {
+            printf("DLSS-RR available: true\n");
+            ngx.shutdown();
+            context.destroy();
+            return 0;
+        }
+
+        fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
+        ngx.shutdown();
+        context.destroy();
+        return 1;
     }
 
     printf("dlss-compositor: no action specified. Use --help for usage.\n");
