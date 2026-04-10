@@ -8,6 +8,7 @@ add_executable(dlss-compositor-tests
     test_texture_pipeline.cpp
     test_dlss_rr_processor.cpp
     test_sequence_processor.cpp
+    test_integration.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
@@ -29,6 +30,8 @@ add_test(NAME test_dlss_rr_processor COMMAND dlss-compositor-tests "dlss_rr_sing
 set_tests_properties(test_dlss_rr_processor PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME test_sequence_processor COMMAND dlss-compositor-tests "[sequence]")
 set_tests_properties(test_sequence_processor PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME integration COMMAND dlss-compositor-tests "[integration]")
+set_tests_properties(integration PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 if(MSVC)
     file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")

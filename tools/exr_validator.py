@@ -33,6 +33,8 @@ OPTIONAL_CHANNELS = {
     "Roughness.X",
 }
 
+OUTPUT_CHANNELS = {"R", "G", "B", "A"}
+
 
 def _load_openexr():
     try:
@@ -93,6 +95,16 @@ def _validate_single_file(path: Path, strict: bool) -> bool:
         print(f"Channels: {', '.join(channel_names) if channel_names else '(none)'}")
         if expected_width is not None and expected_height is not None:
             print(f"Resolution: {expected_width}x{expected_height}")
+
+        if OUTPUT_CHANNELS.issubset(set(channel_names)):
+            print("PASS output RGBA channels: processed output detected")
+            if expected_width is not None and expected_height is not None:
+                if expected_width <= 0 or expected_height <= 0:
+                    print("FAIL: invalid resolution in dataWindow")
+                    return False
+                print("PASS resolution check")
+            print("PASS: Processed output EXR is valid")
+            return True
 
         required_ok = True
         missing: list[str] = []
