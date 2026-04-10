@@ -46,3 +46,22 @@
 - Blender Vector pass channels 0/1 map directly to DLSS-RR motion vectors after negation; channels 2/3 are ignored.
 - DLSS scale factors should be derived from render dimensions as 1/width and 1/height.
 - Catch2's Approx helper was avoided in favor of std::fabs comparisons for compatibility with the current include setup.
+
+## Task 5 Learnings
+- CLI parsing is simplest as a hand-rolled loop with a small helper for optional `--encode-video` filenames.
+- Tests in `tests/` need direct relative includes for new `src/cli` headers unless the test target adds that directory explicitly.
+
+## [2026-04-10] Task 6: EXR Fixtures
+- Used pure Python stdlib + numpy to write minimal EXR files (no OpenEXR package needed)
+- Fixture files are committed to git (*.exr not in .gitignore)
+- missing_channels_64x64.exr includes Combined RGBA + Depth Z + Vector XYZW (9 channels — NOT just 5)
+- Script also copies fixtures to build/tests/tests/fixtures/ for ctest to find them at relative paths
+- CRITICAL BUG FIXED: channel_mapper.cpp was not populating out.depth (depthChannel pointer was checked but never copied into out.depth vector) — fixed by adding out.depth.assign(depthChannel, depthChannel + pixelCount)
+- All 24 Catch2 tests now pass with 0 skipped
+## [2026-04-10] Task 7: Vulkan Bootstrap
+- Use volkInitialize() NOT manual LoadLibraryA — volk manages the loader internally
+- GLFW must call glfwVulkanSupported() before volkLoadInstance() to ensure Vulkan is present
+- VMA needs VMA_STATIC_VULKAN_FUNCTIONS=0 and VMA_DYNAMIC_VULKAN_FUNCTIONS=1 with explicit VmaVulkanFunctions struct pointing to vkGetInstanceProcAddr/vkGetDeviceProcAddr
+- VkDevice extensions: VK_KHR_swapchain + VK_KHR_maintenance1 (warn if missing, don't fail)
+- GPU selected by: discrete GPU + NVIDIA vendor ID (0x10DE) or "NVIDIA" in device name
+- volk-only linking avoids the access violation seen when also linking Vulkan::Vulkan with volk-managed global entry points

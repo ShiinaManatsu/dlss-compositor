@@ -89,7 +89,7 @@ target_include_directories(imgui_lib PUBLIC
     ${imgui_SOURCE_DIR}/backends
     ${Vulkan_INCLUDE_DIRS}
 )
-target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan volk glfw)
+target_link_libraries(imgui_lib PUBLIC volk glfw)
 target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 
 # Core CPU image IO helpers
@@ -98,14 +98,26 @@ add_library(dlss_compositor_core STATIC
     src/core/exr_writer.cpp
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
+    src/gpu/vulkan_context.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     src/
     ${tinyexr_SOURCE_DIR}
     ${tinyexr_SOURCE_DIR}/deps/miniz
+    ${VulkanMemoryAllocator_SOURCE_DIR}/include
+    ${vulkanmemoryallocator_SOURCE_DIR}/include
 )
-target_link_libraries(dlss_compositor_core PUBLIC tinyexr miniz)
+target_link_libraries(dlss_compositor_core PUBLIC
+    tinyexr
+    miniz
+    volk
+    glfw
+)
+target_compile_definitions(dlss_compositor_core PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
 
 # Main executable
 add_executable(dlss-compositor src/main.cpp)
@@ -118,9 +130,9 @@ target_include_directories(dlss-compositor PRIVATE
     ${tinyexr_SOURCE_DIR}
     ${tinyexr_SOURCE_DIR}/deps/miniz
     ${VulkanMemoryAllocator_SOURCE_DIR}/include
+    ${vulkanmemoryallocator_SOURCE_DIR}/include
 )
 target_link_libraries(dlss-compositor PRIVATE
-    Vulkan::Vulkan
     volk
     imgui_lib
     glfw
