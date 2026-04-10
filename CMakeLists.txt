@@ -92,12 +92,25 @@ target_include_directories(imgui_lib PUBLIC
 target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan volk glfw)
 target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 
+# Core CPU image IO helpers
+add_library(dlss_compositor_core STATIC
+    src/core/exr_reader.cpp
+    src/core/exr_writer.cpp
+)
+target_include_directories(dlss_compositor_core PUBLIC
+    src/
+    ${tinyexr_SOURCE_DIR}
+    ${tinyexr_SOURCE_DIR}/deps/miniz
+)
+target_link_libraries(dlss_compositor_core PUBLIC tinyexr miniz)
+
 # Main executable
 add_executable(dlss-compositor src/main.cpp)
 target_include_directories(dlss-compositor PRIVATE
     src/
     ${DLSS_SDK_ROOT}/include
     ${tinyexr_SOURCE_DIR}
+    ${tinyexr_SOURCE_DIR}/deps/miniz
     ${VulkanMemoryAllocator_SOURCE_DIR}/include
 )
 target_link_libraries(dlss-compositor PRIVATE
@@ -105,6 +118,7 @@ target_link_libraries(dlss-compositor PRIVATE
     volk
     imgui_lib
     glfw
+    dlss_compositor_core
 )
 target_compile_definitions(dlss-compositor PRIVATE
     NOMINMAX
