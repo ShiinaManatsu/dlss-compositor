@@ -30,6 +30,8 @@ public:
     bool hasProcessingError() const;
     const std::string& statusMessage() const;
 
+    int currentViewFrame() const;
+
     // For --test-process: trigger processing immediately without user clicking
     void triggerProcessing();
 
@@ -48,6 +50,7 @@ private:
 
     std::atomic<int> m_currentFrame{0};
     std::atomic<int> m_totalFrames{0};
+    int m_currentViewFrame = 0;
     std::thread m_workerThread;
 
     // Input fields (char buffers for ImGui::InputText)

@@ -121,6 +121,9 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         file_output.format.color_depth = "32"
         file_output.format.exr_codec = "ZIP"
 
+        if scene.dlsscomp_output_dir:
+            file_output.base_path = scene.dlsscomp_output_dir
+
         # Connect render layer passes to file output inputs
         pass_names = [
             "Image",  # Combined
@@ -176,6 +179,8 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
         layout = self.layout
         vl = context.view_layer
 
+        layout.prop(context.scene, "dlsscomp_output_dir", text="Output Directory")
+
         layout.operator(
             DLSSCOMP_OT_configure_passes.bl_idname,
             text="Configure All Passes",
@@ -225,6 +230,9 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
 
 
 def register():
+    bpy.types.Scene.dlsscomp_output_dir = bpy.props.StringProperty(
+        name="Output Directory", subtype="DIR_PATH", default=""
+    )
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.register_class(DLSSCOMP_PT_export_panel)
 
@@ -232,6 +240,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(DLSSCOMP_PT_export_panel)
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
+    del bpy.types.Scene.dlsscomp_output_dir
 
 
 # ---------------------------------------------------------------------------

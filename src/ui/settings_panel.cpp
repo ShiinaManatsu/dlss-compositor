@@ -68,6 +68,36 @@ void SettingsPanel::render() {
         currentMsg = m_statusMsg;
     }
     ImGui::Text("Status: %s", currentMsg.c_str());
+
+    if (ImGui::TreeNodeEx("Channel Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Color    -> RenderLayer.Combined.{R,G,B,A}");
+        ImGui::Text("Depth    -> RenderLayer.Depth.Z");
+        ImGui::Text("MV       -> RenderLayer.Vector.{X,Y,Z,W}");
+        ImGui::Text("Normal   -> RenderLayer.Normal.{X,Y,Z}");
+        ImGui::Text("DiffAlbedo -> RenderLayer.DiffCol.{R,G,B}");
+        ImGui::Text("SpecAlbedo -> RenderLayer.GlossCol.{R,G,B}");
+        ImGui::Text("Roughness  -> RenderLayer.Roughness.X");
+        ImGui::TreePop();
+    }
+
+    ImGui::Separator();
+    bool canNavigate = isProcessingComplete();
+    ImGui::BeginDisabled(!canNavigate);
+    if (ImGui::Button("< Prev")) {
+        m_currentViewFrame = std::max(0, m_currentViewFrame - 1);
+    }
+    ImGui::SameLine();
+    int total_frames = m_totalFrames.load();
+    ImGui::Text("Frame %d / %d", total_frames > 0 ? m_currentViewFrame : 0, total_frames > 0 ? total_frames - 1 : 0);
+    ImGui::SameLine();
+    if (ImGui::Button("Next >")) {
+        m_currentViewFrame = std::min(std::max(0, total_frames - 1), m_currentViewFrame + 1);
+    }
+    ImGui::EndDisabled();
+}
+
+int SettingsPanel::currentViewFrame() const {
+    return m_currentViewFrame;
 }
 
 bool SettingsPanel::isProcessingComplete() const {
