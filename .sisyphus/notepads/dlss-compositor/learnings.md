@@ -124,3 +124,10 @@
  -   C r e a t e d   d o c s / u s a g e _ g u i d e . m d   w i t h   B l e n d e r   a n d   C L I   i n s t r u c t i o n s . 
  -   C r e a t e d   d o c s / d l s s _ i n p u t _ s p e c . m d   w i t h   t e c h n i c a l   d e t a i l s   o n   E X R   c h a n n e l s   a n d   m o t i o n   v e c t o r   c o n v e r s i o n .  
  
+
+## [2026-04-11] Task 15: Blender AOV Export Preset
+- Script is a proper Blender add-on (bl_info targeting Blender 4.2+) with operator + panel + headless --test mode.
+- Operator enables 6 built-in passes and creates a custom Roughness AOV (type VALUE), then wires Principled BSDF Roughness output to AOV Output node per material.
+- Compositor setup: OPEN_EXR_MULTILAYER, 32-bit color depth, ZIP codec; connects render layer outputs to file output slots.
+- Headless test detects --test after -- separator in sys.argv; prints the expected pass list and exits 0/1.
+- Blender is not on PATH in the dev environment; verification used ast.parse() syntax check + 21-point logic coverage script.
