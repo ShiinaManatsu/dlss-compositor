@@ -97,6 +97,7 @@ add_library(dlss_compositor_core STATIC
     src/core/exr_reader.cpp
     src/core/exr_writer.cpp
     src/core/channel_mapper.cpp
+    src/core/mv_converter.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
