@@ -3,6 +3,7 @@
 
 #include "cli/cli_parser.h"
 #include "cli/config.h"
+#include "gpu/vulkan_context.h"
 
 int main(int argc, char* argv[]) {
     AppConfig config;
@@ -20,6 +21,17 @@ int main(int argc, char* argv[]) {
     }
     if (config.showVersion) {
         CliParser::printVersion();
+        return 0;
+    }
+    if (config.testVulkan) {
+        VulkanContext context;
+        if (!context.init(errorMsg)) {
+            fprintf(stderr, "%s\n", errorMsg.c_str());
+            return 1;
+        }
+
+        printf("Vulkan initialized: %s\n", context.gpuName().c_str());
+        context.destroy();
         return 0;
     }
     if (config.testNgx) {

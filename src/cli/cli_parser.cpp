@@ -73,6 +73,10 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.testNgx = true;
             continue;
         }
+        if (std::strcmp(arg, "--test-vulkan") == 0) {
+            config.testVulkan = true;
+            continue;
+        }
         if (std::strcmp(arg, "--gui") == 0) {
             config.launchGui = true;
             continue;
@@ -181,6 +185,7 @@ void CliParser::printHelp() {
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
+    std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --gui                  Launch ImGui viewer\n");
     std::printf("  --test-gui             Non-interactive GUI smoke test\n");
     std::printf("  --test-load <exr>      Load an EXR file for GUI smoke test\n");

@@ -24,6 +24,7 @@ struct AppConfig {
     int fps = 24;
 
     bool testNgx = false;
+    bool testVulkan = false;
     bool testGui = false;
     std::string testGuiLoad;
     bool testGuiProcess = false;
