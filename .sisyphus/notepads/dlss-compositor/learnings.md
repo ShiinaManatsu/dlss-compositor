@@ -111,3 +111,16 @@
 - ImGui uses ImGui_ImplVulkan_AddTexture to display Vulkan images, requiring VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL and a sampler.
 - Integrated VMA initialization in the main App and passed a compute VulkanContext and TexturePipeline from main.cpp to the GUI.
 - Added --test-load CLI flag to automatically load a file during the automated smoke test.
+
+## [2026-04-11] Task 16: Python EXR Validator
+- OpenEXR Python package is available after installing requirements; fixture inspection shows Blender-style channel names prefixed with `RenderLayer.`.
+- `reference_64x64.exr` and `sequence/frame_0001.exr` contain Combined RGBA, Depth Z, Vector XYZW, Normal XYZ, DiffCol RGB, GlossCol RGB, and Roughness X.
+- `missing_channels_64x64.exr` contains Combined RGBA + Depth Z + Vector XYZW only; it is missing Normal, DiffCol, GlossCol, and Roughness channels.
+- The validator matches Blender channel suffixes, and `python -m pytest` is the reliable local test entrypoint when `pytest.exe` is absent from PATH.
+
+ # #   [ 2 0 2 6 - 0 4 - 1 1 ]   T a s k   1 7 :   D o c u m e n t a t i o n 
+ -   C r e a t e d   R E A D M E . m d   w i t h   p r o j e c t   o v e r v i e w   a n d   q u i c k   s t a r t . 
+ -   C r e a t e d   d o c s / b u i l d _ g u i d e . m d   w i t h   V S 2 0 2 2 / C M a k e   b u i l d   s t e p s . 
+ -   C r e a t e d   d o c s / u s a g e _ g u i d e . m d   w i t h   B l e n d e r   a n d   C L I   i n s t r u c t i o n s . 
+ -   C r e a t e d   d o c s / d l s s _ i n p u t _ s p e c . m d   w i t h   t e c h n i c a l   d e t a i l s   o n   E X R   c h a n n e l s   a n d   m o t i o n   v e c t o r   c o n v e r s i o n .  
+ 
