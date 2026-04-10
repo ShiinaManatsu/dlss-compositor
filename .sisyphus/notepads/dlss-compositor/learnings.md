@@ -41,3 +41,8 @@
 - Channel mapping is CPU-only and should fail fast on missing required Blender channels: Combined RGBA, Depth, and all 4 motion-vector channels.
 - Optional DLSS-RR inputs should be materialized with defaults: diffuse white, specular black, normals +Z, roughness 0.5.
 - Catch2 fixture tests are safe to skip locally when EXRs are absent; keep default behavior covered by the non-fixture unit test.
+
+## Task 4 Learnings
+- Blender Vector pass channels 0/1 map directly to DLSS-RR motion vectors after negation; channels 2/3 are ignored.
+- DLSS scale factors should be derived from render dimensions as 1/width and 1/height.
+- Catch2's Approx helper was avoided in favor of std::fabs comparisons for compatibility with the current include setup.
