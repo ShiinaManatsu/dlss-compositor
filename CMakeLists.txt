@@ -109,6 +109,9 @@ target_link_libraries(dlss_compositor_core PUBLIC tinyexr miniz)
 
 # Main executable
 add_executable(dlss-compositor src/main.cpp)
+target_sources(dlss-compositor PRIVATE
+    src/cli/cli_parser.cpp
+)
 target_include_directories(dlss-compositor PRIVATE
     src/
     ${DLSS_SDK_ROOT}/include

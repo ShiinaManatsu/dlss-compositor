@@ -4,6 +4,8 @@ add_executable(dlss-compositor-tests
     test_exr_reader.cpp
     test_channel_mapper.cpp
     test_mv_converter.cpp
+    test_cli.cpp
+    ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
     Catch2::Catch2WithMain
@@ -12,6 +14,7 @@ target_link_libraries(dlss-compositor-tests PRIVATE
 target_include_directories(dlss-compositor-tests PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/cli
     ${CMAKE_SOURCE_DIR}/src/core
     ${tinyexr_SOURCE_DIR}
     ${tinyexr_SOURCE_DIR}/deps/miniz

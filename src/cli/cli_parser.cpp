@@ -1,0 +1,194 @@
+#include "cli/cli_parser.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+namespace {
+
+bool isFlag(const char* arg) {
+    return arg != nullptr && std::strncmp(arg, "--", 2) == 0;
+}
+
+bool parseInt(const char* value, int& out) {
+    if (value == nullptr || *value == '\0') {
+        return false;
+    }
+
+    char* end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (end == value || *end != '\0') {
+        return false;
+    }
+    out = static_cast<int>(parsed);
+    return true;
+}
+
+bool parseQuality(const char* value, DlssQualityMode& out) {
+    if (std::strcmp(value, "MaxQuality") == 0) {
+        out = DlssQualityMode::MaxQuality;
+        return true;
+    }
+    if (std::strcmp(value, "Balanced") == 0) {
+        out = DlssQualityMode::Balanced;
+        return true;
+    }
+    if (std::strcmp(value, "Performance") == 0) {
+        out = DlssQualityMode::Performance;
+        return true;
+    }
+    if (std::strcmp(value, "UltraPerformance") == 0) {
+        out = DlssQualityMode::UltraPerformance;
+        return true;
+    }
+    return false;
+}
+
+const char* qualityToString(DlssQualityMode mode) {
+    switch (mode) {
+    case DlssQualityMode::MaxQuality: return "MaxQuality";
+    case DlssQualityMode::Balanced: return "Balanced";
+    case DlssQualityMode::Performance: return "Performance";
+    case DlssQualityMode::UltraPerformance: return "UltraPerformance";
+    }
+    return "Balanced";
+}
+
+} // namespace
+
+bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& errorMsg) {
+    for (int i = 1; i < argc; ++i) {
+        const char* arg = argv[i];
+
+        if (std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0) {
+            config.showHelp = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--version") == 0) {
+            config.showVersion = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--test-ngx") == 0) {
+            config.testNgx = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--gui") == 0) {
+            config.launchGui = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--test-gui") == 0) {
+            config.testGui = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--test-process") == 0) {
+            config.testGuiProcess = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--input-dir") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--input-dir requires a value";
+                return false;
+            }
+            config.inputDir = argv[++i];
+            continue;
+        }
+        if (std::strcmp(arg, "--output-dir") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--output-dir requires a value";
+                return false;
+            }
+            config.outputDir = argv[++i];
+            continue;
+        }
+        if (std::strcmp(arg, "--scale") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--scale requires a value";
+                return false;
+            }
+            int scale = 0;
+            if (!parseInt(argv[++i], scale) || (scale != 2 && scale != 3 && scale != 4)) {
+                errorMsg = "--scale must be 2, 3, or 4";
+                return false;
+            }
+            config.scaleFactor = scale;
+            continue;
+        }
+        if (std::strcmp(arg, "--quality") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--quality requires a value";
+                return false;
+            }
+            if (!parseQuality(argv[++i], config.quality)) {
+                errorMsg = "--quality must be one of: MaxQuality, Balanced, Performance, UltraPerformance";
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--channel-map") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--channel-map requires a value";
+                return false;
+            }
+            config.channelMapFile = argv[++i];
+            continue;
+        }
+        if (std::strcmp(arg, "--test-load") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--test-load requires a value";
+                return false;
+            }
+            config.testGuiLoad = argv[++i];
+            continue;
+        }
+        if (std::strcmp(arg, "--fps") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--fps requires a value";
+                return false;
+            }
+            int fps = 0;
+            if (!parseInt(argv[++i], fps)) {
+                errorMsg = "--fps must be an integer";
+                return false;
+            }
+            config.fps = fps;
+            continue;
+        }
+        if (std::strcmp(arg, "--encode-video") == 0) {
+            config.encodeVideo = true;
+            if (i + 1 < argc && !isFlag(argv[i + 1])) {
+                config.videoOutputFile = argv[++i];
+            }
+            continue;
+        }
+
+        errorMsg = std::string("unknown argument: ") + arg;
+        return false;
+    }
+
+    return true;
+}
+
+void CliParser::printHelp() {
+    std::printf("dlss-compositor v0.1.0\n");
+    std::printf("Usage: dlss-compositor [options]\n");
+    std::printf("Options:\n");
+    std::printf("  --input-dir <dir>      Input EXR sequence directory\n");
+    std::printf("  --output-dir <dir>     Output EXR sequence directory\n");
+    std::printf("  --scale <factor>       Upscale factor (2, 3, or 4)\n");
+    std::printf("  --quality <mode>       DLSS quality mode (MaxQuality|Balanced|Performance|UltraPerformance)\n");
+    std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
+    std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
+    std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
+    std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
+    std::printf("  --gui                  Launch ImGui viewer\n");
+    std::printf("  --test-gui             Non-interactive GUI smoke test\n");
+    std::printf("  --test-load <exr>      Load an EXR file for GUI smoke test\n");
+    std::printf("  --test-process         Process via GUI test path\n");
+    std::printf("  --help, -h             Show this help\n");
+    std::printf("  --version              Show version\n");
+}
+
+void CliParser::printVersion() {
+    std::printf("dlss-compositor 0.1.0\n");
+}
