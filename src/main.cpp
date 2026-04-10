@@ -7,6 +7,7 @@
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
 #include "pipeline/sequence_processor.h"
+#include "ui/app.h"
 
 int main(int argc, char* argv[]) {
     AppConfig config;
@@ -66,6 +67,15 @@ int main(int argc, char* argv[]) {
         ngx.shutdown();
         context.destroy();
         return 1;
+    }
+
+    if (config.testGui || config.launchGui) {
+        App app;
+        if (!app.run(config.testGui, errorMsg)) {
+            fprintf(stderr, "GUI Error: %s\n", errorMsg.c_str());
+            return 1;
+        }
+        return 0;
     }
 
     if (!config.inputDir.empty() || !config.outputDir.empty()) {

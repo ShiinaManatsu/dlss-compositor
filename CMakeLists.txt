@@ -130,6 +130,7 @@ target_compile_definitions(dlss_compositor_core PRIVATE
 add_executable(dlss-compositor src/main.cpp)
 target_sources(dlss-compositor PRIVATE
     src/cli/cli_parser.cpp
+    src/ui/app.cpp
 )
 target_include_directories(dlss-compositor PRIVATE
     src/
