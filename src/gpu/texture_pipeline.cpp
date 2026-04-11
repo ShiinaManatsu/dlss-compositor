@@ -6,6 +6,7 @@
 
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 namespace {
 
@@ -223,6 +224,189 @@ TextureHandle TexturePipeline::upload(const float* data, int width, int height, 
         }
         if (stagingBuffer != VK_NULL_HANDLE || stagingAllocation != nullptr) {
             vmaDestroyBuffer(m_ctx.allocator(), stagingBuffer, stagingAllocation);
+        }
+        throw;
+    }
+}
+
+std::vector<TextureHandle> TexturePipeline::uploadBatch(const std::vector<TextureUploadRequest>& requests) {
+    if (requests.empty()) {
+        return {};
+    }
+
+    std::vector<std::pair<VkBuffer, VmaAllocation>> stagingBuffers;
+    std::vector<TextureHandle> handles;
+    stagingBuffers.reserve(requests.size());
+    handles.reserve(requests.size());
+
+    VkBuffer stagingBuffer = VK_NULL_HANDLE;
+    VmaAllocation stagingAllocation = nullptr;
+    void* mappedData = nullptr;
+    TextureHandle handle{};
+    VkCommandBuffer cmdBuf = VK_NULL_HANDLE;
+
+    try {
+        for (const TextureUploadRequest& req : requests) {
+            validateTextureArgs(req.data, req.width, req.height, req.channels, req.format);
+
+            const VkDeviceSize imageSize = static_cast<VkDeviceSize>(req.width) * static_cast<VkDeviceSize>(req.height) *
+                                           static_cast<VkDeviceSize>(bytesPerPixel(req.format));
+
+            VkBufferCreateInfo bufferCreateInfo{};
+            bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferCreateInfo.size = imageSize;
+            bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            VmaAllocationCreateInfo stagingAllocationCreateInfo{};
+            stagingAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+            stagingAllocationCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+            checkVmaResult(vmaCreateBuffer(m_ctx.allocator(),
+                                           &bufferCreateInfo,
+                                           &stagingAllocationCreateInfo,
+                                           &stagingBuffer,
+                                           &stagingAllocation,
+                                           nullptr),
+                           "Failed to create upload staging buffer.");
+
+            checkVmaResult(vmaMapMemory(m_ctx.allocator(), stagingAllocation, &mappedData),
+                           "Failed to map upload staging buffer.");
+
+            const size_t sampleCount = static_cast<size_t>(req.width) * static_cast<size_t>(req.height) *
+                                       static_cast<size_t>(req.channels);
+            if (isHalfFormat(req.format)) {
+                auto* dst = static_cast<uint16_t*>(mappedData);
+                for (size_t i = 0; i < sampleCount; ++i) {
+                    dst[i] = floatToHalf(req.data[i]);
+                }
+            } else {
+                std::memcpy(mappedData, req.data, static_cast<size_t>(imageSize));
+            }
+            checkVmaResult(vmaFlushAllocation(m_ctx.allocator(), stagingAllocation, 0, imageSize),
+                           "Failed to flush upload staging buffer.");
+            vmaUnmapMemory(m_ctx.allocator(), stagingAllocation);
+            mappedData = nullptr;
+
+            handle.format = req.format;
+            handle.width = req.width;
+            handle.height = req.height;
+            handle.channels = req.channels;
+
+            VkImageCreateInfo imageCreateInfo{};
+            imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageCreateInfo.extent = {static_cast<uint32_t>(req.width), static_cast<uint32_t>(req.height), 1};
+            imageCreateInfo.mipLevels = 1;
+            imageCreateInfo.arrayLayers = 1;
+            imageCreateInfo.format = req.format;
+            imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageCreateInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                    VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+            imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            VmaAllocationCreateInfo imageAllocationCreateInfo{};
+            imageAllocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+            checkVmaResult(vmaCreateImage(m_ctx.allocator(),
+                                          &imageCreateInfo,
+                                          &imageAllocationCreateInfo,
+                                          &handle.image,
+                                          &handle.allocation,
+                                          nullptr),
+                           "Failed to create GPU texture image.");
+
+            VkImageViewCreateInfo imageViewCreateInfo{};
+            imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            imageViewCreateInfo.image = handle.image;
+            imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            imageViewCreateInfo.format = req.format;
+            imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageViewCreateInfo.subresourceRange.baseMipLevel = 0;
+            imageViewCreateInfo.subresourceRange.levelCount = 1;
+            imageViewCreateInfo.subresourceRange.baseArrayLayer = 0;
+            imageViewCreateInfo.subresourceRange.layerCount = 1;
+
+            checkVkResult(vkCreateImageView(m_ctx.device(), &imageViewCreateInfo, nullptr, &handle.view),
+                          "Failed to create GPU texture image view.");
+
+            stagingBuffers.push_back(std::make_pair(stagingBuffer, stagingAllocation));
+            handles.push_back(handle);
+
+            stagingBuffer = VK_NULL_HANDLE;
+            stagingAllocation = nullptr;
+            handle = {};
+        }
+
+        cmdBuf = beginOneTimeCommands();
+        for (size_t i = 0; i < requests.size(); ++i) {
+            const TextureUploadRequest& req = requests[i];
+            const TextureHandle& batchHandle = handles[i];
+            const VkBuffer batchStagingBuffer = stagingBuffers[i].first;
+
+            transitionImageLayout(cmdBuf,
+                                  batchHandle.image,
+                                  VK_IMAGE_LAYOUT_UNDEFINED,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            VkBufferImageCopy copyRegion{};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.imageSubresource.mipLevel = 0;
+            copyRegion.imageSubresource.baseArrayLayer = 0;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageOffset = {0, 0, 0};
+            copyRegion.imageExtent = {static_cast<uint32_t>(req.width), static_cast<uint32_t>(req.height), 1};
+
+            vkCmdCopyBufferToImage(cmdBuf,
+                                   batchStagingBuffer,
+                                   batchHandle.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   1,
+                                   &copyRegion);
+
+            transitionImageLayout(cmdBuf,
+                                  batchHandle.image,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        endOneTimeCommands(cmdBuf);
+        cmdBuf = VK_NULL_HANDLE;
+
+        for (const std::pair<VkBuffer, VmaAllocation>& staging : stagingBuffers) {
+            vmaDestroyBuffer(m_ctx.allocator(), staging.first, staging.second);
+        }
+        return handles;
+    } catch (...) {
+        if (mappedData != nullptr) {
+            vmaUnmapMemory(m_ctx.allocator(), stagingAllocation);
+        }
+        if (cmdBuf != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &cmdBuf);
+        }
+        if (handle.view != VK_NULL_HANDLE) {
+            vkDestroyImageView(m_ctx.device(), handle.view, nullptr);
+        }
+        if (handle.image != VK_NULL_HANDLE || handle.allocation != nullptr) {
+            vmaDestroyImage(m_ctx.allocator(), handle.image, handle.allocation);
+        }
+        if (stagingBuffer != VK_NULL_HANDLE || stagingAllocation != nullptr) {
+            vmaDestroyBuffer(m_ctx.allocator(), stagingBuffer, stagingAllocation);
+        }
+        for (TextureHandle& createdHandle : handles) {
+            if (createdHandle.view != VK_NULL_HANDLE) {
+                vkDestroyImageView(m_ctx.device(), createdHandle.view, nullptr);
+            }
+            if (createdHandle.image != VK_NULL_HANDLE || createdHandle.allocation != nullptr) {
+                vmaDestroyImage(m_ctx.allocator(), createdHandle.image, createdHandle.allocation);
+            }
+        }
+        for (const std::pair<VkBuffer, VmaAllocation>& staging : stagingBuffers) {
+            vmaDestroyBuffer(m_ctx.allocator(), staging.first, staging.second);
         }
         throw;
     }

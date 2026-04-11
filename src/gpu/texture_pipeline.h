@@ -22,6 +22,14 @@ struct TextureHandle {
     int channels = 0;
 };
 
+struct TextureUploadRequest {
+    const float* data;
+    int width;
+    int height;
+    int channels;
+    VkFormat format;
+};
+
 class VulkanContext;
 
 class TexturePipeline {
@@ -32,6 +40,7 @@ public:
     TextureHandle upload(const float* data, int width, int height, int channels, VkFormat format);
     std::vector<float> download(const TextureHandle& handle);
     void destroy(TextureHandle& handle);
+    std::vector<TextureHandle> uploadBatch(const std::vector<TextureUploadRequest>& requests);
 
 private:
     VulkanContext& m_ctx;
