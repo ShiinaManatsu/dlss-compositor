@@ -7,6 +7,7 @@
 #include "gpu/vulkan_context.h"
 #include "pipeline/sequence_processor.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 
@@ -114,6 +115,7 @@ TEST_CASE("dlss_fg_e2e_interpolation", "[integration][fg]") {
         REQUIRE(result == true);
 
         REQUIRE(std::filesystem::exists(config.outputDir));
+        // 5 input frames × 2x interpolation: 5 originals + 4 interpolated = 9 outputs
         REQUIRE(countExrFiles(config.outputDir) == 9);
 
         const std::filesystem::path firstOutput = std::filesystem::path(config.outputDir) / "frame_0001.exr";
@@ -123,6 +125,24 @@ TEST_CASE("dlss_fg_e2e_interpolation", "[integration][fg]") {
         REQUIRE(reader.open(firstOutput.string(), errorMsg));
         REQUIRE(reader.width() == 64);
         REQUIRE(reader.height() == 64);
+
+        const std::filesystem::path interpOutput = std::filesystem::path(config.outputDir) / "frame_0002.exr";
+        REQUIRE(std::filesystem::exists(interpOutput));
+
+        ExrReader interpReader;
+        REQUIRE(interpReader.open(interpOutput.string(), errorMsg));
+        REQUIRE(interpReader.width() == 64);
+        REQUIRE(interpReader.height() == 64);
+
+        const float* interpPixels = interpReader.readChannel("R");
+        REQUIRE(interpPixels != nullptr);
+
+        float maxPixel = 0.0f;
+        const int pixelCount = interpReader.width() * interpReader.height();
+        for (int i = 0; i < pixelCount; ++i) {
+            maxPixel = std::max(maxPixel, interpPixels[i]);
+        }
+        REQUIRE(maxPixel > 1.0f);
     }
 
     ngx.shutdown();
