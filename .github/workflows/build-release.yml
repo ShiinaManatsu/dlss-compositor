@@ -36,7 +36,7 @@ jobs:
           -DDLSS_SDK_ROOT=DLSS
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config Release --parallel
 
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
@@ -52,6 +52,21 @@ jobs:
           }
           "VERSION=$ver" | Out-File -Append $env:GITHUB_OUTPUT
 
+      - name: Verify package inputs
+        shell: pwsh
+        run: |
+          $required = @(
+            "build\Release\dlss-compositor.exe",
+            "build\Release\nvngx_dlssd.dll",
+            "build\Release\nvngx_dlssg.dll"
+          )
+
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) {
+              Write-Error "Required file not found: $file"
+            }
+          }
+
       - name: Package
         id: package
         shell: pwsh
@@ -66,7 +81,7 @@ jobs:
           if (Test-Path "LICENSE")   { Copy-Item "LICENSE"   $dist }
           if (Test-Path "README.md") { Copy-Item "README.md" $dist }
 
-          Compress-Archive -Path "$dist\*" -DestinationPath "$dist.zip"
+          Compress-Archive -Path "$dist\*" -DestinationPath "$dist.zip" -Force
           "ARTIFACT_NAME=$dist"    | Out-File -Append $env:GITHUB_OUTPUT
           "ARTIFACT_ZIP=$dist.zip" | Out-File -Append $env:GITHUB_OUTPUT
 
@@ -74,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.ARTIFACT_NAME }}
-          path: ${{ steps.package.outputs.ARTIFACT_NAME }}/
+          path: ${{ steps.package.outputs.ARTIFACT_ZIP }}
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
