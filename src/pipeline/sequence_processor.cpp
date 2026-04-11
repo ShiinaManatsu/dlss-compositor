@@ -291,6 +291,13 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                                          std::string& errorMsg) {
     errorMsg.clear();
 
+    const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
+                                            hasPass(config.outputPasses, OutputPass::Normals);
+    if (requestedUnsupportedPasses) {
+        std::fprintf(stderr,
+                     "Warning: only 'beauty' pass output is currently supported. Other passes will be ignored.\n");
+    }
+
     if (config.scaleFactor <= 0) {
         errorMsg = "Scale factor must be positive.";
         return false;
@@ -512,6 +519,8 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     throw std::runtime_error(frameError);
                 }
                 writer.setCompression(config.exrCompression, config.exrDwaQuality);
+                // TODO: Support writing additional output passes when input-resolution passthrough
+                // channels can be reconciled with the upscaled beauty output resolution.
                 if (!writer.addChannel("R", r.data()) ||
                     !writer.addChannel("G", g.data()) ||
                     !writer.addChannel("B", b.data()) ||

@@ -98,6 +98,48 @@ bool parseCompression(const char* value, ExrCompression& out) {
     return false;
 }
 
+bool parseOutputPasses(const char* value, OutputPass& out) {
+    if (value == nullptr || *value == '\0') {
+        return false;
+    }
+
+    OutputPass parsed = static_cast<OutputPass>(0u);
+    std::string remaining(value);
+    size_t start = 0;
+
+    while (start <= remaining.size()) {
+        const size_t end = remaining.find(',', start);
+        std::string token = remaining.substr(start, end == std::string::npos ? std::string::npos : end - start);
+
+        const size_t first = token.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            return false;
+        }
+
+        const size_t last = token.find_last_not_of(" \t\r\n");
+        token = token.substr(first, last - first + 1u);
+
+        if (token == "beauty") {
+            parsed = parsed | OutputPass::Beauty;
+        } else if (token == "depth") {
+            parsed = parsed | OutputPass::Depth;
+        } else if (token == "normals") {
+            parsed = parsed | OutputPass::Normals;
+        } else {
+            return false;
+        }
+
+        if (end == std::string::npos) {
+            break;
+        }
+
+        start = end + 1u;
+    }
+
+    out = parsed;
+    return static_cast<uint32_t>(parsed) != 0u;
+}
+
 } // namespace
 
 bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& errorMsg) {
@@ -230,6 +272,17 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--output-passes") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--output-passes requires a value";
+                return false;
+            }
+            if (!parseOutputPasses(argv[++i], config.outputPasses)) {
+                errorMsg = "--output-passes must be a comma-separated list of: beauty, depth, normals";
+                return false;
+            }
+            continue;
+        }
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
@@ -251,6 +304,7 @@ void CliParser::printHelp() {
     std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
     std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
     std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
+    std::printf("  --output-passes <list> Output passes (comma-separated: beauty,depth,normals; default: beauty)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --gui                  Launch ImGui viewer\n");
