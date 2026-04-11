@@ -186,7 +186,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ## TODOs
 
-- [ ] 1. CMake: Copy nvngx_dlssg.dll + Register New Source Files
+- [x] 1. CMake: Copy nvngx_dlssg.dll + Register New Source Files
 
   **What to do**:
   - Add `nvngx_dlssg.dll` copy command to main `CMakeLists.txt` following the exact pattern of `nvngx_dlssd.dll` copy at lines 156-163
@@ -261,7 +261,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 2. NgxContext DLSS-G Feature Lifecycle — Availability Check + Feature Creation
+- [x] 2. NgxContext DLSS-G Feature Lifecycle — Availability Check + Feature Creation
 
   **What to do**:
   - Add `m_fgFeatureHandle` member to `NgxContext` class (alongside existing `m_featureHandle`)
@@ -308,7 +308,8 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
   **API/Type References**:
   - `DLSS/include/nvsdk_ngx_helpers_dlssg_vk.h:45-60` — `NGX_VK_CREATE_DLSSG()` function signature and parameter setup. This is the function to call.
   - `DLSS/include/nvsdk_ngx_params_dlssg.h:31-39` — `NVSDK_NGX_DLSSG_Create_Params` struct definition (Width, Height, NativeBackbufferFormat, RenderWidth, RenderHeight, DynamicResolutionScaling)
-  - `DLSS/include/nvsdk_ngx_defs_dlssg.h:17-25` — `NVSDK_NGX_Parameter_FrameGeneration_Available` and `NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax` capability query constants
+  - `DLSS/include/nvsdk_ngx_defs_dlssg.h:32-36` — `NVSDK_NGX_Parameter_FrameGeneration_Available` capability query constant
+  - `DLSS/include/nvsdk_ngx_defs_dlssg.h:260-271` — DLSS 4 multi-frame constants: `NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax` (max generated frames, e.g. 3 for 4x), `NVSDK_NGX_DLSSG_Parameter_MultiFrameCount`, `NVSDK_NGX_DLSSG_Parameter_MultiFrameIndex`
 
   **External References**:
   - `DLSS/doc/DLSS-FG Programming Guide.pdf` — Official integration guide for feature creation workflow
@@ -316,7 +317,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
   **WHY Each Reference Matters**:
   - `ngx_wrapper.cpp:140-198`: This is the template to follow exactly — same error handling pattern, same parameter setup flow, same return convention. The new method should look structurally identical but with DLSS-G parameters.
   - `nvsdk_ngx_helpers_dlssg_vk.h:45-60`: The helper function handles all parameter-setting boilerplate for creation. Don't manually set parameters — use this helper.
-  - `nvsdk_ngx_defs_dlssg.h:17-25`: Capability query constants needed to check if current GPU supports Frame Generation before attempting creation.
+  - `nvsdk_ngx_defs_dlssg.h:32-36`: `FrameGeneration_Available` capability constant for GPU support check. Lines 260-271 contain the DLSS 4 multi-frame constants (`MultiFrameCountMax`, `MultiFrameCount`, `MultiFrameIndex`) needed for 4x detection and evaluation.
 
   **Acceptance Criteria**:
 
@@ -365,7 +366,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 3. CameraDataLoader — JSON Parser with Matrix Derivation
+- [x] 3. CameraDataLoader — JSON Parser with Matrix Derivation
 
   **What to do**:
   - Create `src/core/camera_data_loader.h` and `src/core/camera_data_loader.cpp`
@@ -446,43 +447,52 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
   **QA Scenarios (MANDATORY):**
 
-  ```
-  Scenario: Parse valid camera.json with 2 frames
-    Tool: Bash (unit test)
-    Preconditions: tests/fixtures/camera.json exists with 2 valid frame entries
+   ```
+  Scenario: Parse valid camera JSON with 2 frames
+    Tool: Bash
+    Preconditions: Build succeeds with camera_data_loader compiled in
     Steps:
-      1. Run `dlss-compositor-tests "[camera]"` 
-      2. Verify test_camera_data_loader_parse_valid passes
-      3. Verify parsed FOV matches expected value (0.6911 ± 0.001)
-      4. Verify matrix_world is populated (not all zeros)
-    Expected Result: All camera tests pass
-    Failure Indicators: Parse error, wrong values, crash
+      1. Create a temporary test JSON file (write to build/test_camera.json) with 2 frame entries:
+         frame "0001" at position (0,0,5) looking at origin, FOV=0.6911, near=0.1, far=100
+         frame "0002" at position (1,0,5) looking at origin (camera moved 1 unit right)
+      2. Write a minimal C++ test program (or use existing Catch2 test runner) that:
+         a. Calls CameraDataLoader::load("build/test_camera.json", errorMsg)
+         b. Asserts load returns true
+         c. Asserts hasFrame(1) returns true
+         d. Asserts getFrame(1).fov ≈ 0.6911 (±0.001)
+         e. Asserts getFrame(1).matrix_world is not all zeros
+      3. Build and run the test program
+    Expected Result: All assertions pass — load succeeds, FOV matches, matrices populated
+    Failure Indicators: Parse error, wrong values, crash, load returns false
     Evidence: .sisyphus/evidence/task-3-camera-parse.txt
 
-  Scenario: Reject malformed camera.json
-    Tool: Bash (unit test)
-    Preconditions: Test uses inline malformed JSON string
+  Scenario: Reject malformed camera JSON
+    Tool: Bash
+    Preconditions: Build succeeds
     Steps:
-      1. Run `dlss-compositor-tests "camera_data_loader_parse_invalid"`
-      2. Verify load() returns false with non-empty error message
-      3. Verify no crash or exception
+      1. Create a temporary JSON file with malformed content (missing "frames" key, or invalid JSON syntax)
+      2. Call CameraDataLoader::load() on the malformed file
+      3. Verify load() returns false
+      4. Verify errorMsg is non-empty and describes the issue
     Expected Result: Returns false, error message describes the issue
     Failure Indicators: Returns true on invalid JSON, crash, empty error
     Evidence: .sisyphus/evidence/task-3-camera-invalid.txt
 
   Scenario: computePairParams produces valid clipToPrevClip
-    Tool: Bash (unit test)
-    Preconditions: Two frame entries with known camera matrices
+    Tool: Bash
+    Preconditions: The 2-frame test JSON from scenario 1 is available
     Steps:
-      1. Load camera.json with 2 frames at different positions
+      1. Load the 2-frame camera JSON
       2. Call computePairParams(1, 2)
-      3. Verify clipToPrevClip is not identity (cameras moved)
-      4. Verify clipToLensClip IS identity
-      5. Verify position/basis vectors extracted correctly
-    Expected Result: Derived matrices are non-identity, clipToLensClip is identity
+      3. Verify clipToPrevClip is not identity (cameras moved between frames)
+      4. Verify clipToLensClip IS identity (standard pinhole, no lens distortion)
+      5. Verify position extracted from frame 1 ≈ (0, 0, 5)
+    Expected Result: Derived matrices are non-identity, clipToLensClip is identity, position correct
     Failure Indicators: All matrices identity, NaN values, wrong position
     Evidence: .sisyphus/evidence/task-3-camera-derived.txt
   ```
+
+  > **NOTE**: Task 3 QA creates its own temporary JSON fixtures inline — it does NOT depend on `tests/fixtures/camera.json` (which is created later in Task 8 for the permanent test suite).
 
   **Commit**: YES
   - Message: `feat(core): add CameraDataLoader for per-frame camera JSON parsing`
@@ -491,7 +501,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 4. CLI Flags — `--interpolate` and `--camera-data`
+- [x] 4. CLI Flags — `--interpolate` and `--camera-data`
 
   **What to do**:
   - Add to `AppConfig` in `config.h`:
@@ -579,7 +589,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 5. DlssFgProcessor — Frame Generation Evaluation Class
+- [x] 5. DlssFgProcessor — Frame Generation Evaluation Class
 
   **What to do**:
   - Create `src/dlss/dlss_fg_processor.h` with:
@@ -697,7 +707,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 6. Blender `export_camera_data.py` Standalone Script
+- [x] 6. Blender `export_camera_data.py` Standalone Script
 
   **What to do**:
   - Create `blender/export_camera_data.py` — standalone Blender Python script (NOT integrated into aov_export_preset.py addon)
@@ -765,29 +775,34 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
   **QA Scenarios (MANDATORY):**
 
   ```
-  Scenario: Script produces valid camera.json
+  Scenario: Script produces valid camera.json from factory-startup scene
     Tool: Bash
-    Preconditions: Blender installed and on PATH, test .blend file available
+    Preconditions: Blender installed and on PATH (no external .blend file required)
     Steps:
-      1. Run `blender --background tests/fixtures/test_scene.blend --python blender/export_camera_data.py -- --output tests/fixtures/camera.json --start 1 --end 5`
-      2. Verify camera.json exists and is valid JSON
+      1. Run `blender --factory-startup --background --python blender/export_camera_data.py -- --output build/test_camera_export.json --start 1 --end 5`
+         (--factory-startup creates a default scene with a camera at a known position)
+      2. Verify build/test_camera_export.json exists and is valid JSON (parse with Python: `python -c "import json; json.load(open('build/test_camera_export.json'))"`)
       3. Verify "frames" key exists with entries "0001" through "0005"
-      4. Verify each frame has matrix_world (4x4), projection (4x4), fov, aspect_ratio, near_clip, far_clip
-    Expected Result: Valid camera.json with 5 frame entries
-    Failure Indicators: Script error, invalid JSON, missing fields
+      4. Verify each frame has: matrix_world (4x4 array), projection (4x4 array), fov (float > 0), aspect_ratio (float > 0), near_clip (float > 0), far_clip (float > near_clip)
+    Expected Result: Valid camera.json with 5 frame entries, all fields populated with non-zero values
+    Failure Indicators: Script error, invalid JSON, missing fields, zero FOV
     Evidence: .sisyphus/evidence/task-6-camera-export.txt
 
-  Scenario: Script errors on no active camera
+  Scenario: Script errors gracefully when no active camera
     Tool: Bash
-    Preconditions: .blend file with no camera
+    Preconditions: Blender installed
     Steps:
-      1. Run script on file with no camera
+      1. Create a minimal Python wrapper that removes all cameras before running export:
+         `blender --factory-startup --background --python-expr "import bpy; [bpy.data.objects.remove(o) for o in bpy.data.objects if o.type=='CAMERA']; bpy.context.scene.camera=None; exec(open('blender/export_camera_data.py').read())"`
+         Or alternatively: pipe a script that deletes cameras then calls export
       2. Check exit code is non-zero
-      3. Check stderr contains "camera" error message
-    Expected Result: Clean error exit with descriptive message
+      3. Check stderr/stdout contains "camera" error message
+    Expected Result: Clean error exit with descriptive message about missing camera
     Failure Indicators: Exit 0, crash, Python traceback without useful message
     Evidence: .sisyphus/evidence/task-6-no-camera-error.txt
   ```
+
+  > **NOTE**: Task 6 QA uses `--factory-startup` which provides Blender's default scene (with a camera, light, and cube) — no external `.blend` fixtures needed.
 
   **Commit**: YES
   - Message: `feat(blender): add export_camera_data.py for camera matrix export`
@@ -796,7 +811,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 7. SequenceProcessor Frame-Pair Interpolation Loop
+- [x] 7. SequenceProcessor Frame-Pair Interpolation Loop
 
   **What to do**:
   - Extend `SequenceProcessor::processDirectory()` (or add new method `processDirectoryWithInterpolation()`) to:
@@ -911,7 +926,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 8. Catch2 Test Suite — Camera Loader, CLI, and FG Processor Tests
+- [x] 8. Catch2 Test Suite — Camera Loader, CLI, and FG Processor Tests
 
   **What to do**:
   - Create `tests/test_camera_data_loader.cpp`:
@@ -1007,7 +1022,7 @@ Task 1 → Task 2 (feasibility gate) → Task 5 → Task 7 → Task 9 → F1-F4 
 
 ---
 
-- [ ] 9. Integration Test — End-to-End 2-Frame Interpolation
+- [x] 9. Integration Test — End-to-End 2-Frame Interpolation
 
   **What to do**:
   - Add integration test to `tests/test_integration.cpp` (or new `tests/test_fg_integration.cpp`):

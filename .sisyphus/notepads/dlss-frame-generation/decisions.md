@@ -30,3 +30,18 @@
 ### Build Integration
 - Keep DLSS-G wiring parallel to DLSS-RR by copying `nvngx_dlssg.dll` in the main target and test target post-build steps.
 - Add stub camera/FG translation units immediately so CMake source lists remain valid before their real logic is implemented.
+
+## 2026-04-11 — Task 2
+- NativeBackbufferFormat: forwarded as the Vulkan-path caller value; intended baseline remains `VK_FORMAT_R16G16B16A16_SFLOAT` (`97`).
+- queryDlssFGAvailability: uses `NVSDK_NGX_Parameter_FrameGeneration_Available` first, then falls back to `NVSDK_NGX_Parameter_FrameInterpolation_Available`.
+
+## 2026-04-11 — Task 5
+- makeImageResource: copied from dlss_rr_processor.cpp (not shared utility)
+- ngxResultToString: copied (not shared)
+
+## 2026-04-11 — Task 8: Catch2 Test Suite
+- FG GPU tests use SKIP (not REQUIRE) for hardware availability — tests pass on any machine, RTX 40+/50+ gates actual GPU work.
+- Did NOT modify existing CLI test cases — only appended 4 new ones at end of file.
+- Did NOT modify `tests/CMakeLists.txt` — existing source lists already include the test files.
+- Camera fixture uses simple translating camera (X-axis) for deterministic testing — no rotation to keep matrix verification straightforward.
+- Test evidence saved to `.sisyphus/evidence/` (gitignored) for audit trail.

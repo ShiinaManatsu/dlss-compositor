@@ -95,6 +95,10 @@
 - The processor test passes under `ctest --test-dir build -C Release -R test_dlss_rr_processor --output-on-failure`, and `build/Release/dlss-compositor.exe --test-ngx` still reports `DLSS-RR available: true`.
 - Local verification could not use `lsp_diagnostics` because `clangd` is not installed in the environment.
 
+## [2026-04-11] Task 19: Motion Vector Converter Test Update
+- `MvConverter::convert()` now passes Blender Vector pass X/Y through unchanged and uses `scaleX = scaleY = 1.0f`.
+- Stale tests in `tests/test_mv_converter.cpp` had expected negation and 1/width scaling; updating only the expected values restored alignment with the corrected implementation.
+
 ## [2026-04-11] Task 11: Sequence Processor
 - `SequenceProcessor` streams one EXR frame at a time through read → map → MV convert → upload → evaluate → download → write, then destroys all 8 texture handles before the next frame.
 - Sequence ordering uses trailing digits from the filename stem for natural numeric sort; reset flags are raised on the first frame and on the first frame after any numeric gap.
