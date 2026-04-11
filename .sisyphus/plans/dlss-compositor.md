@@ -999,7 +999,7 @@ Max Concurrent: 6 (Wave 1)
   - Files: `src/ui/app.*`
   - Pre-commit: `cmake --build build --config Release && build\Release\dlss-compositor.exe --test-gui`
 
-- [ ] 13. Channel Preview + Before/After Split View
+- [x] 13. Channel Preview + Before/After Split View
 
   **What to do**:
   - Implement `src/ui/image_viewer.h` and `src/ui/image_viewer.cpp`:
@@ -1050,7 +1050,7 @@ Max Concurrent: 6 (Wave 1)
   - Files: `src/ui/image_viewer.*`
   - Pre-commit: `cmake --build build --config Release && build\Release\dlss-compositor.exe --test-gui --test-load tests/fixtures/reference_64x64.exr`
 
-- [ ] 14. Processing Controls — Quality Mode, Sequence UI
+- [x] 14. Processing Controls — Quality Mode, Sequence UI
 
   **What to do**:
   - Implement `src/ui/settings_panel.h` and `src/ui/settings_panel.cpp`:
@@ -1103,7 +1103,7 @@ Max Concurrent: 6 (Wave 1)
   - Files: `src/ui/settings_panel.*`
   - Pre-commit: `cmake --build build --config Release`
 
-- [ ] 15. Blender Export Script — Pass Config, AOV Setup
+- [x] 15. Blender Export Script — Pass Config, AOV Setup
 
   **What to do**:
   - Implement `blender/aov_export_preset.py` as a proper Blender add-on:
@@ -1173,7 +1173,7 @@ Max Concurrent: 6 (Wave 1)
   - Files: `blender/aov_export_preset.py`
   - Pre-commit: `blender --background --factory-startup --python blender/aov_export_preset.py -- --test`
 
-- [ ] 16. Python EXR Validator + pytest
+- [x] 16. Python EXR Validator + pytest
 
   **What to do**:
   - Implement `tools/exr_validator.py`:
@@ -1238,7 +1238,7 @@ Max Concurrent: 6 (Wave 1)
   - Files: `tools/exr_validator.py, requirements.txt, tests/test_validator.py`
   - Pre-commit: `pytest tests/test_validator.py`
 
-- [ ] 17. Documentation — README + Build Guide + Usage Tutorial
+- [x] 17. Documentation — README + Build Guide + Usage Tutorial
 
   **What to do**:
   - Write `README.md`:
@@ -1314,7 +1314,7 @@ Max Concurrent: 6 (Wave 1)
   - Message: `docs: README, build guide, usage tutorial`
   - Files: `README.md, docs/*.md`
 
-- [ ] 18. End-to-End Integration Test
+- [x] 18. End-to-End Integration Test
 
   **What to do**:
   - Create `tests/test_integration.cpp` (Catch2):
@@ -1372,7 +1372,7 @@ Max Concurrent: 6 (Wave 1)
 
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, run command). For each "Must NOT Have": search codebase for forbidden patterns — reject with file:line if found. Check evidence files exist in .sisyphus/evidence/. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
@@ -1404,7 +1404,7 @@ Max Concurrent: 6 (Wave 1)
     Evidence: .sisyphus/evidence/F1-must-not-have.txt
   ```
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   Run `cmake --build . --config Release` + Catch2 tests + pytest. Review all changed files for: undefined behavior, memory leaks, missing error checks, `#pragma warning(disable)` abuse. Check for AI slop: excessive comments, over-abstraction, dead code.
   Output: `Build [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
@@ -1429,7 +1429,7 @@ Max Concurrent: 6 (Wave 1)
     Evidence: .sisyphus/evidence/F2-code-smells.txt
   ```
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+- [x] F3. **Real Manual QA** — `unspecified-high`
   Start from clean state. Build project. Run `dlss-compositor --test-ngx`. Process a test EXR sequence. Launch GUI in test mode. Run validator on output. Save to `.sisyphus/evidence/final-qa/`.
   Output: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | VERDICT`
 
@@ -1456,7 +1456,7 @@ Max Concurrent: 6 (Wave 1)
     Evidence: .sisyphus/evidence/F3-blender.txt
   ```
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   For each task: read "What to do", read actual diff. Verify 1:1 — everything in spec was built, nothing beyond spec was built. Check "Must NOT do" compliance. Detect cross-task contamination. Flag unaccounted changes.
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | VERDICT`
 

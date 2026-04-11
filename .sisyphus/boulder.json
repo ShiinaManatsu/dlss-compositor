@@ -13,7 +13,31 @@
     "ses_287d88894ffegPECkFX6SWaGad",
     "ses_287c709e8ffehMB2XljxMRnlKb",
     "ses_287ae0724ffetno1U0ceXlyvEo",
-    "ses_287a201e8ffe6hotNVoWJ3jrTd"
+    "ses_287a201e8ffe6hotNVoWJ3jrTd",
+    "ses_28799087cffeTvtMuEeI12Poim",
+    "ses_2878bc566ffe181frSqnAZ9k92",
+    "ses_2878c82eaffei2APR3h4JQWrAc",
+    "ses_2878cf4a2ffeBdHPb0CjmVuscE",
+    "ses_28784912bffe4asMB0uljogaPK",
+    "ses_2877d88ddffeetIFXfN3ojSm27",
+    "ses_2877088b9ffendV2kONC0XEJK3",
+    "ses_28770408bffeDAilLZVWILmStt",
+    "ses_28770c5beffep6No8QYoLxC2P7",
+    "ses_2876fd1e8ffeXr64gqsPane8MV",
+    "ses_28767f521ffeNE0b7uAhp5Z2xu",
+    "ses_28762a046ffewzznOYum1KU3Ck",
+    "ses_2875b6315ffeut35CnybQFoen7",
+    "ses_287550256ffeofBHEbiDkuPwf5",
+    "ses_28707a5dbffeQnH3SpXl1FGp1J",
+    "ses_2857bb3f8ffev6HqrNxmR8Sqrb",
+    "ses_285760999ffec7AYwzxYfQZkOc",
+    "ses_285562f92ffeq9fcJCxLCgqR7Y",
+    "ses_2854e4d94ffegti5FOYYg55F04",
+    "ses_2852ca4e3ffeUIXTArKxCajXnd",
+    "ses_284f9c072ffeuJ8vih8FuXvDGs",
+    "ses_284f4b62affevsuoEAxm73I1Az",
+    "ses_284f38cd2ffeXyXPhuaG5yIi3Y",
+    "ses_284f0746dfferkqBJxfMsEhi2p"
   ],
   "plan_name": "dlss-compositor",
   "task_sessions": {
@@ -115,6 +139,31 @@
       "agent": "Sisyphus-Junior",
       "category": "visual-engineering",
       "updated_at": "2026-04-10T17:15:22.747Z"
+    },
+    "todo:13": {
+      "task_key": "todo:13",
+      "task_label": "13",
+      "task_title": "Channel Preview + Before/After Split View",
+      "session_id": "ses_28799087cffeTvtMuEeI12Poim",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-04-10T17:30:04.654Z"
+    },
+    "todo:14": {
+      "task_key": "todo:14",
+      "task_label": "14",
+      "task_title": "Processing Controls — Quality Mode, Sequence UI",
+      "session_id": "ses_28770c5beffep6No8QYoLxC2P7",
+      "agent": "oracle",
+      "updated_at": "2026-04-10T18:10:30.730Z"
+    },
+    "final-wave:f1": {
+      "task_key": "final-wave:f1",
+      "task_label": "F1",
+      "task_title": "**Plan Compliance Audit** — `oracle`",
+      "session_id": "ses_28707a5dbffeQnH3SpXl1FGp1J",
+      "agent": "oracle",
+      "updated_at": "2026-04-10T20:03:04.631Z"
     }
   }
 }

@@ -117,6 +117,7 @@
 - `reference_64x64.exr` and `sequence/frame_0001.exr` contain Combined RGBA, Depth Z, Vector XYZW, Normal XYZ, DiffCol RGB, GlossCol RGB, and Roughness X.
 - `missing_channels_64x64.exr` contains Combined RGBA + Depth Z + Vector XYZW only; it is missing Normal, DiffCol, GlossCol, and Roughness channels.
 - The validator matches Blender channel suffixes, and `python -m pytest` is the reliable local test entrypoint when `pytest.exe` is absent from PATH.
+- [2026-04-11] F4 scope audit: T14 now includes Channel Mapping display and frame navigation, and T15 now includes `dlsscomp_output_dir`, but the branch still diverges from plan in multiple earlier tasks (notably T2/T3/T4/T5/T6/T9/T11/T13/T14/T15/T16/T18).
 
  # #   [ 2 0 2 6 - 0 4 - 1 1 ]   T a s k   1 7 :   D o c u m e n t a t i o n 
  -   C r e a t e d   R E A D M E . m d   w i t h   p r o j e c t   o v e r v i e w   a n d   q u i c k   s t a r t . 
@@ -131,3 +132,41 @@
 - Compositor setup: OPEN_EXR_MULTILAYER, 32-bit color depth, ZIP codec; connects render layer outputs to file output slots.
 - Headless test detects --test after -- separator in sys.argv; prints the expected pass list and exits 0/1.
 - Blender is not on PATH in the dev environment; verification used ast.parse() syntax check + 21-point logic coverage script.
+
+## [2026-04-11] Task 14: Processing Controls
+- SettingsPanel class created with background thread processing via std::thread
+- NgxContext created fresh in worker thread (avoids shared NGX state threading hazards)
+- SequenceProcessor::scanAndSort() used before worker starts to set m_totalFrames
+- App stores mutable AppConfig copy (m_config) so SettingsPanel can update it
+- --test-process path: triggerProcessing() + 300-frame poll loop + waitForCompletion() + EXR count check
+
+## [2026-04-11] Task 18: End-to-End Integration Test
+- test_integration.cpp: full pipeline VulkanContext→NgxContext→SequenceProcessor on 5-frame fixture sequence
+- Verifies 5 output EXRs created at 128×128 (64×64 input × 2 scale)
+- Uses SKIP pattern (not FAIL) when no RTX GPU present
+- test_e2e.py: subprocess tests invoking dlss-compositor.exe; skips if exe not built
+- Output directory cleaned with std::filesystem::remove_all before each test
+
+## T14 and T15 Scope Fixes
+- Added m_currentViewFrame state and Prev/Next UI navigation to C++ ImGui settings panel.
+- Added dlsscomp_output_dir string property (DIR_PATH) to Blender Python add-on and bound it to the node graph output base_path.
+
+## [2026-04-11] OpenEXR migration for Blender 5.x multi-part EXR
+- Replaced tinyexr FetchContent and linkage with `OpenEXR::OpenEXR`; OpenEXR 3.3.3 pulled Imath automatically via FetchContent in this repository.
+- On this Windows/MSVC setup, OpenEXR headers are exposed as `<Imf*.h>` include paths rather than `<OpenEXR/Imf*.h>` because the imported target adds `.../src/lib/OpenEXR` directly to include directories.
+- `Imf::MultiPartInputFile` handles both legacy single-part and Blender 5.x multi-part EXRs, so one backend can cover both formats.
+- Blender 5.x part/channel names such as `Image.R`, `Depth.V`, `Normal.X`, `Diffuse Color.R`, `Glossy Color.R`, and `Roughness.V` need legacy aliases so existing `ChannelMapper` defaults like `RenderLayer.Combined.R` continue to work without changing higher-level logic.
+- `ExrWriter` can stay simple with `Imf::OutputFile` + per-channel float slices; no tinyexr/miniz dependency is required for output.
+
+## [2026-04-11] Motion vector W tolerance
+- DLSS-RR motion vectors only need X/Y; Blender 5.x omitting W should not fail mapping.
+- Keep Z/W buffers zero-initialized so the CPU-side buffer layout stays 4-wide for downstream code.
+
+## [2026-04-11] EXR compression flags
+- OpenEXR compression can be set directly on `Imf::Header::compression()` before constructing `Imf::OutputFile`.
+- The DWA quality field is stored as the `dwaCompressionLevel` header attribute; in this build, inserting `Imf::FloatAttribute` worked where the helper symbol was unavailable.
+
+## [2026-04-11] CLI output pass selection
+- Added `OutputPass` bitmask parsing in the CLI so comma-separated pass lists can be accepted without changing the default `beauty`-only behavior.
+- Sequence output still writes only RGBA beauty because mapped depth/normals remain at input resolution while the output EXR is upscaled; unsupported requested passes now emit a single warning and are ignored safely.
+- Local `lsp_diagnostics` verification could not run because `clangd` is not installed in this environment; Release build and CLI smoke checks were used instead.

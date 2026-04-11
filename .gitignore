@@ -36,3 +36,11 @@ __pycache__/
 compile_commands.json
 build-clangd/
 .cache/
+2026.02.10_UE5.7_DLSS4.5Plugin_v8.5.0/
+
+# Runtime logs / temp
+nvngx*.log
+nvngx_dlssd*.log
+nvsdk_ngx*.log
+imgui.ini
+test_out.txt
