@@ -24,6 +24,87 @@ import bpy  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+class DLSSCOMP_OT_export_camera(bpy.types.Operator):
+    """Export per-frame camera matrices to camera.json alongside the output directory."""
+
+    bl_idname = "dlsscomp.export_camera"
+    bl_label = "Export Camera Data"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        import json
+        import os
+
+        scene = context.scene
+
+        out_dir = scene.dlsscomp_output_dir
+        if not out_dir:
+            self.report({"ERROR"}, "Set Output Directory first.")
+            return {"CANCELLED"}
+
+        output_path = os.path.join(bpy.path.abspath(out_dir), "camera.json")
+
+        cam_obj = scene.camera
+        if cam_obj is None:
+            self.report({"ERROR"}, "No active camera in the scene.")
+            return {"CANCELLED"}
+
+        cam_data = getattr(cam_obj, "data", None)
+        fov = getattr(cam_data, "angle", None)
+        near_clip = getattr(cam_data, "clip_start", None)
+        far_clip = getattr(cam_data, "clip_end", None)
+        if None in (fov, near_clip, far_clip):
+            self.report({"ERROR"}, "Active camera is missing required data.")
+            return {"CANCELLED"}
+
+        render = scene.render
+        render_width = render.resolution_x
+        render_height = render.resolution_y
+        frame_start = scene.frame_start
+        frame_end = scene.frame_end
+
+        if frame_end < frame_start:
+            self.report({"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
+            return {"CANCELLED"}
+
+        data = {
+            "version": 1,
+            "render_width": render_width,
+            "render_height": render_height,
+            "frames": {},
+        }
+
+        depsgraph = context.evaluated_depsgraph_get()
+
+        for frame_num in range(frame_start, frame_end + 1):
+            scene.frame_set(frame_num)
+            depsgraph.update()
+            key = f"{frame_num:04d}"
+            matrix_world = [list(row) for row in cam_obj.matrix_world]
+            projection = [
+                list(row)
+                for row in cam_obj.calc_matrix_camera(
+                    depsgraph, x=render_width, y=render_height
+                )
+            ]
+            data["frames"][key] = {
+                "matrix_world": matrix_world,
+                "projection": projection,
+                "fov": fov,
+                "aspect_ratio": render_width / render_height,
+                "near_clip": near_clip,
+                "far_clip": far_clip,
+            }
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+
+        n = len(data["frames"])
+        self.report({"INFO"}, f"Exported {n} frame(s) → {output_path}")
+        return {"FINISHED"}
+
+
 class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
     """Enable all render passes and AOVs required by DLSS Compositor."""
 
@@ -246,6 +327,20 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
         )
 
         layout.separator()
+        layout.operator(
+            DLSSCOMP_OT_export_camera.bl_idname,
+            text="Export Camera Data",
+            icon="CAMERA_DATA",
+        )
+        if context.scene.dlsscomp_output_dir:
+            import os
+
+            path = os.path.join(
+                bpy.path.abspath(context.scene.dlsscomp_output_dir), "camera.json"
+            )
+            layout.label(text=f"→ {path}", icon="FILE_TICK")
+
+        layout.separator()
         layout.label(text="Pass Status:", icon="INFO")
 
         col = layout.column(align=True)
@@ -291,6 +386,7 @@ def register():
     bpy.types.Scene.dlsscomp_output_dir = bpy.props.StringProperty(
         name="Output Directory", subtype="DIR_PATH", default=""
     )
+    bpy.utils.register_class(DLSSCOMP_OT_export_camera)
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.register_class(DLSSCOMP_PT_export_panel)
 
@@ -298,6 +394,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(DLSSCOMP_PT_export_panel)
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
+    bpy.utils.unregister_class(DLSSCOMP_OT_export_camera)
     del bpy.types.Scene.dlsscomp_output_dir
 
 
