@@ -1,12 +1,13 @@
 # DLSS Compositor
 
-> First open-source tool for processing offline Blender Cycles renders through NVIDIA DLSS Ray Reconstruction (DLSS-RR) — AI denoising and temporal upscaling for animation sequences.
+> First open-source tool for processing offline Blender Cycles renders through NVIDIA DLSS Ray Reconstruction (DLSS-RR) and DLSS Frame Generation (DLSS-FG) — AI denoising, temporal upscaling, and 2x/4x frame interpolation for animation sequences.
 
 ## What It Does
-DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds them through NVIDIA DLSS-RR for denoising and upscaling, and outputs high-quality EXR sequences. It's designed to bring the real-time AI denoising power of DLSS to offline rendering workflows.
+DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds them through NVIDIA DLSS-RR for denoising and upscaling or DLSS-FG for frame interpolation, and outputs high-quality EXR sequences. It's designed to bring the real-time AI power of DLSS to offline rendering workflows.
 
 ## Features
 - DLSS-RR denoising and upscaling via Vulkan NGX API
+- DLSS Frame Generation 2x/4x interpolation via raw NGX Vulkan API (RTX 40+)
 - Multi-layer EXR reading with Blender channel name mapping
 - Motion vector conversion (Blender 4-channel to DLSS-RR 2-channel current to previous)
 - Temporal history management with automatic reset on sequence gaps
@@ -16,7 +17,7 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 - Python EXR validator tool
 
 ## Requirements
-- **GPU**: NVIDIA RTX GPU (Turing, Ampere, Ada, or Blackwell architecture — must support DLSS Ray Reconstruction)
+- **GPU**: NVIDIA RTX GPU (Turing, Ampere, Ada, or Blackwell architecture — must support DLSS Ray Reconstruction; RTX 40+ required for Frame Generation)
 - **OS**: Windows 10/11 (64-bit)
 - **Driver**: NVIDIA driver 520 or newer
 - **Build tools**: Visual Studio 2022, CMake 3.20 or newer, Vulkan SDK 1.3 or newer
@@ -26,7 +27,8 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 1. **Build**: Clone the repository and build using CMake (see [Build Guide](docs/build_guide.md)).
 2. **Configure Blender**: Run the `blender/aov_export_preset.py` script in your Blender scene to register the DLSS Compositor panel.
 3. **Render**: Use the panel to configure passes and render your animation as a MultiLayer EXR sequence.
-4. **Process**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
+4. **Process (DLSS-RR)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
+5. **Process (DLSS-FG)**: Export camera data using `blender/export_camera_data.py`, then run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
 
 ## CLI Usage
 ```bash
@@ -35,6 +37,12 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2
 
 # Max quality mode
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --quality MaxQuality
+
+# Frame interpolation (2x)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
+
+# Frame interpolation (4x)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 4x --camera-data camera.json
 
 # Process and encode to video (requires FFmpeg)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --encode-video result.mp4 --fps 24

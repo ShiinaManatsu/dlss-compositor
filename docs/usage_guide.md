@@ -13,6 +13,30 @@ To use DLSS Compositor, you must render your animation from Blender with specifi
    - Click **Configure All Passes**. This will automatically enable "Combined", "Z", "Vector", "Normal", "DiffCol", "GlossCol", and "Roughness" passes and set the output format to **OpenEXR MultiLayer**.
 3. **Render**: Render your animation sequence to a directory.
 
+## Frame Generation Workflow
+
+Frame interpolation generates intermediate frames between your renders to increase smoothness. It preserves HDR scene-linear values and uses NVIDIA DLSS-G optical flow.
+
+- **Hardware requirement**: RTX 40+ for 2x, RTX 50+ for 4x.
+- **Interpolation factor**: `2x` generates 1 intermediate frame per pair. `4x` generates 3 intermediate frames per pair.
+- **Output naming**: Original and interpolated frames are interleaved and re-numbered sequentially (e.g., 0001, 0002, 0003...).
+
+### Step 1: Exporting Camera Data from Blender
+Frame Generation requires per-frame camera matrices. Run the export script via Blender's CLI:
+
+```bash
+blender --background scene.blend --python blender/export_camera_data.py -- --output camera.json --start 1 --end 250
+```
+
+This exports the camera data needed for optical flow. Ensure `--start` and `--end` match your rendered frame range.
+
+### Step 2: Run Interpolation
+Run the compositor with the `--interpolate` and `--camera-data` flags:
+
+```bash
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
+```
+
 ## CLI Usage
 
 The `dlss-compositor.exe` tool processes EXR sequences.
@@ -32,6 +56,8 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--quality <mode>` | Balanced | DLSS quality mode: `MaxQuality`, `Balanced`, `Performance`, `UltraPerformance`. |
 | `--encode-video [file]` | — | Encode the output sequence to an MP4 video. Requires FFmpeg on your PATH. |
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
+| `--interpolate <2x|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
+| `--camera-data <file>` | — | Required when `--interpolate` is used. Path to per-frame camera JSON exported by `export_camera_data.py`. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
 | `--gui` | — | Launch the ImGui viewer for visual inspection. |
 | `--test-ngx` | — | Verify DLSS Ray Reconstruction availability on your system and exit. |
@@ -61,3 +87,9 @@ DLSS-RR relies on temporal history. If your filenames are not sequentially numbe
 
 ### Driver errors
 Update your NVIDIA drivers to version 520 or newer. Ray Reconstruction is a relatively new feature that requires modern drivers.
+
+### Frame Generation: "RTX 40+ required"
+User's GPU doesn't support DLSS-G. Frame Generation requires Ada Lovelace (RTX 40) or newer architecture.
+
+### Frame Generation: "At least 2 frames required"
+Input directory must contain at least 2 EXR files for interpolation.
