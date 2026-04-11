@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/exr_writer.h"
+
 #include <string>
 #include <vector>
 
@@ -31,4 +33,7 @@ struct AppConfig {
     bool launchGui = false;
     bool showHelp = false;
     bool showVersion = false;
+
+    ExrCompression exrCompression = ExrCompression::Dwaa;
+    float exrDwaQuality = 95.0f;
 };

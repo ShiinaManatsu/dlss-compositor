@@ -508,8 +508,11 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
 
                 ExrWriter writer;
                 const std::filesystem::path outputPath = std::filesystem::path(outputDir) / frameInfo.path.filename();
-                if (!writer.create(outputPath.string(), expectedOutputWidth, expectedOutputHeight, frameError) ||
-                    !writer.addChannel("R", r.data()) ||
+                if (!writer.create(outputPath.string(), expectedOutputWidth, expectedOutputHeight, frameError)) {
+                    throw std::runtime_error(frameError);
+                }
+                writer.setCompression(config.exrCompression, config.exrDwaQuality);
+                if (!writer.addChannel("R", r.data()) ||
                     !writer.addChannel("G", g.data()) ||
                     !writer.addChannel("B", b.data()) ||
                     !writer.addChannel("A", a.data()) ||

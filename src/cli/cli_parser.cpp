@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <string>
 
 namespace {
@@ -22,6 +23,20 @@ bool parseInt(const char* value, int& out) {
         return false;
     }
     out = static_cast<int>(parsed);
+    return true;
+}
+
+bool parseFloat(const char* value, float& out) {
+    if (value == nullptr || *value == '\0') {
+        return false;
+    }
+
+    char* end = nullptr;
+    const float parsed = std::strtof(value, &end);
+    if (end == value || *end != '\0') {
+        return false;
+    }
+    out = parsed;
     return true;
 }
 
@@ -53,6 +68,34 @@ const char* qualityToString(DlssQualityMode mode) {
     case DlssQualityMode::UltraPerformance: return "UltraPerformance";
     }
     return "Balanced";
+}
+
+bool parseCompression(const char* value, ExrCompression& out) {
+    if (std::strcmp(value, "none") == 0) {
+        out = ExrCompression::None;
+        return true;
+    }
+    if (std::strcmp(value, "zip") == 0) {
+        out = ExrCompression::Zip;
+        return true;
+    }
+    if (std::strcmp(value, "zips") == 0) {
+        out = ExrCompression::Zips;
+        return true;
+    }
+    if (std::strcmp(value, "piz") == 0) {
+        out = ExrCompression::Piz;
+        return true;
+    }
+    if (std::strcmp(value, "dwaa") == 0) {
+        out = ExrCompression::Dwaa;
+        return true;
+    }
+    if (std::strcmp(value, "dwab") == 0) {
+        out = ExrCompression::Dwab;
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -165,6 +208,28 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--exr-compression") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--exr-compression requires a value";
+                return false;
+            }
+            if (!parseCompression(argv[++i], config.exrCompression)) {
+                errorMsg = "--exr-compression must be one of: none, zip, zips, piz, dwaa, dwab";
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--exr-dwa-quality") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--exr-dwa-quality requires a value";
+                return false;
+            }
+            if (!parseFloat(argv[++i], config.exrDwaQuality)) {
+                errorMsg = "--exr-dwa-quality must be a float";
+                return false;
+            }
+            continue;
+        }
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
@@ -184,6 +249,8 @@ void CliParser::printHelp() {
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
+    std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
+    std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --gui                  Launch ImGui viewer\n");

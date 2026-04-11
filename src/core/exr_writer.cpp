@@ -1,6 +1,8 @@
 #include "core/exr_writer.h"
 
 #include <ImfChannelList.h>
+#include <ImfCompression.h>
+#include <ImfFloatAttribute.h>
 #include <ImfFrameBuffer.h>
 #include <ImfHeader.h>
 #include <ImfOutputFile.h>
@@ -14,6 +16,8 @@ struct ExrWriter::Impl {
     std::string path;
     int width = 0;
     int height = 0;
+    ExrCompression compression = ExrCompression::Dwaa;
+    float dwaQuality = 95.0f;
     std::vector<std::string> channelOrder;
     std::unordered_map<std::string, std::vector<float>> channelData;
 };
@@ -34,6 +38,14 @@ bool ExrWriter::create(const std::string& path, int width, int height, std::stri
     m_impl->channelData.clear();
     errorMsg.clear();
     return true;
+}
+
+void ExrWriter::setCompression(ExrCompression compression, float dwaQuality) {
+    if (!m_impl) {
+        return;
+    }
+    m_impl->compression = compression;
+    m_impl->dwaQuality = dwaQuality;
 }
 
 bool ExrWriter::addChannel(const std::string& name, const float* data) {
@@ -66,6 +78,20 @@ bool ExrWriter::write(std::string& errorMsg) {
 
     try {
         Imf::Header header(m_impl->width, m_impl->height);
+        switch (m_impl->compression) {
+        case ExrCompression::None: header.compression() = Imf::NO_COMPRESSION; break;
+        case ExrCompression::Zip: header.compression() = Imf::ZIP_COMPRESSION; break;
+        case ExrCompression::Zips: header.compression() = Imf::ZIPS_COMPRESSION; break;
+        case ExrCompression::Piz: header.compression() = Imf::PIZ_COMPRESSION; break;
+        case ExrCompression::Dwaa:
+            header.compression() = Imf::DWAA_COMPRESSION;
+            header.insert("dwaCompressionLevel", Imf::FloatAttribute(m_impl->dwaQuality));
+            break;
+        case ExrCompression::Dwab:
+            header.compression() = Imf::DWAB_COMPRESSION;
+            header.insert("dwaCompressionLevel", Imf::FloatAttribute(m_impl->dwaQuality));
+            break;
+        }
         Imf::FrameBuffer frameBuffer;
 
         for (const std::string& name : m_impl->channelOrder) {
