@@ -6,6 +6,7 @@
 
 #include "dlss/ngx_wrapper.h"
 
+#include <nvsdk_ngx_helpers_dlssg_vk.h>
 #include <nvsdk_ngx_defs_dlssd.h>
 #include <nvsdk_ngx_params.h>
 #include <nvsdk_ngx_params_dlssd.h>
@@ -93,6 +94,8 @@ bool NgxContext::init(VkInstance instance,
     errorMsg.clear();
     m_device = device;
     m_dlssRRAvailable = false;
+    m_dlssFGAvailable = false;
+    m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
 
     NVSDK_NGX_FeatureCommonInfo featureInfo{};
@@ -126,11 +129,16 @@ bool NgxContext::init(VkInstance instance,
 
     m_initialized = true;
     queryDlssRRAvailability();
+    queryDlssFGAvailability();
     return true;
 }
 
 bool NgxContext::isDlssRRAvailable() const {
     return m_initialized && m_dlssRRAvailable;
+}
+
+bool NgxContext::isDlssFGAvailable() const {
+    return m_initialized && m_dlssFGAvailable;
 }
 
 std::string NgxContext::unavailableReason() const {
@@ -198,6 +206,53 @@ bool NgxContext::createDlssRR(int inputWidth,
     return true;
 }
 
+bool NgxContext::createDlssFG(unsigned int width,
+                              unsigned int height,
+                              unsigned int backbufferFormat,
+                              VkCommandBuffer cmdBuf,
+                              std::string& errorMsg) {
+    errorMsg.clear();
+
+    if (!m_initialized) {
+        errorMsg = "NGX is not initialized.";
+        return false;
+    }
+
+    if (m_parameters == nullptr) {
+        errorMsg = "NGX capability parameters are unavailable.";
+        return false;
+    }
+
+    if (!m_dlssFGAvailable) {
+        errorMsg = "DLSS-G is not available.";
+        return false;
+    }
+
+    releaseDlssFG();
+
+    NVSDK_NGX_DLSSG_Create_Params createParams{};
+    createParams.Width = width;
+    createParams.Height = height;
+    createParams.NativeBackbufferFormat = backbufferFormat;
+    createParams.RenderWidth = width;
+    createParams.RenderHeight = height;
+    createParams.DynamicResolutionScaling = false;
+
+    const NVSDK_NGX_Result createResult = NGX_VK_CREATE_DLSSG(cmdBuf,
+                                                              1,
+                                                              1,
+                                                              &m_fgFeatureHandle,
+                                                              m_parameters,
+                                                              &createParams);
+    if (NVSDK_NGX_FAILED(createResult)) {
+        errorMsg = "Failed to create DLSS-G feature: " + ngxResultToString(createResult);
+        m_fgFeatureHandle = nullptr;
+        return false;
+    }
+
+    return true;
+}
+
 void NgxContext::releaseDlssRR() {
     if (m_featureHandle == nullptr) {
         return;
@@ -207,7 +262,17 @@ void NgxContext::releaseDlssRR() {
     m_featureHandle = nullptr;
 }
 
+void NgxContext::releaseDlssFG() {
+    if (m_fgFeatureHandle == nullptr) {
+        return;
+    }
+
+    NVSDK_NGX_VULKAN_ReleaseFeature(m_fgFeatureHandle);
+    m_fgFeatureHandle = nullptr;
+}
+
 void NgxContext::shutdown() {
+    releaseDlssFG();
     releaseDlssRR();
 
     if (m_parameters != nullptr) {
@@ -222,11 +287,17 @@ void NgxContext::shutdown() {
     m_device = nullptr;
     m_initialized = false;
     m_dlssRRAvailable = false;
+    m_dlssFGAvailable = false;
+    m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
 }
 
 NVSDK_NGX_Handle* NgxContext::featureHandle() const {
     return m_featureHandle;
+}
+
+NVSDK_NGX_Handle* NgxContext::fgFeatureHandle() const {
+    return m_fgFeatureHandle;
 }
 
 NVSDK_NGX_Handle* NgxContext::getFeatureHandle() const {
@@ -235,6 +306,10 @@ NVSDK_NGX_Handle* NgxContext::getFeatureHandle() const {
 
 NVSDK_NGX_Parameter* NgxContext::parameters() const {
     return m_parameters;
+}
+
+int NgxContext::maxMultiFrameCount() const {
+    return m_maxMultiFrameCount;
 }
 
 bool NgxContext::isInitialized() const {
@@ -306,4 +381,37 @@ bool NgxContext::queryDlssRRAvailability() {
     }
 
     return false;
+}
+
+bool NgxContext::queryDlssFGAvailability() {
+    if (m_parameters == nullptr) {
+        m_dlssFGAvailable = false;
+        m_maxMultiFrameCount = 0;
+        return false;
+    }
+
+    int available = 0;
+    if (readIntParameter(m_parameters, NVSDK_NGX_Parameter_FrameGeneration_Available, available) ||
+        readIntParameter(m_parameters, NVSDK_NGX_Parameter_FrameInterpolation_Available, available)) {
+        m_dlssFGAvailable = available != 0;
+    } else {
+        m_dlssFGAvailable = false;
+        m_maxMultiFrameCount = 0;
+        return false;
+    }
+
+    if (!m_dlssFGAvailable) {
+        m_maxMultiFrameCount = 0;
+        return false;
+    }
+
+    int maxMultiFrameCount = 0;
+    if (readIntParameter(m_parameters, NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, maxMultiFrameCount) &&
+        maxMultiFrameCount > 0) {
+        m_maxMultiFrameCount = maxMultiFrameCount;
+    } else {
+        m_maxMultiFrameCount = 1;
+    }
+
+    return true;
 }
