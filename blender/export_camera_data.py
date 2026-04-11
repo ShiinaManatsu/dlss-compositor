@@ -62,13 +62,36 @@ def _export_camera_data(output_path, frame_start, frame_end):
     import bpy
 
     scene = bpy.context.scene
+    if scene is None:
+        print("ERROR: No active scene.", file=sys.stderr)
+        sys.exit(1)
+
     cam_obj = scene.camera
 
     if cam_obj is None:
         print("ERROR: No active camera in the scene.", file=sys.stderr)
         sys.exit(1)
 
+    cam_data = getattr(cam_obj, "data", None)
+    fov = getattr(cam_data, "angle", None)
+    near_clip = getattr(cam_data, "clip_start", None)
+    far_clip = getattr(cam_data, "clip_end", None)
+    if fov is None or near_clip is None or far_clip is None:
+        print("ERROR: Active camera is missing required camera data.", file=sys.stderr)
+        sys.exit(1)
+
+    if frame_end < frame_start:
+        print(
+            f"ERROR: frame range is empty (start={frame_start}, end={frame_end}).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     render = scene.render
+    if render is None:
+        print("ERROR: Scene render settings are unavailable.", file=sys.stderr)
+        sys.exit(1)
+
     render_width = render.resolution_x
     render_height = render.resolution_y
 
@@ -99,10 +122,10 @@ def _export_camera_data(output_path, frame_start, frame_end):
         data["frames"][key] = {
             "matrix_world": matrix_world,
             "projection": projection,
-            "fov": cam_obj.data.angle,
+            "fov": fov,
             "aspect_ratio": render_width / render_height,
-            "near_clip": cam_obj.data.clip_start,
-            "far_clip": cam_obj.data.clip_end,
+            "near_clip": near_clip,
+            "far_clip": far_clip,
         }
 
     # Ensure output directory exists
@@ -124,8 +147,34 @@ if __name__ == "__main__":
         args = _parse_args()
 
         if args["test"]:
-            # Validate that parsing works and bpy is importable
             import bpy  # noqa: F811
+            import tempfile
+
+            tmp = tempfile.mktemp(suffix=".json")
+            _export_camera_data(tmp, 1, 1)
+            with open(tmp, "r", encoding="utf-8") as fh:
+                result = json.load(fh)
+
+            assert "frames" in result, "Missing 'frames' key"
+            assert "0001" in result["frames"], "Missing frame 0001"
+
+            frame = result["frames"]["0001"]
+            assert (
+                "matrix_world" in frame
+                and len(frame["matrix_world"]) == 4
+                and all(len(row) == 4 for row in frame["matrix_world"])
+            )
+            assert (
+                "projection" in frame
+                and len(frame["projection"]) == 4
+                and all(len(row) == 4 for row in frame["projection"])
+            )
+            assert frame["fov"] > 0, "fov must be positive"
+            assert frame["aspect_ratio"] > 0, "aspect_ratio must be positive"
+            assert frame["near_clip"] > 0
+            assert frame["far_clip"] > frame["near_clip"]
+
+            os.unlink(tmp)
 
             print("OK")
             sys.exit(0)
@@ -143,6 +192,10 @@ if __name__ == "__main__":
         import bpy  # noqa: F811
 
         scene = bpy.context.scene
+        if scene is None:
+            print("ERROR: No active scene.", file=sys.stderr)
+            sys.exit(1)
+
         frame_start = args["start"] if args["start"] is not None else scene.frame_start
         frame_end = args["end"] if args["end"] is not None else scene.frame_end
 
