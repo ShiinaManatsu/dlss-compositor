@@ -7,6 +7,8 @@ add_executable(dlss-compositor-tests
     test_cli.cpp
     test_texture_pipeline.cpp
     test_dlss_rr_processor.cpp
+    test_camera_data_loader.cpp
+    test_dlss_fg_processor.cpp
     test_sequence_processor.cpp
     test_integration.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
@@ -34,6 +36,12 @@ set_tests_properties(integration PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 if(MSVC)
     file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
     foreach(DLL ${DLSS_NGXCORE_DLLS})
+        add_custom_command(TARGET dlss-compositor-tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor-tests>
+        )
+    endforeach()
+    file(GLOB DLSS_NGXCORE_FG_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssg.dll")
+    foreach(DLL ${DLSS_NGXCORE_FG_DLLS})
         add_custom_command(TARGET dlss-compositor-tests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor-tests>
         )

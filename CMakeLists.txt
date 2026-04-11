@@ -79,6 +79,17 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
+# nlohmann/json (header-only JSON library)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+set(JSON_Install OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # ImGui as a library (Vulkan + GLFW backend)
 add_library(imgui_lib STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -102,7 +113,9 @@ add_library(dlss_compositor_core STATIC
     src/core/exr_writer.cpp
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
+    src/core/camera_data_loader.cpp
     src/dlss/dlss_rr_processor.cpp
+    src/dlss/dlss_fg_processor.cpp
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pipeline.cpp
@@ -156,6 +169,12 @@ target_compile_definitions(dlss-compositor PRIVATE
 if(MSVC)
     file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
     foreach(DLL ${DLSS_NGXCORE_DLLS})
+        add_custom_command(TARGET dlss-compositor POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor>
+        )
+    endforeach()
+    file(GLOB DLSS_NGXCORE_FG_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssg.dll")
+    foreach(DLL ${DLSS_NGXCORE_FG_DLLS})
         add_custom_command(TARGET dlss-compositor POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor>
         )
