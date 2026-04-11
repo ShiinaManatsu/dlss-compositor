@@ -74,3 +74,29 @@ TEST_CASE("ExrWriter - round trip", "[exr]") {
 
     std::filesystem::remove(tmpPath);
 }
+
+TEST_CASE("ExrReader - legacy aliases resolve Blender 5 channel names", "[exr]") {
+    const int W = 2;
+    const int H = 2;
+    std::vector<float> data{0.0f, 0.25f, 0.5f, 1.0f};
+
+    std::filesystem::create_directories("tests/fixtures");
+    const std::string tmpPath = "tests/fixtures/tmp_alias_roundtrip.exr";
+
+    ExrWriter writer;
+    std::string err;
+    REQUIRE(writer.create(tmpPath, W, H, err));
+    REQUIRE(writer.addChannel("Image.R", data.data()));
+    REQUIRE(writer.write(err));
+
+    ExrReader reader;
+    REQUIRE(reader.open(tmpPath, err));
+    REQUIRE(reader.readChannel("Image.R") != nullptr);
+
+    const float* aliasData = reader.readChannel("RenderLayer.Combined.R");
+    REQUIRE(aliasData != nullptr);
+    REQUIRE(aliasData[0] == Catch::Approx(data[0]).epsilon(0.01));
+    REQUIRE(aliasData[3] == Catch::Approx(data[3]).epsilon(0.01));
+
+    std::filesystem::remove(tmpPath);
+}

@@ -20,8 +20,6 @@ target_include_directories(dlss-compositor-tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/cli
     ${CMAKE_SOURCE_DIR}/src/core
-    ${tinyexr_SOURCE_DIR}
-    ${tinyexr_SOURCE_DIR}/deps/miniz
 )
 include(CTest)
 include(Catch)

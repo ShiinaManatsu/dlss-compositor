@@ -70,8 +70,8 @@ bool ChannelMapper::mapFromExr(const ExrReader& reader, MappedBuffers& out, std:
             }
         }
     }
-    if (!mvChannels[0] || !mvChannels[1] || !mvChannels[2] || !mvChannels[3]) {
-        errorMsg = "Missing required motion vector channel(s)";
+    if (!mvChannels[0] || !mvChannels[1]) {
+        errorMsg = "Missing required motion vector channel(s) (need at least X and Y)";
         return false;
     }
     out.status["motionVectors"] = {mvChannels[0] || mvChannels[1] || mvChannels[2] || mvChannels[3],

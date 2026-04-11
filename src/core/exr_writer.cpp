@@ -1,9 +1,11 @@
 #include "core/exr_writer.h"
 
-#include <tinyexr.h>
+#include <ImfChannelList.h>
+#include <ImfFrameBuffer.h>
+#include <ImfHeader.h>
+#include <ImfOutputFile.h>
 
-#include <cstdlib>
-#include <cstring>
+#include <algorithm>
 #include <filesystem>
 #include <unordered_map>
 #include <vector>
@@ -62,36 +64,30 @@ bool ExrWriter::write(std::string& errorMsg) {
         std::filesystem::create_directories(outPath.parent_path(), ec);
     }
 
-    const size_t pixelCount = static_cast<size_t>(m_impl->width) * static_cast<size_t>(m_impl->height);
-    std::vector<float> rgba(pixelCount * 4u, 0.0f);
+    try {
+        Imf::Header header(m_impl->width, m_impl->height);
+        Imf::FrameBuffer frameBuffer;
 
-    auto getChannel = [&](const std::string& name) -> const float* {
-        auto it = m_impl->channelData.find(name);
-        return (it == m_impl->channelData.end()) ? nullptr : it->second.data();
-    };
+        for (const std::string& name : m_impl->channelOrder) {
+            auto it = m_impl->channelData.find(name);
+            if (it == m_impl->channelData.end()) {
+                errorMsg = "Missing channel data for: " + name;
+                return false;
+            }
 
-    const float* r = getChannel("R");
-    const float* g = getChannel("G");
-    const float* b = getChannel("B");
-    const float* a = getChannel("A");
-    if (!r) {
-        r = m_impl->channelData.begin()->second.data();
-    }
-
-    for (size_t i = 0; i < pixelCount; ++i) {
-        rgba[i * 4u + 0u] = r ? r[i] : 0.0f;
-        rgba[i * 4u + 1u] = g ? g[i] : 0.0f;
-        rgba[i * 4u + 2u] = b ? b[i] : 0.0f;
-        rgba[i * 4u + 3u] = a ? a[i] : 1.0f;
-    }
-
-    const char* err = nullptr;
-    int ret = SaveEXR(rgba.data(), m_impl->width, m_impl->height, 4, 1, outPath.string().c_str(), &err);
-    if (ret != TINYEXR_SUCCESS) {
-        errorMsg = err ? err : "Failed to write EXR";
-        if (err) {
-            FreeEXRErrorMessage(err);
+            header.channels().insert(name.c_str(), Imf::Channel(Imf::FLOAT));
+            frameBuffer.insert(name.c_str(),
+                               Imf::Slice(Imf::FLOAT,
+                                          reinterpret_cast<char*>(it->second.data()),
+                                          sizeof(float),
+                                          sizeof(float) * static_cast<size_t>(m_impl->width)));
         }
+
+        Imf::OutputFile outputFile(outPath.string().c_str(), header);
+        outputFile.setFrameBuffer(frameBuffer);
+        outputFile.writePixels(m_impl->height);
+    } catch (const std::exception& ex) {
+        errorMsg = ex.what();
         return false;
     }
 

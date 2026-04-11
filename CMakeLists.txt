@@ -17,14 +17,18 @@ find_package(Vulkan REQUIRED)
 # FetchContent for third-party deps
 include(FetchContent)
 
-# tinyexr
+# OpenEXR
 FetchContent_Declare(
-    tinyexr
-    GIT_REPOSITORY https://github.com/syoyo/tinyexr.git
-    GIT_TAG        v1.0.9
+    openexr
+    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openexr.git
+    GIT_TAG        v3.3.3
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(tinyexr)
+set(OPENEXR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(OPENEXR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(OPENEXR_INSTALL OFF CACHE BOOL "" FORCE)
+set(OPENEXR_INSTALL_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(openexr)
 
 # Catch2
 FetchContent_Declare(
@@ -108,14 +112,11 @@ target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     src/
     ${DLSS_SDK_ROOT}/include
-    ${tinyexr_SOURCE_DIR}
-    ${tinyexr_SOURCE_DIR}/deps/miniz
     ${VulkanMemoryAllocator_SOURCE_DIR}/include
     ${vulkanmemoryallocator_SOURCE_DIR}/include
 )
 target_link_libraries(dlss_compositor_core PUBLIC
-    tinyexr
-    miniz
+    OpenEXR::OpenEXR
     volk
     glfw
     $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib>
@@ -137,8 +138,6 @@ target_sources(dlss-compositor PRIVATE
 target_include_directories(dlss-compositor PRIVATE
     src/
     ${DLSS_SDK_ROOT}/include
-    ${tinyexr_SOURCE_DIR}
-    ${tinyexr_SOURCE_DIR}/deps/miniz
     ${VulkanMemoryAllocator_SOURCE_DIR}/include
     ${vulkanmemoryallocator_SOURCE_DIR}/include
 )
