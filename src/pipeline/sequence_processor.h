@@ -29,6 +29,11 @@ public:
     static std::vector<bool> computeResetFlags(const std::vector<SequenceFrameInfo>& frames);
 
 private:
+    bool processDirectoryFG(const std::string& inputDir,
+                            const std::string& outputDir,
+                            const AppConfig& config,
+                            std::string& errorMsg);
+
     VulkanContext& m_ctx;
     NgxContext& m_ngx;
     TexturePipeline& m_texturePipeline;

@@ -1,10 +1,12 @@
 #include "pipeline/sequence_processor.h"
 
 #include "cli/config.h"
+#include "core/camera_data_loader.h"
 #include "core/channel_mapper.h"
 #include "core/exr_reader.h"
 #include "core/exr_writer.h"
 #include "core/mv_converter.h"
+#include "dlss/dlss_fg_processor.h"
 #include "dlss/dlss_rr_processor.h"
 #include "dlss/ngx_wrapper.h"
 #include "gpu/texture_pipeline.h"
@@ -15,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <limits>
 #include <regex>
 #include <sstream>
@@ -30,6 +33,16 @@ struct DlssFeatureGuard {
 
     ~DlssFeatureGuard() {
         ngx.releaseDlssRR();
+    }
+
+    NgxContext& ngx;
+};
+
+struct DlssFgFeatureGuard {
+    explicit DlssFgFeatureGuard(NgxContext& ngxIn) : ngx(ngxIn) {}
+
+    ~DlssFgFeatureGuard() {
+        ngx.releaseDlssFG();
     }
 
     NgxContext& ngx;
@@ -218,6 +231,73 @@ std::string quote(const std::filesystem::path& path) {
     return std::string("\"") + path.string() + "\"";
 }
 
+bool writeRgbaExr(const std::filesystem::path& outputDir,
+                  int outputFrameCounter,
+                  int width,
+                  int height,
+                  const std::vector<float>& rgba,
+                  const AppConfig& config,
+                  std::string& errorMsg) {
+    std::vector<float> r;
+    std::vector<float> g;
+    std::vector<float> b;
+    std::vector<float> a;
+    splitRgba(rgba, r, g, b, a);
+
+    ExrWriter writer;
+    std::ostringstream oss;
+    oss << "frame_" << std::setfill('0') << std::setw(4) << outputFrameCounter << ".exr";
+    const std::filesystem::path outputPath = outputDir / oss.str();
+    if (!writer.create(outputPath.string(), width, height, errorMsg)) {
+        return false;
+    }
+
+    writer.setCompression(config.exrCompression, config.exrDwaQuality);
+    if (!writer.addChannel("R", r.data()) ||
+        !writer.addChannel("G", g.data()) ||
+        !writer.addChannel("B", b.data()) ||
+        !writer.addChannel("A", a.data()) ||
+        !writer.write(errorMsg)) {
+        if (errorMsg.empty()) {
+            errorMsg = "Failed to write output EXR.";
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool pathsAreEquivalent(const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
+    std::error_code ec;
+    const std::filesystem::path lhsCanonical = std::filesystem::weakly_canonical(lhs, ec);
+    if (ec) {
+        ec.clear();
+        const std::filesystem::path lhsAbsolute = std::filesystem::absolute(lhs, ec);
+        if (ec) {
+            return false;
+        }
+        ec.clear();
+        const std::filesystem::path rhsAbsolute = std::filesystem::absolute(rhs, ec);
+        if (ec) {
+            return false;
+        }
+        return lhsAbsolute == rhsAbsolute;
+    }
+
+    ec.clear();
+    const std::filesystem::path rhsCanonical = std::filesystem::weakly_canonical(rhs, ec);
+    if (ec) {
+        ec.clear();
+        const std::filesystem::path rhsAbsolute = std::filesystem::absolute(rhs, ec);
+        if (ec) {
+            return false;
+        }
+        return lhsCanonical == rhsAbsolute;
+    }
+
+    return lhsCanonical == rhsCanonical;
+}
+
 } // namespace
 
 SequenceProcessor::SequenceProcessor(VulkanContext& ctx, NgxContext& ngx, TexturePipeline& texturePipeline)
@@ -290,6 +370,10 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                                          const AppConfig& config,
                                          std::string& errorMsg) {
     errorMsg.clear();
+
+    if (config.interpolateFactor > 0) {
+        return processDirectoryFG(inputDir, outputDir, config, errorMsg);
+    }
 
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
@@ -554,6 +638,322 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     if (!anyFrameSucceeded) {
         errorMsg = "No frames were processed successfully.";
         return false;
+    }
+
+    if (config.encodeVideo) {
+        std::filesystem::path videoOutputPath(config.videoOutputFile);
+        if (videoOutputPath.is_relative()) {
+            videoOutputPath = std::filesystem::path(outputDir) / videoOutputPath;
+        }
+
+        const std::filesystem::path inputPattern = std::filesystem::path(outputDir) / "frame_%04d.exr";
+        std::ostringstream command;
+        command << "ffmpeg -y -framerate " << config.fps << " -i " << quote(inputPattern)
+                << " -c:v libx264 -pix_fmt yuv420p -crf 18 " << quote(videoOutputPath);
+        const int ffmpegResult = std::system(command.str().c_str());
+        if (ffmpegResult != 0) {
+            std::fprintf(stderr, "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
+        }
+    }
+
+    return true;
+}
+
+bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
+                                           const std::string& outputDir,
+                                           const AppConfig& config,
+                                           std::string& errorMsg) {
+    errorMsg.clear();
+
+    std::vector<SequenceFrameInfo> frames;
+    if (!scanAndSort(inputDir, frames, errorMsg)) {
+        return false;
+    }
+
+    if (frames.size() < 2) {
+        errorMsg = "At least 2 frames required for interpolation";
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    if (ec) {
+        errorMsg = "Failed to create output directory: " + outputDir;
+        return false;
+    }
+
+    if (pathsAreEquivalent(inputDir, outputDir)) {
+        errorMsg = "Input and output directories must be different for interpolation.";
+        return false;
+    }
+
+    CameraDataLoader cameraLoader;
+    if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
+        return false;
+    }
+
+    for (const SequenceFrameInfo& frameInfo : frames) {
+        if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
+            errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
+            return false;
+        }
+        if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
+            errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
+            return false;
+        }
+    }
+
+    unsigned int multiFrameCount = 0;
+    if (config.interpolateFactor == 2) {
+        multiFrameCount = 1;
+    } else if (config.interpolateFactor == 4) {
+        multiFrameCount = 3;
+    } else {
+        errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
+                   ". Only 2x and 4x are supported.";
+        return false;
+    }
+
+    if (!m_ngx.isDlssFGAvailable()) {
+        errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
+        return false;
+    }
+
+    if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
+        errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
+                   std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
+        return false;
+    }
+
+    ExrReader firstReader;
+    if (!firstReader.open(frames.front().path.string(), errorMsg)) {
+        return false;
+    }
+
+    const int expectedWidth = firstReader.width();
+    const int expectedHeight = firstReader.height();
+
+    VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
+    if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg)) {
+        return false;
+    }
+    if (!beginCommandBuffer(createCmdBuf, errorMsg) ||
+        !m_ngx.createDlssFG(static_cast<uint32_t>(expectedWidth),
+                            static_cast<uint32_t>(expectedHeight),
+                            static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
+                            createCmdBuf,
+                            errorMsg)) {
+        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBuf);
+        return false;
+    }
+    DlssFgFeatureGuard featureGuard(m_ngx);
+    if (!submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
+        return false;
+    }
+
+    ChannelMapper channelMapper;
+    DlssFgProcessor fgProcessor(m_ctx, m_ngx);
+
+    MappedBuffers firstMappedBuffers;
+    if (!channelMapper.mapFromExr(firstReader, firstMappedBuffers, errorMsg)) {
+        return false;
+    }
+
+    int outputFrameCounter = 1;
+    const std::filesystem::path outputPath(outputDir);
+    if (!writeRgbaExr(outputPath,
+                      outputFrameCounter,
+                      expectedWidth,
+                      expectedHeight,
+                      firstMappedBuffers.color,
+                      config,
+                      errorMsg)) {
+        return false;
+    }
+    ++outputFrameCounter;
+
+    for (size_t i = 1; i < frames.size(); ++i) {
+        const SequenceFrameInfo& previousFrameInfo = frames[i - 1];
+        const SequenceFrameInfo& currentFrameInfo = frames[i];
+        const std::string filename = currentFrameInfo.path.filename().string();
+        std::fprintf(stdout,
+                     "Processing frame pair %d/%d: %s -> %s\n",
+                     static_cast<int>(i),
+                     static_cast<int>(frames.size() - 1),
+                     previousFrameInfo.path.filename().string().c_str(),
+                     filename.c_str());
+
+        const bool hasGap = previousFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
+                            currentFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
+                            (currentFrameInfo.frameNumber - previousFrameInfo.frameNumber) > 1;
+        const bool resetFlag = (i == 1) || hasGap;
+        if (hasGap) {
+            std::fprintf(stderr,
+                         "Warning: frame gap detected between %d and %d; resetting temporal history\n",
+                         previousFrameInfo.frameNumber,
+                         currentFrameInfo.frameNumber);
+        }
+
+        if (!cameraLoader.hasFrame(previousFrameInfo.frameNumber)) {
+            errorMsg = "Camera data missing for frame " + std::to_string(previousFrameInfo.frameNumber);
+            return false;
+        }
+        if (!cameraLoader.hasFrame(currentFrameInfo.frameNumber)) {
+            errorMsg = "Camera data missing for frame " + std::to_string(currentFrameInfo.frameNumber);
+            return false;
+        }
+
+        ExrReader reader;
+        if (!reader.open(currentFrameInfo.path.string(), errorMsg)) {
+            return false;
+        }
+
+        if (reader.width() != expectedWidth || reader.height() != expectedHeight) {
+            std::ostringstream message;
+            message << "Input resolution mismatch. Expected " << expectedWidth << "x" << expectedHeight
+                    << ", got " << reader.width() << "x" << reader.height();
+            errorMsg = message.str();
+            return false;
+        }
+
+        MappedBuffers mappedBuffers;
+        if (!channelMapper.mapFromExr(reader, mappedBuffers, errorMsg)) {
+            return false;
+        }
+
+        DlssFgCameraParams camParams{};
+        if (!cameraLoader.computePairParams(currentFrameInfo.frameNumber,
+                                            previousFrameInfo.frameNumber,
+                                            camParams,
+                                            errorMsg)) {
+            return false;
+        }
+
+        const MvConvertResult mvResult = MvConverter::convert(mappedBuffers.motionVectors.data(),
+                                                              expectedWidth,
+                                                              expectedHeight);
+
+        TextureHandle color;
+        TextureHandle depth;
+        TextureHandle motion;
+
+        try {
+            color = m_texturePipeline.upload(mappedBuffers.color.data(),
+                                             expectedWidth,
+                                             expectedHeight,
+                                             4,
+                                             VK_FORMAT_R16G16B16A16_SFLOAT);
+            depth = m_texturePipeline.upload(mappedBuffers.depth.data(),
+                                             expectedWidth,
+                                             expectedHeight,
+                                             1,
+                                             VK_FORMAT_R32_SFLOAT);
+            motion = m_texturePipeline.upload(mvResult.mvXY.data(),
+                                              expectedWidth,
+                                              expectedHeight,
+                                              2,
+                                              VK_FORMAT_R16G16_SFLOAT);
+
+            for (unsigned int multiFrameIndex = 1; multiFrameIndex <= multiFrameCount; ++multiFrameIndex) {
+                const std::vector<float> outputInit(static_cast<size_t>(expectedWidth) *
+                                                        static_cast<size_t>(expectedHeight) *
+                                                        4u,
+                                                    0.0f);
+                TextureHandle outputInterp;
+
+                try {
+                    outputInterp = m_texturePipeline.upload(outputInit.data(),
+                                                            expectedWidth,
+                                                            expectedHeight,
+                                                            4,
+                                                            VK_FORMAT_R16G16B16A16_SFLOAT);
+
+                    DlssFgFrameInput fgInput{};
+                    fgInput.backbuffer = color.image;
+                    fgInput.backbufferView = color.view;
+                    fgInput.depth = depth.image;
+                    fgInput.depthView = depth.view;
+                    fgInput.motionVectors = motion.image;
+                    fgInput.motionView = motion.view;
+                    fgInput.outputInterp = outputInterp.image;
+                    fgInput.outputInterpView = outputInterp.view;
+                    fgInput.width = static_cast<uint32_t>(expectedWidth);
+                    fgInput.height = static_cast<uint32_t>(expectedHeight);
+                    fgInput.reset = resetFlag && (multiFrameIndex == 1);
+                    fgInput.cameraParams = camParams;
+                    fgInput.multiFrameCount = multiFrameCount;
+                    fgInput.multiFrameIndex = multiFrameIndex;
+
+                    VkCommandBuffer evalCmdBuf = VK_NULL_HANDLE;
+                    if (!allocateCommandBuffer(m_ctx, evalCmdBuf, errorMsg)) {
+                        throw std::runtime_error(errorMsg);
+                    }
+                    if (!beginCommandBuffer(evalCmdBuf, errorMsg)) {
+                        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &evalCmdBuf);
+                        throw std::runtime_error(errorMsg);
+                    }
+
+                    try {
+                        transitionImage(evalCmdBuf,
+                                        outputInterp.image,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                        VK_IMAGE_LAYOUT_GENERAL);
+                        if (!fgProcessor.evaluate(evalCmdBuf, fgInput, errorMsg)) {
+                            throw std::runtime_error(errorMsg);
+                        }
+                        transitionImage(evalCmdBuf,
+                                        outputInterp.image,
+                                        VK_IMAGE_LAYOUT_GENERAL,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    } catch (...) {
+                        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &evalCmdBuf);
+                        throw;
+                    }
+
+                    if (!submitAndWait(m_ctx, evalCmdBuf, errorMsg)) {
+                        throw std::runtime_error(errorMsg);
+                    }
+
+                    const std::vector<float> outputData = m_texturePipeline.download(outputInterp);
+                    if (!writeRgbaExr(outputPath,
+                                      outputFrameCounter,
+                                      expectedWidth,
+                                      expectedHeight,
+                                      outputData,
+                                      config,
+                                      errorMsg)) {
+                        throw std::runtime_error(errorMsg);
+                    }
+                    ++outputFrameCounter;
+                } catch (...) {
+                    destroyHandle(m_texturePipeline, outputInterp);
+                    throw;
+                }
+
+                destroyHandle(m_texturePipeline, outputInterp);
+            }
+        } catch (const std::exception& ex) {
+            destroyHandle(m_texturePipeline, motion);
+            destroyHandle(m_texturePipeline, depth);
+            destroyHandle(m_texturePipeline, color);
+            errorMsg = ex.what();
+            return false;
+        }
+
+        destroyHandle(m_texturePipeline, motion);
+        destroyHandle(m_texturePipeline, depth);
+        destroyHandle(m_texturePipeline, color);
+
+        if (!writeRgbaExr(outputPath,
+                          outputFrameCounter,
+                          expectedWidth,
+                          expectedHeight,
+                          mappedBuffers.color,
+                          config,
+                          errorMsg)) {
+            return false;
+        }
+        ++outputFrameCounter;
     }
 
     if (config.encodeVideo) {
