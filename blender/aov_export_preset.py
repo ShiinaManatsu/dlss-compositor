@@ -133,26 +133,49 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         file_output.format.exr_codec = "ZIP"
 
         if scene.dlsscomp_output_dir:
-            file_output.base_path = scene.dlsscomp_output_dir
+            if bpy.app.version >= (5, 0, 0):
+                file_output.directory = scene.dlsscomp_output_dir
+            else:
+                file_output.base_path = scene.dlsscomp_output_dir
 
         # Connect render layer passes to file output inputs
-        pass_names = [
-            "Image",  # Combined
-            "Depth",  # Z
-            "Normal",
-            "Vector",
-            "DiffCol",
-            "GlossCol",
-            "Roughness",
-        ]
+        # Blender 5.x renamed some render pass outputs
+        if bpy.app.version >= (5, 0, 0):
+            # Blender 5.x: VALUE→FLOAT, DiffCol→"Diffuse Color", GlossCol→"Glossy Color"
+            pass_names = [
+                ("Image", "RGBA"),  # Combined
+                ("Depth", "FLOAT"),  # Z
+                ("Normal", "VECTOR"),
+                ("Vector", "VECTOR"),
+                ("Diffuse Color", "RGBA"),
+                ("Glossy Color", "RGBA"),
+                ("Roughness", "FLOAT"),
+            ]
+        else:
+            pass_names = [
+                ("Image", "RGBA"),
+                ("Depth", "VALUE"),
+                ("Normal", "VECTOR"),
+                ("Vector", "VECTOR"),
+                ("DiffCol", "RGBA"),
+                ("GlossCol", "RGBA"),
+                ("Roughness", "VALUE"),
+            ]
 
-        # Remove default slots beyond what we need
-        existing_slots = {s.name for s in file_output.file_slots}
+        # Get existing slots collection (API changed in Blender 5.x)
+        if bpy.app.version >= (5, 0, 0):
+            slots_collection = file_output.file_output_items
+        else:
+            slots_collection = file_output.file_slots
+        existing_slots = {s.name for s in slots_collection}
 
-        for pname in pass_names:
+        for pname, sock_type in pass_names:
             # Ensure a matching file slot exists
             if pname not in existing_slots:
-                file_output.file_slots.new(pname)
+                if bpy.app.version >= (5, 0, 0):
+                    slots_collection.new(sock_type, pname)
+                else:
+                    slots_collection.new(pname)
 
             # Try to connect
             if pname in render_layer_node.outputs:
