@@ -50,6 +50,12 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
             aov.type = "VALUE"
 
         # 3 — Wire Principled BSDF → AOV Output per material ------------------
+        #
+        # Strategy: read what drives the Principled BSDF's *Roughness INPUT*,
+        # then route the same signal into the AOV Output's Value input.
+        # Principled BSDF has no "Roughness" output socket — only an input.
+        #
+        fixed_mats = 0
         for mat in bpy.data.materials:
             if mat.node_tree is None:
                 continue
@@ -65,34 +71,49 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
             if principled is None:
                 continue
 
-            # Skip if an AOV Output for "Roughness" already exists
-            has_aov_output = any(
-                n.type == "OUTPUT_AOV" and n.name == "Roughness" for n in nodes
-            )
-            if has_aov_output:
+            # Find or create the AOV Output node named "Roughness"
+            aov_node = None
+            for node in nodes:
+                if node.type == "OUTPUT_AOV" and node.name == "Roughness":
+                    aov_node = node
+                    break
+            if aov_node is None:
+                aov_node = nodes.new("ShaderNodeOutputAOV")
+                aov_node.name = "Roughness"
+                aov_node.aov_name = "Roughness"
+
+            # Get the Value input on the AOV Output node
+            value_in = aov_node.inputs.get("Value")
+            if value_in is None:
                 continue
 
-            # Add AOV Output node and connect
-            aov_node = nodes.new("ShaderNodeOutputAOV")
-            aov_node.name = "Roughness"
-            aov_node.aov_name = "Roughness"
+            # If already wired, leave it alone
+            if value_in.is_linked:
+                continue
 
-            # Find the "Roughness" output socket on Principled BSDF
-            rough_out = None
-            for out in principled.outputs:
-                if out.name == "Roughness":
-                    rough_out = out
-                    break
+            # Read the Roughness *input* of Principled BSDF
+            rough_input = principled.inputs.get("Roughness")
+            if rough_input is None:
+                continue
 
-            if rough_out is not None:
-                # Connect to the "Value" input on the AOV Output node
-                value_in = None
-                for inp in aov_node.inputs:
-                    if inp.name == "Value":
-                        value_in = inp
-                        break
-                if value_in is not None:
-                    links.new(rough_out, value_in)
+            if rough_input.is_linked:
+                # Forward whatever upstream socket drives the roughness input
+                src_socket = rough_input.links[0].from_socket
+                links.new(src_socket, value_in)
+            else:
+                # Roughness is a plain constant — bake it into a Value node so
+                # the AOV always emits the correct scalar even if the BSDF
+                # default changes later.
+                val_node = nodes.new("ShaderNodeValue")
+                val_node.outputs[0].default_value = rough_input.default_value
+                val_node.label = f"Roughness ({rough_input.default_value:.3f})"
+                val_node.location = (
+                    aov_node.location.x - 220,
+                    aov_node.location.y,
+                )
+                links.new(val_node.outputs[0], value_in)
+
+            fixed_mats += 1
 
         # 4 — Compositor: multilayer EXR file output ---------------------------
         scene = context.scene
@@ -190,7 +211,10 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
 
         # 5 — Report -----------------------------------------------------------
         configured = "Combined, Z, Vector, Normal, DiffCol, GlossCol, Roughness(AOV)"
-        self.report({"INFO"}, f"Passes configured: {configured}")
+        self.report(
+            {"INFO"},
+            f"Passes configured: {configured} — wired {fixed_mats} material(s)",
+        )
 
         return {"FINISHED"}
 
