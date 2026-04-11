@@ -71,3 +71,61 @@ TEST_CASE("e2e_sequence_processing", "[integration]") {
     ctx.destroy();
     std::filesystem::remove_all("test_integration_out");
 }
+
+TEST_CASE("dlss_fg_e2e_interpolation", "[integration][fg]") {
+    struct OutputDirCleanup {
+        ~OutputDirCleanup() {
+            std::filesystem::remove_all("test_fg_integration_out/");
+        }
+    } cleanup;
+
+    std::filesystem::remove_all("test_fg_integration_out/");
+    std::filesystem::create_directories("test_fg_integration_out/");
+
+    VulkanContext ctx;
+    std::string errorMsg;
+    if (!ctx.init(errorMsg)) {
+        SKIP("No RTX GPU");
+    }
+
+    NgxContext ngx;
+    if (!ngx.init(ctx.instance(), ctx.physicalDevice(), ctx.device(), nullptr, errorMsg)) {
+        SKIP("NGX init failed: " + errorMsg);
+    }
+    if (!ngx.isDlssFGAvailable()) {
+        SKIP("DLSS-G not available");
+    }
+
+    {
+        TexturePipeline pipeline(ctx);
+        SequenceProcessor processor(ctx, ngx, pipeline);
+
+        AppConfig config;
+        config.inputDir = "tests/fixtures/sequence/";
+        config.outputDir = "test_fg_integration_out/";
+        config.scaleFactor = 1;
+        config.interpolateFactor = 2;
+        config.cameraDataFile = "tests/fixtures/camera.json";
+
+        std::filesystem::create_directories(config.outputDir);
+
+        const bool result = processor.processDirectory(config.inputDir, config.outputDir, config, errorMsg);
+        INFO(errorMsg);
+        REQUIRE(result == true);
+
+        REQUIRE(std::filesystem::exists(config.outputDir));
+        REQUIRE(countExrFiles(config.outputDir) == 9);
+
+        const std::filesystem::path firstOutput = std::filesystem::path(config.outputDir) / "frame_0001.exr";
+        REQUIRE(std::filesystem::exists(firstOutput));
+
+        ExrReader reader;
+        REQUIRE(reader.open(firstOutput.string(), errorMsg));
+        REQUIRE(reader.width() == 64);
+        REQUIRE(reader.height() == 64);
+    }
+
+    ngx.shutdown();
+    ctx.destroy();
+    std::filesystem::remove_all("test_fg_integration_out/");
+}
