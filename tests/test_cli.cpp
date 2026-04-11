@@ -107,3 +107,40 @@ TEST_CASE("CliParser - fps flag", "[cli]") {
     REQUIRE(ok);
     REQUIRE(cfg.fps == 30);
 }
+
+TEST_CASE("CliParser - --interpolate 2x", "[cli]") {
+    FakeArgs fa{"--interpolate", "2x", "--camera-data", "camera.json"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.interpolateFactor == 2);
+    REQUIRE(cfg.cameraDataFile == "camera.json");
+}
+
+TEST_CASE("CliParser - --interpolate 4x", "[cli]") {
+    FakeArgs fa{"--interpolate", "4x", "--camera-data", "camera.json"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.interpolateFactor == 4);
+}
+
+TEST_CASE("CliParser - --interpolate invalid value", "[cli]") {
+    FakeArgs fa{"--interpolate", "3x", "--camera-data", "camera.json"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
+}
+
+TEST_CASE("CliParser - --interpolate without --camera-data", "[cli]") {
+    FakeArgs fa{"--interpolate", "2x"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
+}
