@@ -182,3 +182,12 @@ TEST_CASE("CliParser - --memory-budget missing value", "[cli]") {
     REQUIRE(!ok);
     REQUIRE(!err.empty());
 }
+
+TEST_CASE("CliParser - --memory-budget default", "[cli]") {
+    FakeArgs fa{"--input-dir", "test/"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.memoryBudgetGB == 8);
+}

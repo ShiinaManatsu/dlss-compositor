@@ -8,6 +8,8 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 ## Features
 - DLSS-RR denoising and upscaling via Vulkan NGX API
 - DLSS Frame Generation 2x/4x interpolation via raw NGX Vulkan API (RTX 40+)
+- Combined RR+FG pipeline — upscale and interpolate in a single pass with zero-copy GPU handoff
+- Configurable memory budget (`--memory-budget`) for GPU texture preloading and pooling
 - Multi-layer EXR reading with Blender channel name mapping
 - Motion vector conversion (Blender 4-channel to DLSS-RR 2-channel current to previous)
 - Temporal history management with automatic reset on sequence gaps
@@ -29,6 +31,7 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 3. **Render**: Use the panel to configure passes and render your animation as a MultiLayer EXR sequence.
 4. **Process (DLSS-RR)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
 5. **Process (DLSS-FG)**: Export camera data using `blender/export_camera_data.py`, then run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
+6. **Process (Combined)**: Run both upscale and interpolation together: `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2 --interpolate 2x --camera-data camera.json`.
 
 ## CLI Usage
 ```bash
@@ -43,6 +46,12 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x -
 
 # Frame interpolation (4x)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 4x --camera-data camera.json
+
+# Combined upscale + interpolation (RR then FG, zero-copy GPU handoff)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --interpolate 2x --camera-data camera.json
+
+# Custom memory budget for texture preloading (default 8 GB, minimum 1 GB)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --memory-budget 4
 
 # Process and encode to video (requires FFmpeg)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --encode-video result.mp4 --fps 24

@@ -37,6 +37,22 @@ Run the compositor with the `--interpolate` and `--camera-data` flags:
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
 ```
 
+## Combined Mode (RR + FG)
+
+When both `--scale` and `--interpolate` are specified, the tool runs a combined pipeline: DLSS-RR upscales/denoises each frame first, then DLSS-FG interpolates between the upscaled frames. The RR output stays on the GPU and is handed directly to FG with zero CPU readback — matching how game engines like Unreal Engine chain these features.
+
+```bash
+# 2x upscale + 2x interpolation — effective 4x frame count at 2x resolution
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --interpolate 2x --camera-data camera.json
+```
+
+**Requirements:**
+- All requirements for both RR and FG apply (RTX 40+ for 2x FG, RTX 50+ for 4x FG).
+- Camera data JSON is required (same as FG-only mode).
+- Depth and motion vectors are kept at render resolution — they are not upscaled for FG input.
+
+**Output naming:** Original upscaled frames and interpolated frames are interleaved and numbered sequentially, same as FG-only mode.
+
 ## CLI Usage
 
 The `dlss-compositor.exe` tool processes EXR sequences.
@@ -58,6 +74,7 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
 | `--interpolate <2x|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
 | `--camera-data <file>` | — | Required when `--interpolate` is used. Path to per-frame camera JSON exported by `export_camera_data.py`. |
+| `--memory-budget <GB>` | 8 | GPU memory budget in GB for texture preloading and pooling. Minimum 1. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
 | `--gui` | — | Launch the ImGui viewer for visual inspection. |
 | `--test-ngx` | — | Verify DLSS Ray Reconstruction availability on your system and exit. |
