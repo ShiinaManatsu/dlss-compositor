@@ -33,3 +33,22 @@
 - `--interpolate` now parses `2x`/`4x` into `AppConfig::interpolateFactor`.
 - `--camera-data` stores a camera metadata JSON path in `AppConfig::cameraDataFile`.
 - Interpolation requests are rejected unless camera data is also provided.
+
+### Blender Export Script (Task 6)
+- `blender/export_camera_data.py` — standalone headless script, no UI panels/operators
+- Argument parsing: `sys.argv` with `--` separator, manual parsing (no argparse) — matches aov_export_preset.py pattern
+- Matrix conversion: `[list(row) for row in cam_obj.matrix_world]` for row-major list-of-lists
+- Projection matrix: `cam_obj.calc_matrix_camera(depsgraph, x=W, y=H)` requires evaluated depsgraph
+- `--test` flag: imports bpy, prints "OK", exits 0
+- `.sisyphus/evidence/` is gitignored — evidence files written but not committed
+- blender not on PATH in this environment — live test skipped
+
+### Task 3 — CameraDataLoader Implementation
+- nlohmann/json added via FetchContent (v3.11.3), linked to `dlss_compositor_core` via `nlohmann_json::nlohmann_json`
+- JSON_BuildTests=OFF, JSON_Install=OFF to minimize build scope
+- Matrix inverse: Gauss-Jordan with partial pivoting, singular → returns identity + false
+- Basis vectors: column extraction from row-major 4x4 (matrix_world[row][col]): col0=right, col1=up, col2=forward, col3=position
+- clipToPrevClip formula: prevProj * prevView * currWorld * currProjInv (view = inverse(matrix_world))
+- Frame keys: zero-padded 4-digit strings ("0001"), padFrameNumber() uses std::setw(4)/setfill('0')
+- 232 assertions across 7 test cases: valid parse, malformed rejection, derived params including identity/inverse checks
+- Test binary location: `build\tests\Release\dlss-compositor-tests.exe`

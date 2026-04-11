@@ -132,6 +132,7 @@ target_link_libraries(dlss_compositor_core PUBLIC
     OpenEXR::OpenEXR
     volk
     glfw
+    nlohmann_json::nlohmann_json
     $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib>
     $<$<NOT:$<CONFIG:Debug>>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib>
 )
