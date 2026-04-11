@@ -34,6 +34,11 @@ private:
                             const AppConfig& config,
                             std::string& errorMsg);
 
+    bool processDirectoryRRFG(const std::string& inputDir,
+                              const std::string& outputDir,
+                              const AppConfig& config,
+                              std::string& errorMsg);
+
     VulkanContext& m_ctx;
     NgxContext& m_ngx;
     TexturePipeline& m_texturePipeline;

@@ -9,7 +9,9 @@
 #include "dlss/dlss_fg_processor.h"
 #include "dlss/dlss_rr_processor.h"
 #include "dlss/ngx_wrapper.h"
+#include "gpu/texture_pool.h"
 #include "gpu/texture_pipeline.h"
+#include "pipeline/frame_prefetcher.h"
 #include "gpu/vulkan_context.h"
 
 #include <algorithm>
@@ -19,6 +21,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <limits>
+#include <memory>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -371,6 +374,9 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                                          std::string& errorMsg) {
     errorMsg.clear();
 
+    if (config.interpolateFactor > 0 && config.scaleFactor > 1) {
+        return processDirectoryRRFG(inputDir, outputDir, config, errorMsg);
+    }
     if (config.interpolateFactor > 0) {
         return processDirectoryFG(inputDir, outputDir, config, errorMsg);
     }
@@ -404,12 +410,57 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     DlssRRProcessor processor(m_ctx, m_ngx);
     DlssFeatureGuard featureGuard(m_ngx);
 
-    bool featureCreated = false;
+    // Peek at the first frame to determine input resolution for feature creation and prefetcher.
+    ExrReader peekReader;
+    std::string peekError;
+    if (!peekReader.open(frames.front().path.string(), peekError)) {
+        errorMsg = "Failed to open first frame: " + peekError;
+        return false;
+    }
+
+    const int expectedInputWidth = peekReader.width();
+    const int expectedInputHeight = peekReader.height();
+    const int expectedOutputWidth = expectedInputWidth * config.scaleFactor;
+    const int expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+
+    VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
+    if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg) ||
+        !beginCommandBuffer(createCmdBuf, errorMsg) ||
+        !m_ngx.createDlssRR(expectedInputWidth,
+                            expectedInputHeight,
+                            expectedOutputWidth,
+                            expectedOutputHeight,
+                            config.quality,
+                            createCmdBuf,
+                            errorMsg) ||
+        !submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
+        if (createCmdBuf != VK_NULL_HANDLE && !errorMsg.empty()) {
+            vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBuf);
+        }
+        return false;
+    }
+
+    const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
+    std::unique_ptr<TexturePool> texturePool = std::make_unique<TexturePool>(m_ctx, m_texturePipeline, maxMemory);
+    const std::vector<float> outputInit(static_cast<size_t>(expectedOutputWidth) *
+                                            static_cast<size_t>(expectedOutputHeight) *
+                                            4u,
+                                        0.0f);
+
+    MvConverter mvConverter;
+    FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedInputWidth, expectedInputHeight);
+    prefetcher.start(frames);
+
     bool anyFrameSucceeded = false;
-    int expectedInputWidth = 0;
-    int expectedInputHeight = 0;
-    int expectedOutputWidth = 0;
-    int expectedOutputHeight = 0;
+    bool pooledHandlesAcquired = false;
+    TextureHandle color;
+    TextureHandle depth;
+    TextureHandle motion;
+    TextureHandle diffuse;
+    TextureHandle specular;
+    TextureHandle normals;
+    TextureHandle roughness;
+    TextureHandle output;
 
     for (size_t index = 0; index < frames.size(); ++index) {
         const SequenceFrameInfo& frameInfo = frames[index];
@@ -429,114 +480,40 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
         std::string frameError;
 
         try {
-            ExrReader reader;
-            if (!reader.open(frameInfo.path.string(), frameError)) {
-                std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
+            auto prefetched = prefetcher.getNext();
+            if (!prefetched || !prefetched->valid) {
+                std::fprintf(stderr, "Frame %s failed: prefetch error\n", filename.c_str());
                 continue;
             }
 
-            if (!featureCreated) {
-                expectedInputWidth = reader.width();
-                expectedInputHeight = reader.height();
-                expectedOutputWidth = expectedInputWidth * config.scaleFactor;
-                expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+            auto& mappedBuffers = prefetched->mappedBuffers;
+            auto& mvResult = prefetched->mvResult;
 
-                VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
-                if (!allocateCommandBuffer(m_ctx, createCmdBuf, frameError) ||
-                    !beginCommandBuffer(createCmdBuf, frameError) ||
-                    !m_ngx.createDlssRR(expectedInputWidth,
-                                        expectedInputHeight,
-                                        expectedOutputWidth,
-                                        expectedOutputHeight,
-                                        config.quality,
-                                        createCmdBuf,
-                                        frameError) ||
-                    !submitAndWait(m_ctx, createCmdBuf, frameError)) {
-                    if (createCmdBuf != VK_NULL_HANDLE && !frameError.empty()) {
-                        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBuf);
-                    }
-                    std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
-                    continue;
-                }
-
-                featureCreated = true;
-            }
-
-            if (reader.width() != expectedInputWidth || reader.height() != expectedInputHeight) {
-                std::ostringstream message;
-                message << "Input resolution mismatch. Expected " << expectedInputWidth << "x" << expectedInputHeight
-                        << ", got " << reader.width() << "x" << reader.height();
-                std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), message.str().c_str());
-                continue;
-            }
-
-            MappedBuffers mappedBuffers;
-            if (!channelMapper.mapFromExr(reader, mappedBuffers, frameError)) {
-                std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
-                continue;
-            }
-
-            const MvConvertResult mvResult = MvConverter::convert(mappedBuffers.motionVectors.data(),
-                                                                  expectedInputWidth,
-                                                                  expectedInputHeight);
             const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
             const std::vector<float> specularRgba = expandRgbToRgba(mappedBuffers.specularAlbedo, 1.0f);
             const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
-            const std::vector<float> outputInit(static_cast<size_t>(expectedOutputWidth) *
-                                                    static_cast<size_t>(expectedOutputHeight) *
-                                                    4u,
-                                                0.0f);
-
-            TextureHandle color;
-            TextureHandle depth;
-            TextureHandle motion;
-            TextureHandle diffuse;
-            TextureHandle specular;
-            TextureHandle normals;
-            TextureHandle roughness;
-            TextureHandle output;
 
             try {
-                color = m_texturePipeline.upload(mappedBuffers.color.data(),
-                                                 expectedInputWidth,
-                                                 expectedInputHeight,
-                                                 4,
-                                                 VK_FORMAT_R16G16B16A16_SFLOAT);
-                depth = m_texturePipeline.upload(mappedBuffers.depth.data(),
-                                                 expectedInputWidth,
-                                                 expectedInputHeight,
-                                                 1,
-                                                 VK_FORMAT_R32_SFLOAT);
-                motion = m_texturePipeline.upload(mvResult.mvXY.data(),
-                                                  expectedInputWidth,
-                                                  expectedInputHeight,
-                                                  2,
-                                                  VK_FORMAT_R16G16_SFLOAT);
-                diffuse = m_texturePipeline.upload(diffuseRgba.data(),
-                                                   expectedInputWidth,
-                                                   expectedInputHeight,
-                                                   4,
-                                                   VK_FORMAT_R16G16B16A16_SFLOAT);
-                specular = m_texturePipeline.upload(specularRgba.data(),
-                                                    expectedInputWidth,
-                                                    expectedInputHeight,
-                                                    4,
-                                                    VK_FORMAT_R16G16B16A16_SFLOAT);
-                normals = m_texturePipeline.upload(normalsRgba.data(),
-                                                   expectedInputWidth,
-                                                   expectedInputHeight,
-                                                   4,
-                                                   VK_FORMAT_R16G16B16A16_SFLOAT);
-                roughness = m_texturePipeline.upload(mappedBuffers.roughness.data(),
-                                                     expectedInputWidth,
-                                                     expectedInputHeight,
-                                                     1,
-                                                     VK_FORMAT_R32_SFLOAT);
-                output = m_texturePipeline.upload(outputInit.data(),
-                                                  expectedOutputWidth,
-                                                  expectedOutputHeight,
-                                                  4,
-                                                  VK_FORMAT_R16G16B16A16_SFLOAT);
+                if (!pooledHandlesAcquired) {
+                    color = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    depth = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
+                    motion = texturePool->acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
+                    diffuse = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    specular = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    normals = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    roughness = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
+                    output = texturePool->acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    pooledHandlesAcquired = true;
+                }
+
+                texturePool->updateData(color, mappedBuffers.color.data());
+                texturePool->updateData(depth, mappedBuffers.depth.data());
+                texturePool->updateData(motion, mvResult.mvXY.data());
+                texturePool->updateData(diffuse, diffuseRgba.data());
+                texturePool->updateData(specular, specularRgba.data());
+                texturePool->updateData(normals, normalsRgba.data());
+                texturePool->updateData(roughness, mappedBuffers.roughness.data());
+                texturePool->updateData(output, outputInit.data());
 
                 DlssFrameInput frame{};
                 frame.color = color.image;
@@ -621,24 +598,497 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frameError = ex.what();
                 std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
             }
-
-            destroyHandle(m_texturePipeline, output);
-            destroyHandle(m_texturePipeline, roughness);
-            destroyHandle(m_texturePipeline, normals);
-            destroyHandle(m_texturePipeline, specular);
-            destroyHandle(m_texturePipeline, diffuse);
-            destroyHandle(m_texturePipeline, motion);
-            destroyHandle(m_texturePipeline, depth);
-            destroyHandle(m_texturePipeline, color);
         } catch (const std::exception& ex) {
             std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), ex.what());
         }
+    }
+
+    if (texturePool) {
+        texturePool->releaseAll();
     }
 
     if (!anyFrameSucceeded) {
         errorMsg = "No frames were processed successfully.";
         return false;
     }
+
+    if (config.encodeVideo) {
+        std::filesystem::path videoOutputPath(config.videoOutputFile);
+        if (videoOutputPath.is_relative()) {
+            videoOutputPath = std::filesystem::path(outputDir) / videoOutputPath;
+        }
+
+        const std::filesystem::path inputPattern = std::filesystem::path(outputDir) / "frame_%04d.exr";
+        std::ostringstream command;
+        command << "ffmpeg -y -framerate " << config.fps << " -i " << quote(inputPattern)
+                << " -c:v libx264 -pix_fmt yuv420p -crf 18 " << quote(videoOutputPath);
+        const int ffmpegResult = std::system(command.str().c_str());
+        if (ffmpegResult != 0) {
+            std::fprintf(stderr, "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
+        }
+    }
+
+    return true;
+}
+
+bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
+                                             const std::string& outputDir,
+                                             const AppConfig& config,
+                                             std::string& errorMsg) {
+    errorMsg.clear();
+
+    const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
+                                            hasPass(config.outputPasses, OutputPass::Normals);
+    if (requestedUnsupportedPasses) {
+        std::fprintf(stderr,
+                     "Warning: only 'beauty' pass output is currently supported. Other passes will be ignored.\n");
+    }
+
+    std::vector<SequenceFrameInfo> frames;
+    if (!scanAndSort(inputDir, frames, errorMsg)) {
+        return false;
+    }
+
+    if (frames.size() < 2) {
+        errorMsg = "At least 2 frames required for interpolation";
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    if (ec) {
+        errorMsg = "Failed to create output directory: " + outputDir;
+        return false;
+    }
+
+    if (pathsAreEquivalent(inputDir, outputDir)) {
+        errorMsg = "Input and output directories must be different for interpolation.";
+        return false;
+    }
+
+    CameraDataLoader cameraLoader;
+    if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
+        return false;
+    }
+
+    for (const SequenceFrameInfo& frameInfo : frames) {
+        if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
+            errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
+            return false;
+        }
+        if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
+            errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
+            return false;
+        }
+    }
+
+    unsigned int multiFrameCount = 0;
+    if (config.interpolateFactor == 2) {
+        multiFrameCount = 1;
+    } else if (config.interpolateFactor == 4) {
+        multiFrameCount = 3;
+    } else {
+        errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
+                   ". Only 2x and 4x are supported.";
+        return false;
+    }
+
+    if (!m_ngx.isDlssFGAvailable()) {
+        errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
+        return false;
+    }
+
+    if (!m_ngx.isDlssRRAvailable()) {
+        errorMsg = m_ngx.unavailableReason();
+        if (errorMsg.empty()) {
+            errorMsg = "DLSS Ray Reconstruction is not supported on this GPU.";
+        }
+        return false;
+    }
+
+    if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
+        errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
+                   std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
+        return false;
+    }
+
+    ExrReader firstReader;
+    if (!firstReader.open(frames.front().path.string(), errorMsg)) {
+        return false;
+    }
+
+    const int expectedInputWidth = firstReader.width();
+    const int expectedInputHeight = firstReader.height();
+    const int expectedOutputWidth = expectedInputWidth * config.scaleFactor;
+    const int expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+
+    DlssFeatureGuard featureGuardRR(m_ngx);
+    DlssFgFeatureGuard featureGuardFG(m_ngx);
+
+    VkCommandBuffer createCmdBufRR = VK_NULL_HANDLE;
+    if (!allocateCommandBuffer(m_ctx, createCmdBufRR, errorMsg)) {
+        return false;
+    }
+    if (!beginCommandBuffer(createCmdBufRR, errorMsg) ||
+        !m_ngx.createDlssRR(expectedInputWidth,
+                            expectedInputHeight,
+                            expectedOutputWidth,
+                            expectedOutputHeight,
+                            config.quality,
+                            createCmdBufRR,
+                            errorMsg)) {
+        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufRR);
+        return false;
+    }
+    if (!submitAndWait(m_ctx, createCmdBufRR, errorMsg)) {
+        return false;
+    }
+
+    VkCommandBuffer createCmdBufFG = VK_NULL_HANDLE;
+    if (!allocateCommandBuffer(m_ctx, createCmdBufFG, errorMsg)) {
+        return false;
+    }
+    if (!beginCommandBuffer(createCmdBufFG, errorMsg) ||
+        !m_ngx.createDlssFG(static_cast<uint32_t>(expectedOutputWidth),
+                            static_cast<uint32_t>(expectedOutputHeight),
+                            static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
+                            createCmdBufFG,
+                            errorMsg)) {
+        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufFG);
+        return false;
+    }
+    if (!submitAndWait(m_ctx, createCmdBufFG, errorMsg)) {
+        return false;
+    }
+
+    ChannelMapper channelMapper;
+    MvConverter mvConverter;
+    DlssRRProcessor rrProcessor(m_ctx, m_ngx);
+    DlssFgProcessor fgProcessor(m_ctx, m_ngx);
+    const std::filesystem::path outputPath(outputDir);
+    const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
+    TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
+
+    FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedInputWidth, expectedInputHeight);
+    prefetcher.start(frames);
+
+    auto firstPrefetched = prefetcher.getNext();
+    if (!firstPrefetched || !firstPrefetched->valid) {
+        errorMsg = "Failed to prefetch first frame";
+        return false;
+    }
+
+    auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
+    const auto& firstMvResult = firstPrefetched->mvResult;
+    const std::vector<float> firstDiffuseRgba = expandRgbToRgba(firstMappedBuffers.diffuseAlbedo, 1.0f);
+    const std::vector<float> firstSpecularRgba = expandRgbToRgba(firstMappedBuffers.specularAlbedo, 1.0f);
+    const std::vector<float> firstNormalsRgba = expandRgbToRgba(firstMappedBuffers.normals, 1.0f);
+    const std::vector<float> rrOutputInit(static_cast<size_t>(expectedOutputWidth) *
+                                              static_cast<size_t>(expectedOutputHeight) *
+                                              4u,
+                                          0.0f);
+
+    TextureHandle firstColor;
+    TextureHandle firstDepth;
+    TextureHandle firstMotion;
+    TextureHandle firstDiffuse;
+    TextureHandle firstSpecular;
+    TextureHandle firstNormals;
+    TextureHandle firstRoughness;
+    TextureHandle firstOutput;
+
+    try {
+        firstColor = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        firstDepth = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
+        firstMotion = pool.acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
+        firstDiffuse = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        firstSpecular = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        firstNormals = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        firstRoughness = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
+        firstOutput = pool.acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+
+        pool.updateData(firstColor, firstMappedBuffers.color.data());
+        pool.updateData(firstDepth, firstMappedBuffers.depth.data());
+        pool.updateData(firstMotion, firstMvResult.mvXY.data());
+        pool.updateData(firstDiffuse, firstDiffuseRgba.data());
+        pool.updateData(firstSpecular, firstSpecularRgba.data());
+        pool.updateData(firstNormals, firstNormalsRgba.data());
+        pool.updateData(firstRoughness, firstMappedBuffers.roughness.data());
+        pool.updateData(firstOutput, rrOutputInit.data());
+    } catch (const std::exception& ex) {
+        errorMsg = ex.what();
+        return false;
+    }
+
+    DlssFrameInput firstFrame{};
+    firstFrame.color = firstColor.image;
+    firstFrame.colorView = firstColor.view;
+    firstFrame.depth = firstDepth.image;
+    firstFrame.depthView = firstDepth.view;
+    firstFrame.motionVectors = firstMotion.image;
+    firstFrame.motionView = firstMotion.view;
+    firstFrame.diffuseAlbedo = firstDiffuse.image;
+    firstFrame.diffuseView = firstDiffuse.view;
+    firstFrame.specularAlbedo = firstSpecular.image;
+    firstFrame.specularView = firstSpecular.view;
+    firstFrame.normals = firstNormals.image;
+    firstFrame.normalsView = firstNormals.view;
+    firstFrame.roughness = firstRoughness.image;
+    firstFrame.roughnessView = firstRoughness.view;
+    firstFrame.output = firstOutput.image;
+    firstFrame.outputView = firstOutput.view;
+    firstFrame.inputWidth = static_cast<uint32_t>(expectedInputWidth);
+    firstFrame.inputHeight = static_cast<uint32_t>(expectedInputHeight);
+    firstFrame.outputWidth = static_cast<uint32_t>(expectedOutputWidth);
+    firstFrame.outputHeight = static_cast<uint32_t>(expectedOutputHeight);
+    firstFrame.mvScaleX = firstMvResult.scaleX;
+    firstFrame.mvScaleY = firstMvResult.scaleY;
+    firstFrame.reset = true;
+
+    VkCommandBuffer firstEvalCmdBuf = VK_NULL_HANDLE;
+    if (!allocateCommandBuffer(m_ctx, firstEvalCmdBuf, errorMsg)) {
+        return false;
+    }
+    if (!beginCommandBuffer(firstEvalCmdBuf, errorMsg)) {
+        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &firstEvalCmdBuf);
+        return false;
+    }
+
+    transitionImage(firstEvalCmdBuf,
+                    firstOutput.image,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_IMAGE_LAYOUT_GENERAL);
+    if (!rrProcessor.evaluate(firstEvalCmdBuf, firstFrame, errorMsg)) {
+        vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &firstEvalCmdBuf);
+        return false;
+    }
+    transitionImage(firstEvalCmdBuf,
+                    firstOutput.image,
+                    VK_IMAGE_LAYOUT_GENERAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (!submitAndWait(m_ctx, firstEvalCmdBuf, errorMsg)) {
+        return false;
+    }
+
+    int outputFrameCounter = 1;
+    const std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
+    if (!writeRgbaExr(outputPath,
+                      outputFrameCounter,
+                      expectedOutputWidth,
+                      expectedOutputHeight,
+                      firstOutputData,
+                      config,
+                      errorMsg)) {
+        return false;
+    }
+    ++outputFrameCounter;
+
+    for (size_t i = 1; i < frames.size(); ++i) {
+        const SequenceFrameInfo& previousFrameInfo = frames[i - 1];
+        const SequenceFrameInfo& currentFrameInfo = frames[i];
+        const std::string filename = currentFrameInfo.path.filename().string();
+        std::fprintf(stdout,
+                     "Processing frame pair %d/%d: %s -> %s\n",
+                     static_cast<int>(i),
+                     static_cast<int>(frames.size() - 1),
+                     previousFrameInfo.path.filename().string().c_str(),
+                     filename.c_str());
+
+        DlssFgCameraParams camParams{};
+        if (!cameraLoader.computePairParams(currentFrameInfo.frameNumber,
+                                            previousFrameInfo.frameNumber,
+                                            camParams,
+                                            errorMsg)) {
+            return false;
+        }
+
+        auto prefetched = prefetcher.getNext();
+        if (!prefetched || !prefetched->valid) {
+            errorMsg = "Failed to prefetch frame: " + currentFrameInfo.path.filename().string();
+            return false;
+        }
+
+        const bool hasGap = previousFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
+                            currentFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
+                            (currentFrameInfo.frameNumber - previousFrameInfo.frameNumber) > 1;
+        const bool resetFlag = (i == 1) || hasGap;
+        if (hasGap) {
+            std::fprintf(stderr,
+                         "Warning: frame gap detected between %d and %d; resetting temporal history\n",
+                         previousFrameInfo.frameNumber,
+                         currentFrameInfo.frameNumber);
+        }
+
+        auto& mappedBuffers = prefetched->mappedBuffers;
+        auto& mvResult = prefetched->mvResult;
+        const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
+        const std::vector<float> specularRgba = expandRgbToRgba(mappedBuffers.specularAlbedo, 1.0f);
+        const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
+
+        TextureHandle color;
+        TextureHandle depth;
+        TextureHandle motion;
+        TextureHandle diffuse;
+        TextureHandle specular;
+        TextureHandle normals;
+        TextureHandle roughness;
+        TextureHandle rrOutput;
+
+        color = firstColor;
+        depth = firstDepth;
+        motion = firstMotion;
+        diffuse = firstDiffuse;
+        specular = firstSpecular;
+        normals = firstNormals;
+        roughness = firstRoughness;
+        rrOutput = firstOutput;
+
+        try {
+            pool.updateData(color, mappedBuffers.color.data());
+            pool.updateData(depth, mappedBuffers.depth.data());
+            pool.updateData(motion, mvResult.mvXY.data());
+            pool.updateData(diffuse, diffuseRgba.data());
+            pool.updateData(specular, specularRgba.data());
+            pool.updateData(normals, normalsRgba.data());
+            pool.updateData(roughness, mappedBuffers.roughness.data());
+            pool.updateData(rrOutput, rrOutputInit.data());
+        } catch (const std::exception& ex) {
+            errorMsg = ex.what();
+            return false;
+        }
+
+        DlssFrameInput rrFrame{};
+        rrFrame.color = color.image;
+        rrFrame.colorView = color.view;
+        rrFrame.depth = depth.image;
+        rrFrame.depthView = depth.view;
+        rrFrame.motionVectors = motion.image;
+        rrFrame.motionView = motion.view;
+        rrFrame.diffuseAlbedo = diffuse.image;
+        rrFrame.diffuseView = diffuse.view;
+        rrFrame.specularAlbedo = specular.image;
+        rrFrame.specularView = specular.view;
+        rrFrame.normals = normals.image;
+        rrFrame.normalsView = normals.view;
+        rrFrame.roughness = roughness.image;
+        rrFrame.roughnessView = roughness.view;
+        rrFrame.output = rrOutput.image;
+        rrFrame.outputView = rrOutput.view;
+        rrFrame.inputWidth = static_cast<uint32_t>(expectedInputWidth);
+        rrFrame.inputHeight = static_cast<uint32_t>(expectedInputHeight);
+        rrFrame.outputWidth = static_cast<uint32_t>(expectedOutputWidth);
+        rrFrame.outputHeight = static_cast<uint32_t>(expectedOutputHeight);
+        rrFrame.mvScaleX = mvResult.scaleX;
+        rrFrame.mvScaleY = mvResult.scaleY;
+        rrFrame.reset = resetFlag;
+
+        VkCommandBuffer rrEvalCmdBuf = VK_NULL_HANDLE;
+        if (!allocateCommandBuffer(m_ctx, rrEvalCmdBuf, errorMsg)) {
+            return false;
+        }
+        if (!beginCommandBuffer(rrEvalCmdBuf, errorMsg)) {
+            vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &rrEvalCmdBuf);
+            return false;
+        }
+
+        transitionImage(rrEvalCmdBuf,
+                        rrOutput.image,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_IMAGE_LAYOUT_GENERAL);
+        if (!rrProcessor.evaluate(rrEvalCmdBuf, rrFrame, errorMsg)) {
+            vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &rrEvalCmdBuf);
+            return false;
+        }
+        transitionImage(rrEvalCmdBuf,
+                        rrOutput.image,
+                        VK_IMAGE_LAYOUT_GENERAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (!submitAndWait(m_ctx, rrEvalCmdBuf, errorMsg)) {
+            return false;
+        }
+
+        for (unsigned int multiFrameIndex = 1; multiFrameIndex <= multiFrameCount; ++multiFrameIndex) {
+            TextureHandle outputInterp;
+            outputInterp = m_texturePipeline.upload(rrOutputInit.data(),
+                                                    expectedOutputWidth,
+                                                    expectedOutputHeight,
+                                                    4,
+                                                    VK_FORMAT_R16G16B16A16_SFLOAT);
+
+            DlssFgFrameInput fgInput{};
+            fgInput.backbuffer = rrOutput.image;
+            fgInput.backbufferView = rrOutput.view;
+            fgInput.depth = depth.image;
+            fgInput.depthView = depth.view;
+            fgInput.motionVectors = motion.image;
+            fgInput.motionView = motion.view;
+            fgInput.outputInterp = outputInterp.image;
+            fgInput.outputInterpView = outputInterp.view;
+            fgInput.width = static_cast<uint32_t>(expectedOutputWidth);
+            fgInput.height = static_cast<uint32_t>(expectedOutputHeight);
+            fgInput.reset = resetFlag && (multiFrameIndex == 1);
+            fgInput.cameraParams = camParams;
+            fgInput.multiFrameCount = multiFrameCount;
+            fgInput.multiFrameIndex = multiFrameIndex;
+
+            VkCommandBuffer fgEvalCmdBuf = VK_NULL_HANDLE;
+            if (!allocateCommandBuffer(m_ctx, fgEvalCmdBuf, errorMsg)) {
+                destroyHandle(m_texturePipeline, outputInterp);
+                return false;
+            }
+            if (!beginCommandBuffer(fgEvalCmdBuf, errorMsg)) {
+                vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &fgEvalCmdBuf);
+                destroyHandle(m_texturePipeline, outputInterp);
+                return false;
+            }
+
+            transitionImage(fgEvalCmdBuf,
+                            outputInterp.image,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                            VK_IMAGE_LAYOUT_GENERAL);
+            if (!fgProcessor.evaluate(fgEvalCmdBuf, fgInput, errorMsg)) {
+                vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &fgEvalCmdBuf);
+                destroyHandle(m_texturePipeline, outputInterp);
+                return false;
+            }
+            transitionImage(fgEvalCmdBuf,
+                            outputInterp.image,
+                            VK_IMAGE_LAYOUT_GENERAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (!submitAndWait(m_ctx, fgEvalCmdBuf, errorMsg)) {
+                destroyHandle(m_texturePipeline, outputInterp);
+                return false;
+            }
+
+            const std::vector<float> interpOutputData = m_texturePipeline.download(outputInterp);
+            if (!writeRgbaExr(outputPath,
+                              outputFrameCounter,
+                              expectedOutputWidth,
+                              expectedOutputHeight,
+                              interpOutputData,
+                              config,
+                              errorMsg)) {
+                destroyHandle(m_texturePipeline, outputInterp);
+                return false;
+            }
+            ++outputFrameCounter;
+            destroyHandle(m_texturePipeline, outputInterp);
+        }
+
+        const std::vector<float> rrOutputData = m_texturePipeline.download(rrOutput);
+        if (!writeRgbaExr(outputPath,
+                          outputFrameCounter,
+                          expectedOutputWidth,
+                          expectedOutputHeight,
+                          rrOutputData,
+                          config,
+                          errorMsg)) {
+            return false;
+        }
+        ++outputFrameCounter;
+    }
+
+    pool.releaseAll();
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);
@@ -751,13 +1201,35 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         return false;
     }
 
-    ChannelMapper channelMapper;
-    DlssFgProcessor fgProcessor(m_ctx, m_ngx);
+    const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
+    TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
+    TextureHandle color;
+    TextureHandle depth;
+    TextureHandle motion;
 
-    MappedBuffers firstMappedBuffers;
-    if (!channelMapper.mapFromExr(firstReader, firstMappedBuffers, errorMsg)) {
+    try {
+        color = pool.acquire(expectedWidth, expectedHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        depth = pool.acquire(expectedWidth, expectedHeight, 1, VK_FORMAT_R32_SFLOAT);
+        motion = pool.acquire(expectedWidth, expectedHeight, 2, VK_FORMAT_R16G16_SFLOAT);
+    } catch (const std::exception& ex) {
+        errorMsg = ex.what();
         return false;
     }
+
+    ChannelMapper channelMapper;
+    MvConverter mvConverter;
+    DlssFgProcessor fgProcessor(m_ctx, m_ngx);
+
+    FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedWidth, expectedHeight);
+    prefetcher.start(frames);
+
+    auto firstPrefetched = prefetcher.getNext();
+    if (!firstPrefetched || !firstPrefetched->valid) {
+        errorMsg = "Failed to prefetch first frame";
+        return false;
+    }
+
+    auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
 
     int outputFrameCounter = 1;
     const std::filesystem::path outputPath(outputDir);
@@ -803,23 +1275,13 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
             return false;
         }
 
-        ExrReader reader;
-        if (!reader.open(currentFrameInfo.path.string(), errorMsg)) {
+        auto prefetched = prefetcher.getNext();
+        if (!prefetched || !prefetched->valid) {
+            errorMsg = "Failed to prefetch frame: " + currentFrameInfo.path.filename().string();
             return false;
         }
 
-        if (reader.width() != expectedWidth || reader.height() != expectedHeight) {
-            std::ostringstream message;
-            message << "Input resolution mismatch. Expected " << expectedWidth << "x" << expectedHeight
-                    << ", got " << reader.width() << "x" << reader.height();
-            errorMsg = message.str();
-            return false;
-        }
-
-        MappedBuffers mappedBuffers;
-        if (!channelMapper.mapFromExr(reader, mappedBuffers, errorMsg)) {
-            return false;
-        }
+        auto& mappedBuffers = prefetched->mappedBuffers;
 
         DlssFgCameraParams camParams{};
         if (!cameraLoader.computePairParams(currentFrameInfo.frameNumber,
@@ -829,30 +1291,12 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
             return false;
         }
 
-        const MvConvertResult mvResult = MvConverter::convert(mappedBuffers.motionVectors.data(),
-                                                              expectedWidth,
-                                                              expectedHeight);
-
-        TextureHandle color;
-        TextureHandle depth;
-        TextureHandle motion;
+        const MvConvertResult& mvResult = prefetched->mvResult;
 
         try {
-            color = m_texturePipeline.upload(mappedBuffers.color.data(),
-                                             expectedWidth,
-                                             expectedHeight,
-                                             4,
-                                             VK_FORMAT_R16G16B16A16_SFLOAT);
-            depth = m_texturePipeline.upload(mappedBuffers.depth.data(),
-                                             expectedWidth,
-                                             expectedHeight,
-                                             1,
-                                             VK_FORMAT_R32_SFLOAT);
-            motion = m_texturePipeline.upload(mvResult.mvXY.data(),
-                                              expectedWidth,
-                                              expectedHeight,
-                                              2,
-                                              VK_FORMAT_R16G16_SFLOAT);
+            pool.updateData(color, mappedBuffers.color.data());
+            pool.updateData(depth, mappedBuffers.depth.data());
+            pool.updateData(motion, mvResult.mvXY.data());
 
             for (unsigned int multiFrameIndex = 1; multiFrameIndex <= multiFrameCount; ++multiFrameIndex) {
                 const std::vector<float> outputInit(static_cast<size_t>(expectedWidth) *
@@ -933,16 +1377,9 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                 destroyHandle(m_texturePipeline, outputInterp);
             }
         } catch (const std::exception& ex) {
-            destroyHandle(m_texturePipeline, motion);
-            destroyHandle(m_texturePipeline, depth);
-            destroyHandle(m_texturePipeline, color);
             errorMsg = ex.what();
             return false;
         }
-
-        destroyHandle(m_texturePipeline, motion);
-        destroyHandle(m_texturePipeline, depth);
-        destroyHandle(m_texturePipeline, color);
 
         if (!writeRgbaExr(outputPath,
                           outputFrameCounter,
@@ -955,6 +1392,8 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         }
         ++outputFrameCounter;
     }
+
+    pool.releaseAll();
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);
