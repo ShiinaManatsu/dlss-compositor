@@ -37,10 +37,12 @@ struct AppConfig {
     std::string outputDir;
 
     int scaleFactor = 2;
+    bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::Balanced;
 
     int interpolateFactor = 0;
     std::string cameraDataFile;
+    int memoryBudgetGB = 8;
 
     std::string channelMapFile;
 

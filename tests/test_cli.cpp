@@ -144,3 +144,41 @@ TEST_CASE("CliParser - --interpolate without --camera-data", "[cli]") {
     REQUIRE(!ok);
     REQUIRE(!err.empty());
 }
+
+TEST_CASE("CliParser - combined --scale and --interpolate", "[cli]") {
+    FakeArgs fa{"--scale", "2", "--interpolate", "2x", "--camera-data", "camera.json"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.scaleFactor == 2);
+    REQUIRE(cfg.interpolateFactor == 2);
+    REQUIRE(cfg.cameraDataFile == "camera.json");
+}
+
+TEST_CASE("CliParser - --memory-budget valid", "[cli]") {
+    FakeArgs fa{"--memory-budget", "4"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.memoryBudgetGB == 4);
+}
+
+TEST_CASE("CliParser - --memory-budget invalid", "[cli]") {
+    FakeArgs fa{"--memory-budget", "0"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
+}
+
+TEST_CASE("CliParser - --memory-budget missing value", "[cli]") {
+    FakeArgs fa{"--memory-budget"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
+}

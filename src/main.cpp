@@ -110,11 +110,13 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        if (!ngx.isDlssRRAvailable()) {
-            fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
-            ngx.shutdown();
-            context.destroy();
-            return 1;
+        if (config.interpolateFactor == 0 || config.scaleExplicit) {
+            if (!ngx.isDlssRRAvailable()) {
+                fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
+                ngx.shutdown();
+                context.destroy();
+                return 1;
+            }
         }
 
         TexturePipeline texturePipeline(context);

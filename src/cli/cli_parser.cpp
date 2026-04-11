@@ -213,6 +213,7 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             config.scaleFactor = scale;
+            config.scaleExplicit = true;
             continue;
         }
         if (std::strcmp(arg, "--interpolate") == 0) {
@@ -234,6 +235,19 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             config.cameraDataFile = argv[++i];
+            continue;
+        }
+        if (std::strcmp(arg, "--memory-budget") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--memory-budget requires a value";
+                return false;
+            }
+            int budget = 0;
+            if (!parseInt(argv[++i], budget) || budget < 1) {
+                errorMsg = "--memory-budget must be an integer >= 1";
+                return false;
+            }
+            config.memoryBudgetGB = budget;
             continue;
         }
         if (std::strcmp(arg, "--quality") == 0) {
@@ -335,9 +349,10 @@ void CliParser::printHelp() {
     std::printf("Options:\n");
     std::printf("  --input-dir <dir>      Input EXR sequence directory\n");
     std::printf("  --output-dir <dir>     Output EXR sequence directory\n");
-    std::printf("  --scale <factor>       Upscale factor (2, 3, or 4)\n");
-    std::printf("  --interpolate <mode>   Frame interpolation (2x or 4x; requires --camera-data)\n");
+    std::printf("  --scale <factor>       Upscale factor (2, 3, or 4). Can combine with --interpolate.\n");
+    std::printf("  --interpolate <mode>   Frame interpolation (2x or 4x; requires --camera-data). Can combine with --scale.\n");
     std::printf("  --camera-data <file>   Camera metadata JSON file\n");
+    std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
     std::printf("  --quality <mode>       DLSS quality mode (MaxQuality|Balanced|Performance|UltraPerformance)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
