@@ -60,6 +60,18 @@ bool parseQuality(const char* value, DlssQualityMode& out) {
     return false;
 }
 
+bool parseInterpolateFactor(const char* value, int& out) {
+    if (std::strcmp(value, "2x") == 0 || std::strcmp(value, "2X") == 0) {
+        out = 2;
+        return true;
+    }
+    if (std::strcmp(value, "4x") == 0 || std::strcmp(value, "4X") == 0) {
+        out = 4;
+        return true;
+    }
+    return false;
+}
+
 const char* qualityToString(DlssQualityMode mode) {
     switch (mode) {
     case DlssQualityMode::MaxQuality: return "MaxQuality";
@@ -203,6 +215,27 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.scaleFactor = scale;
             continue;
         }
+        if (std::strcmp(arg, "--interpolate") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--interpolate requires a value";
+                return false;
+            }
+            int interpolate = 0;
+            if (!parseInterpolateFactor(argv[++i], interpolate)) {
+                errorMsg = std::string("Invalid --interpolate value '") + argv[i] + "'. Valid values: 2x, 4x";
+                return false;
+            }
+            config.interpolateFactor = interpolate;
+            continue;
+        }
+        if (std::strcmp(arg, "--camera-data") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--camera-data requires a value";
+                return false;
+            }
+            config.cameraDataFile = argv[++i];
+            continue;
+        }
         if (std::strcmp(arg, "--quality") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--quality requires a value";
@@ -288,6 +321,11 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
         return false;
     }
 
+    if (config.interpolateFactor > 0 && config.cameraDataFile.empty()) {
+        errorMsg = "--interpolate requires --camera-data";
+        return false;
+    }
+
     return true;
 }
 
@@ -298,6 +336,8 @@ void CliParser::printHelp() {
     std::printf("  --input-dir <dir>      Input EXR sequence directory\n");
     std::printf("  --output-dir <dir>     Output EXR sequence directory\n");
     std::printf("  --scale <factor>       Upscale factor (2, 3, or 4)\n");
+    std::printf("  --interpolate <mode>   Frame interpolation (2x or 4x; requires --camera-data)\n");
+    std::printf("  --camera-data <file>   Camera metadata JSON file\n");
     std::printf("  --quality <mode>       DLSS quality mode (MaxQuality|Balanced|Performance|UltraPerformance)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");

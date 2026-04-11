@@ -39,6 +39,9 @@ struct AppConfig {
     int scaleFactor = 2;
     DlssQualityMode quality = DlssQualityMode::Balanced;
 
+    int interpolateFactor = 0;
+    std::string cameraDataFile;
+
     std::string channelMapFile;
 
     bool encodeVideo = false;
