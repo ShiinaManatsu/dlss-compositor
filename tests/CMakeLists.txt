@@ -4,6 +4,8 @@ add_executable(dlss-compositor-tests
     test_exr_reader.cpp
     test_channel_mapper.cpp
     test_mv_converter.cpp
+    test_frame_prefetcher.cpp
+    test_texture_pool.cpp
     test_cli.cpp
     test_texture_pipeline.cpp
     test_dlss_rr_processor.cpp

@@ -76,6 +76,15 @@ void FramePrefetcher::stop() {
     if (m_worker.joinable()) {
         m_worker.join();
     }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const int totalFrames = static_cast<int>(m_framePaths.size());
+        m_produceCount = totalFrames;
+        m_consumeCount = totalFrames;
+        m_nextFrameToLoad = totalFrames;
+    }
+
     m_started = false;
 }
 
