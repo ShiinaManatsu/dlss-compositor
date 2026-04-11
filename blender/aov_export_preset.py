@@ -96,8 +96,19 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
 
         # 4 — Compositor: multilayer EXR file output ---------------------------
         scene = context.scene
-        scene.use_nodes = True
-        tree = scene.node_tree
+        if bpy.app.version >= (5, 0, 0):
+            # Blender 5.x: compositor uses compositing_node_group
+            tree = scene.compositing_node_group
+            if tree is None:
+                tree = bpy.data.node_groups.new("Compositing", "CompositorNodeTree")
+                scene.compositing_node_group = tree
+        else:
+            # Blender 4.x: compositor uses scene.node_tree
+            scene.use_nodes = True
+            tree = scene.node_tree
+        if tree is None:
+            self.report({"ERROR"}, "Could not initialise compositor node tree.")
+            return {"CANCELLED"}
 
         # Find or create Render Layers node
         render_layer_node = None
