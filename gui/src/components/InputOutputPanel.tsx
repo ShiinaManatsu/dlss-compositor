@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useConfig } from '../state/config-store';
+import { useIsRunning } from '../state/processing-store';
 
 export default function InputOutputPanel() {
   const { state, dispatch } = useConfig();
+  const isRunning = useIsRunning();
   const [inputTouched, setInputTouched] = useState(false);
   const [outputTouched, setOutputTouched] = useState(false);
 
@@ -40,14 +42,16 @@ export default function InputOutputPanel() {
             data-testid="input-dir-field"
             type="text"
             readOnly
+            disabled={isRunning}
             value={state.inputDir}
             onBlur={() => setInputTouched(true)}
-            className={`flex-1 bg-gray-700 border ${isInputError ? 'border-red-500' : 'border-gray-600'} rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none`}
+            className={`flex-1 bg-gray-700 border ${isInputError ? 'border-red-500' : 'border-gray-600'} rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50`}
           />
           <button
             data-testid="input-dir-browse"
             onClick={handleInputBrowse}
-            className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600"
+            disabled={isRunning}
+            className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Browse
           </button>
@@ -66,14 +70,16 @@ export default function InputOutputPanel() {
             data-testid="output-dir-field"
             type="text"
             readOnly
+            disabled={isRunning}
             value={state.outputDir}
             onBlur={() => setOutputTouched(true)}
-            className={`flex-1 bg-gray-700 border ${isOutputError ? 'border-red-500' : 'border-gray-600'} rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none`}
+            className={`flex-1 bg-gray-700 border ${isOutputError ? 'border-red-500' : 'border-gray-600'} rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50`}
           />
           <button
             data-testid="output-dir-browse"
             onClick={handleOutputBrowse}
-            className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600"
+            disabled={isRunning}
+            className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Browse
           </button>

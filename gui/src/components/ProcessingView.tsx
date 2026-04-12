@@ -87,6 +87,13 @@ export default function ProcessingView() {
     setShowConfirm(false);
   };
 
+  useEffect(() => {
+    if (!showConfirm) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowConfirm(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showConfirm]);
+
   const statusColor =
     status === 'running'
       ? 'bg-blue-500'

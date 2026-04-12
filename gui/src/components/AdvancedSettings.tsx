@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { useConfig } from '../state/config-store';
 import { DlssConfig } from '../types/dlss-config';
+import { useIsRunning } from '../state/processing-store';
+import { handleNumberInputKeyDown, flashInput } from './utils';
 
 export default function AdvancedSettings() {
   const { state, dispatch } = useConfig();
+  const isRunning = useIsRunning();
   const [open, setOpen] = useState(false);
 
   const handleForwardLutBrowse = async () => {
@@ -76,9 +79,10 @@ export default function AdvancedSettings() {
               min={1}
               max={32}
               step={1}
+              disabled={isRunning}
               value={state.memoryBudgetGB}
               onChange={(e) => dispatch({ type: 'SET_MEMORY_BUDGET', payload: parseInt(e.target.value, 10) })}
-              className="flex-1 accent-blue-500"
+              className="flex-1 accent-blue-500 disabled:opacity-50"
             />
             <input
               data-testid="memory-input"
@@ -86,9 +90,19 @@ export default function AdvancedSettings() {
               min={1}
               max={32}
               step={1}
+              disabled={isRunning}
               value={state.memoryBudgetGB}
               onChange={(e) => dispatch({ type: 'SET_MEMORY_BUDGET', payload: parseInt(e.target.value, 10) || 8 })}
-              className="w-20 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              onKeyDown={handleNumberInputKeyDown}
+              onBlur={(e) => {
+                const val = parseInt(e.target.value, 10) || 8;
+                const clamped = Math.max(1, Math.min(32, val));
+                if (clamped !== state.memoryBudgetGB) {
+                  dispatch({ type: 'SET_MEMORY_BUDGET', payload: clamped });
+                  flashInput(e);
+                }
+              }}
+              className="w-20 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50"
             />
           </div>
         </div>
@@ -102,8 +116,9 @@ export default function AdvancedSettings() {
             <select
               data-testid="exr-compression-select"
               value={state.exrCompression}
+              disabled={isRunning}
               onChange={(e) => dispatch({ type: 'SET_EXR_COMPRESSION', payload: e.target.value as DlssConfig['exrCompression'] })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
             >
               <option value="none">none</option>
               <option value="zip">zip</option>
@@ -125,9 +140,18 @@ export default function AdvancedSettings() {
               max={500}
               step={1}
               value={state.exrDwaQuality}
-              disabled={!isDwaEnabled}
+              disabled={!isDwaEnabled || isRunning}
               onChange={(e) => dispatch({ type: 'SET_EXR_DWA_QUALITY', payload: parseFloat(e.target.value) || 0 })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              onKeyDown={handleNumberInputKeyDown}
+              onBlur={(e) => {
+                const val = parseFloat(e.target.value) || 45;
+                const clamped = Math.max(0, Math.min(500, val));
+                if (clamped !== state.exrDwaQuality) {
+                  dispatch({ type: 'SET_EXR_DWA_QUALITY', payload: clamped });
+                  flashInput(e);
+                }
+              }}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -140,9 +164,10 @@ export default function AdvancedSettings() {
                 <input
                   data-testid="pass-beauty"
                   type="checkbox"
+                  disabled={isRunning}
                   checked={state.outputPasses.includes('beauty')}
                   onChange={(e) => togglePass('beauty', e.target.checked)}
-                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
                 />
                 <span className="text-sm">Beauty</span>
               </label>
@@ -150,10 +175,11 @@ export default function AdvancedSettings() {
                 <input
                   data-testid="pass-depth"
                   type="checkbox"
+                  disabled={isRunning}
                   title="(experimental) Depth pass — may not be supported"
                   checked={state.outputPasses.includes('depth')}
                   onChange={(e) => togglePass('depth', e.target.checked)}
-                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
                 />
                 <span className="text-sm" title="(experimental) Depth pass — may not be supported">Depth (experimental)</span>
               </label>
@@ -161,10 +187,11 @@ export default function AdvancedSettings() {
                 <input
                   data-testid="pass-normals"
                   type="checkbox"
+                  disabled={isRunning}
                   title="(experimental) Normals pass — may not be supported"
                   checked={state.outputPasses.includes('normals')}
                   onChange={(e) => togglePass('normals', e.target.checked)}
-                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
                 />
                 <span className="text-sm" title="(experimental) Normals pass — may not be supported">Normals (experimental)</span>
               </label>
@@ -181,8 +208,9 @@ export default function AdvancedSettings() {
             <select
               data-testid="tonemap-select"
               value={state.tonemapMode}
+              disabled={isRunning}
               onChange={(e) => dispatch({ type: 'SET_TONEMAP_MODE', payload: e.target.value as DlssConfig['tonemapMode'] })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
             >
               <option value="pq">pq</option>
               <option value="none">none</option>
@@ -193,7 +221,7 @@ export default function AdvancedSettings() {
             <input
               data-testid="no-inverse-tonemap"
               type="checkbox"
-              disabled={state.tonemapMode === 'none'}
+              disabled={state.tonemapMode === 'none' || isRunning}
               checked={!state.inverseTonemapEnabled}
               onChange={(e) => dispatch({ type: 'SET_INVERSE_TONEMAP', payload: !e.target.checked })}
               className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -210,13 +238,13 @@ export default function AdvancedSettings() {
                 type="text"
                 readOnly
                 value={state.forwardLutFile}
-                disabled={state.tonemapMode === 'none'}
+                disabled={state.tonemapMode === 'none' || isRunning}
                 className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
               />
               <button
                 data-testid="forward-lut-picker"
                 onClick={handleForwardLutBrowse}
-                disabled={state.tonemapMode === 'none'}
+                disabled={state.tonemapMode === 'none' || isRunning}
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Browse
@@ -233,13 +261,13 @@ export default function AdvancedSettings() {
                 type="text"
                 readOnly
                 value={state.inverseLutFile}
-                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled}
+                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled || isRunning}
                 className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
               />
               <button
                 data-testid="inverse-lut-picker"
                 onClick={handleInverseLutBrowse}
-                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled}
+                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled || isRunning}
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Browse
@@ -259,12 +287,14 @@ export default function AdvancedSettings() {
                 type="text"
                 readOnly
                 value={state.channelMapFile}
-                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm"
+                disabled={isRunning}
+                className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
               />
               <button
                 data-testid="channel-map-picker"
                 onClick={handleChannelMapBrowse}
-                className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600"
+                disabled={isRunning}
+                className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Browse
               </button>

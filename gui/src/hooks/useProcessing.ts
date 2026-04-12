@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { DlssConfig } from '../types/dlss-config'
+import { setGlobalIsRunning } from '../state/processing-store'
 
 export type ProcessingStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -23,6 +24,10 @@ export function useProcessing(): ProcessingState {
   const [log, setLog] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const registeredRef = useRef(false)
+
+  useEffect(() => {
+    setGlobalIsRunning(status === 'running');
+  }, [status]);
 
   useEffect(() => {
     if (registeredRef.current) return

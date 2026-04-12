@@ -1,9 +1,12 @@
 import React from 'react';
 import { useConfig } from '../state/config-store';
 import { DlssConfig } from '../types/dlss-config';
+import { useIsRunning } from '../state/processing-store';
+import { handleNumberInputKeyDown, flashInput } from './utils';
 
 export default function BasicSettings() {
   const { state, dispatch } = useConfig();
+  const isRunning = useIsRunning();
 
   const handleCameraDataBrowse = async () => {
     try {
@@ -34,8 +37,9 @@ export default function BasicSettings() {
             data-testid="scale-enabled"
             type="checkbox"
             checked={state.scaleEnabled}
+            disabled={isRunning}
             onChange={(e) => dispatch({ type: 'SET_SCALE_ENABLED', payload: e.target.checked })}
-            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
           />
           <span className="font-medium">Enable Upscaling</span>
         </label>
@@ -49,9 +53,19 @@ export default function BasicSettings() {
               min={1.0}
               max={8.0}
               step={0.1}
+              disabled={isRunning}
               value={state.scaleFactor}
               onChange={(e) => dispatch({ type: 'SET_SCALE', payload: parseFloat(e.target.value) || 1.0 })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              onKeyDown={handleNumberInputKeyDown}
+              onBlur={(e) => {
+                const val = parseFloat(e.target.value) || 2.0;
+                const clamped = Math.max(1.0, Math.min(8.0, val));
+                if (clamped !== state.scaleFactor) {
+                  dispatch({ type: 'SET_SCALE', payload: clamped });
+                  flashInput(e);
+                }
+              }}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50"
             />
           </div>
 
@@ -60,8 +74,9 @@ export default function BasicSettings() {
             <select
               data-testid="quality-select"
               value={state.quality}
+              disabled={isRunning}
               onChange={(e) => dispatch({ type: 'SET_QUALITY', payload: e.target.value as DlssConfig['quality'] })}
-              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
             >
               <option value="DLAA">DLAA</option>
               <option value="MaxQuality">MaxQuality</option>
@@ -80,8 +95,9 @@ export default function BasicSettings() {
           <select
             data-testid="interpolation-select"
             value={state.interpolateFactor}
+            disabled={isRunning}
             onChange={(e) => dispatch({ type: 'SET_INTERPOLATION', payload: parseInt(e.target.value, 10) as 0 | 2 | 4 })}
-            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
           >
             <option value={0}>None</option>
             <option value={2}>2x</option>
@@ -96,13 +112,13 @@ export default function BasicSettings() {
               type="text"
               readOnly
               value={state.cameraDataFile}
-              disabled={state.interpolateFactor === 0}
+              disabled={isRunning || state.interpolateFactor === 0}
               className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
             />
             <button
               data-testid="camera-data-picker"
               onClick={handleCameraDataBrowse}
-              disabled={state.interpolateFactor === 0}
+              disabled={isRunning || state.interpolateFactor === 0}
               className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Browse
@@ -118,8 +134,9 @@ export default function BasicSettings() {
             data-testid="encode-video"
             type="checkbox"
             checked={state.encodeVideo}
+            disabled={isRunning}
             onChange={(e) => dispatch({ type: 'SET_ENCODE_VIDEO', payload: e.target.checked })}
-            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
           />
           <span className="font-medium">Encode Video</span>
         </label>
@@ -134,8 +151,18 @@ export default function BasicSettings() {
                 min={1}
                 max={240}
                 value={state.fps}
+                disabled={isRunning}
                 onChange={(e) => dispatch({ type: 'SET_FPS', payload: parseInt(e.target.value, 10) || 24 })}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                onKeyDown={handleNumberInputKeyDown}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value, 10) || 24;
+                  const clamped = Math.max(1, Math.min(240, val));
+                  if (clamped !== state.fps) {
+                    dispatch({ type: 'SET_FPS', payload: clamped });
+                    flashInput(e);
+                  }
+                }}
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50"
               />
             </div>
             <div>
@@ -144,8 +171,9 @@ export default function BasicSettings() {
                 data-testid="video-output-file"
                 type="text"
                 value={state.videoOutputFile}
+                disabled={isRunning}
                 onChange={(e) => dispatch({ type: 'SET_VIDEO_OUTPUT_FILE', payload: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
               />
             </div>
           </div>
