@@ -16,8 +16,8 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 - Motion vector conversion (Blender 4-channel to DLSS-RR 2-channel current to previous)
 - Temporal history management with automatic reset on sequence gaps
 - CLI batch processing mode
-- ImGui viewer with channel preview and before/after comparison
-- Blender addon for one-click render pass configuration and camera data export
+- Electron-based GUI for easy configuration and progress monitoring
+- Blender extension for one-click render pass configuration and camera data export
 - Python EXR validator tool
 - Custom LUT support for advanced users (forward/inverse 3D LUT files)
 
@@ -30,11 +30,11 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 
 ## Quick Start
 1. **Build**: Clone the repository and build using CMake (see [Build Guide](docs/build_guide.md)).
-2. **Configure Blender**: In Blender 5.x, go to **Edit > Preferences > Extensions**. Click the down arrow next to "Install from Disk" and select the `blender/dlss_compositor_aov/` folder. For development, you can symlink this folder to your Blender extensions directory.
-3. **Render**: Use the **DLSS Compositor** panel in the Render properties to configure passes and render your animation as a MultiLayer EXR sequence.
-4. **Process (DLSS-RR)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
-5. **Process (DLSS-FG)**: In the Blender panel, click **Export Camera Data** to generate `camera.json`, then run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
-6. **Process (Combined)**: Run both upscale and interpolation together: `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2 --interpolate 2x --camera-data camera.json`.
+2. **Configure Blender**: In Blender 4.2+, go to **Edit > Preferences > Extensions**. Click the down arrow in the top right, select **Install from Disk**, and choose the `dlss-compositor-blender-v0.1.0.zip` file (or the `blender/dlss_compositor_aov/` folder for development).
+3. **Render**: Use the **DLSS Compositor** panel in the **Render Properties** to configure passes and render your animation as a MultiLayer EXR sequence.
+4. **Process (GUI)**: Double-click `dlss-compositor-gui.exe` to launch the GUI. Point it to your input directory and click **Start Processing**.
+5. **Process (CLI)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
+6. **Frame Generation**: In the Blender panel, click **Export Camera Data** to generate `camera.json`, then use the GUI or run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
 
 ## CLI Usage
 ```bash
@@ -97,7 +97,14 @@ DLSS Frame Generation internally clamps HDR color buffers to approximately 10 ni
 PQ covers 0 to 10,000 cd/m² — more than enough for any physically-based scene.
 
 ## GUI Usage
-The ImGui-based viewer allows you to inspect individual EXR channels, compare the noisy input with the DLSS-RR output, and verify motion vectors before batch processing.
+The Electron-based desktop app provides a user-friendly interface for configuring and monitoring your DLSS processing.
+
+- **Configuration Panel**: Set your executable path, input/output directories, and DLSS parameters (Upscaling factor, Quality mode, Interpolation, etc.).
+- **Progress Monitoring**: Real-time progress bar and frame-by-frame status display.
+- **Auto-save**: Your settings are automatically persisted between sessions.
+- **One-click Processing**: Start and stop the batch process with ease.
+
+Launch by running `dlss-compositor-gui.exe` (found in the release package) or by running `npm run dev` in the `gui/` directory for development.
 
 ## Screenshots
 <!-- TODO: Add screenshots -->

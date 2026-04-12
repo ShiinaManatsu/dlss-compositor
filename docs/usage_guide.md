@@ -1,33 +1,73 @@
 # Usage Guide
 
-This guide describes how to use DLSS Compositor with Blender and as a standalone CLI tool.
+This guide describes how to use DLSS Compositor via its GUI and CLI.
+
+## Using the GUI
+
+The DLSS Compositor GUI provides a powerful and intuitive interface for configuring and monitoring your processing.
+
+### Launching
+- **Release Version**: Run `dlss-compositor-gui.exe` from the release folder.
+- **Development**: Run `npm run dev` in the `gui/` directory.
+
+### Configuration Options
+The GUI is divided into a configuration panel on the left and a processing panel on the right.
+
+#### Paths and Executable
+- **Executable Path**: Path to `dlss-compositor.exe`. If the GUI and CLI are in the same folder, this is detected automatically.
+- **Input/Output Directory**: Source folder for EXR sequences and the target for processed output.
+
+#### DLSS-RR (Ray Reconstruction & Upscaling)
+- **Enable Upscaling**: Toggle spatial upscaling and denoising.
+- **Scale Factor**: Choose a multiplier (e.g., 1.5, 2.0). Use 1.0 for denoise-only (DLAA).
+- **Quality Mode**: Select between `DLAA`, `MaxQuality`, `Balanced`, `Performance`, and `UltraPerformance`.
+
+#### DLSS-FG (Frame Generation & Interpolation)
+- **Interpolation**: Select `Off`, `2x` (RTX 40+), or `4x` (RTX 50+).
+- **Camera Data File**: Required when interpolation is enabled. Points to the `camera.json` file exported from Blender.
+
+#### Output & Advanced Settings
+- **Encode Video**: Toggle video encoding (`.mp4`) after processing. Requires FFmpeg.
+- **EXR Compression**: Choose between `dwaa`, `dwab`, `zip`, `zips`, `piz`, or `none`.
+- **Memory Budget**: GPU memory allocation in GB (default 8 GB).
+- **Tonemap Mode**: Choose `pq` (HDR transport encoding, default) or `none`.
+- **Output Passes**: Select any additional passes to include in the output EXR.
+
+### Progress and Preview
+Once processing starts:
+- **Progress Bar**: Shows current progress and total frame count.
+- **Frame Preview**: Displays the current frame number, total frames, and the filename of the most recently processed frame.
+- **Completion Banner**: A green banner appears upon success, showing total time elapsed and final frame count.
+
+Your settings are automatically saved and will be restored the next time you open the app.
 
 ## Blender Workflow
 
-To use DLSS Compositor, you must render your animation from Blender with specific render passes enabled.
+To use DLSS Compositor, you must render your animation from Blender with specific render passes enabled using the DLSS Compositor Blender Extension.
 
-1. **Setup Script**: Open your Blender scene. In the Scripting tab, open `blender/aov_export_preset.py` and click **Run Script**.
+1. **Install Extension**:
+   - In Blender 4.2+, go to **Edit > Preferences > Extensions**.
+   - Click the down arrow in the top right, select **Install from Disk**, and choose the `dlss-compositor-blender-v0.1.0.zip` file.
 2. **Configure Passes**: 
    - Go to the **Render Properties** tab.
    - Look for the **DLSS Compositor** panel.
-   - Click **Configure All Passes**. This will automatically enable "Combined", "Z", "Vector", "Normal", "DiffCol", "GlossCol", and "Roughness" passes and set the output format to **OpenEXR MultiLayer**.
+   - Click **Configure All Passes**. This will automatically enable the required G-buffer passes and set the output format to **OpenEXR MultiLayer**.
 3. **Render**: Render your animation sequence to a directory.
 
 ## Frame Generation Workflow
 
-Frame interpolation generates intermediate frames between your renders to increase smoothness. It preserves HDR scene-linear values using PQ (ST 2084) transport encoding and uses NVIDIA DLSS-G optical flow.
+Frame interpolation generates intermediate frames between your renders to increase smoothness. It preserves HDR scene-linear values using PQ (ST 2084) transport encoding.
 
 - **Hardware requirement**: RTX 40+ for 2x, RTX 50+ for 4x.
 - **Interpolation factor**: `2x` generates 1 intermediate frame per pair. `4x` generates 3 intermediate frames per pair.
-- **Output naming**: Original and interpolated frames are interleaved and re-numbered sequentially (e.g., 0001, 0002, 0003...).
 
 ### Step 1: Exporting Camera Data from Blender
-Frame Generation requires per-frame camera matrices. In the **DLSS Compositor** panel (registered by `aov_export_preset.py`), click **Export Camera Data**. This exports a `camera.json` file to your configured output directory.
+Frame Generation requires per-frame camera matrices. In the **DLSS Compositor** panel in Blender, click **Export Camera Data**. This exports a `camera.json` file to your configured output directory.
 
 Ensure the frame range in the panel matches your rendered frame range.
 
 ### Step 2: Run Interpolation
-Run the compositor with the `--interpolate` and `--camera-data` flags:
+Use the GUI's **Interpolation** section or run the CLI with the `--interpolate` and `--camera-data` flags:
 
 ```bash
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
@@ -90,22 +130,12 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--inverse-tonemap-lut <file>` | — | Custom inverse LUT binary file. |
 | `--memory-budget <GB>` | 8 | GPU memory budget in GB for texture preloading and pooling. Minimum 1. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
-| `--gui` | — | Launch the ImGui viewer for visual inspection. |
 | `--test-ngx` | — | Verify DLSS Ray Reconstruction availability on your system and exit. |
 | `--help`, `-h` | — | Show the help message. |
 | `--version` | — | Show the version number. |
 
 ### Video Encoding
 If you use `--encode-video`, the tool will call FFmpeg to create a video from the processed EXR frames. Ensure `ffmpeg` is accessible from your command prompt.
-
-## GUI Usage
-
-Launch the GUI using the `--gui` flag.
-
-- **File Loading**: Use the file browser or provide an input directory via CLI.
-- **Channel Preview**: View individual passes (Color, Depth, Motion, etc.) to verify they were rendered correctly.
-- **Split View**: Drag the slider to compare the original noisy render with the DLSS-RR processed result.
-- **Motion Vectors**: Visualizes motion vectors to ensure direction and scale are correct.
 
 ## Troubleshooting
 

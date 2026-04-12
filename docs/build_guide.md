@@ -42,6 +42,50 @@ ctest --test-dir build -C Release
 build\Release\dlss-compositor.exe --test-ngx
 ```
 
+## Building the GUI
+
+The DLSS Compositor GUI is built with Electron and React.
+
+### Prerequisites
+- **Node.js 18+ LTS**: Required for building the GUI.
+
+### Build Steps
+
+1. **Install dependencies**:
+   ```powershell
+   cd gui
+   npm install
+   ```
+
+2. **Build the GUI**:
+   ```powershell
+   npm run build
+   ```
+
+3. **Development Mode**:
+   Launch the GUI with hot-reload for development.
+   ```powershell
+   npm run dev
+   ```
+
+## Creating a Release Package
+
+Once the C++ executable and the GUI are built, you can generate a complete release package using the provided PowerShell script.
+
+1. **Ensure C++ Release build is complete.**
+2. **Run the packaging script**:
+   ```powershell
+   .\scripts\package-release.ps1
+   ```
+
+### Script Arguments:
+- `-SkipGuiBuild`: Skip the GUI build step if you've already run `npm run build`.
+- `-Version "x.x.x"`: Manually specify the version number for the package.
+
+The script will generate:
+- `dist/dlss-compositor-v*.zip`: Contains the CLI tool, GUI, and all required DLLs/shaders/LUTs.
+- `dist/dlss-compositor-blender-v*.zip`: The Blender extension for easy installation.
+
 ## Troubleshooting
 
 ### "DLSS_SDK_ROOT must be set"
@@ -49,6 +93,9 @@ Ensure you passed `-DDLSS_SDK_ROOT=DLSS` (or the correct path to your DLSS SDK) 
 
 ### "Vulkan SDK not found"
 Make sure the Vulkan SDK is installed and the `VULKAN_SDK` environment variable is set. You may need to restart your terminal after installation.
+
+### GUI: "npm install" fails
+Check your Node.js version (`node -v`). It must be version 18 or newer.
 
 ### "nvngx_dlssd.dll not found"
 The build process automatically copies this DLL from the DLSS SDK to the `build\Release` directory. If it's missing, manually copy `DLSS\lib\Windows_x86_64\rel\nvngx_dlssd.dll` to the directory containing `dlss-compositor.exe`.

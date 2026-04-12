@@ -16,6 +16,9 @@ DLSS Compositor extracts the following buffers from the input MultiLayer EXR seq
 | **Normals** | `Normal` | XYZ | `R16G16B16A16_SFLOAT` | World-space normals in range `[-1, 1]`. |
 | **Roughness** | `Roughness` | 1ch | `R32_SFLOAT` | Surface roughness. |
 
+### Note on Blender 4.2+
+When using the DLSS Compositor Blender Extension, these passes are configured automatically. Ensure you use the "Configure All Passes" button in the Render Properties panel to maintain compatibility with this specification.
+
 ### Optional Buffers
 If the optional buffers (Albedo, Normals, Roughness) are missing from the EXR, the tool will substitute them with default values:
 - **Diffuse Albedo**: Flat White (1.0, 1.0, 1.0)
