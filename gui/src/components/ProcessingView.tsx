@@ -137,6 +137,11 @@ export default function ProcessingView() {
           ? 'Error'
           : 'Idle';
 
+  const showProgressBar = status === 'running' || (status === 'done' && totalFrames > 0);
+  const isIndeterminateProgress = status === 'running' && totalFrames === 0;
+  const frameCounterLabel =
+    currentFrame === 0 && totalFrames === 0 ? 'Starting…' : `${currentFrame}/${totalFrames}`;
+
   return (
     <div className="flex flex-col h-full p-4 gap-4">
       {/* Top controls */}
@@ -176,18 +181,22 @@ export default function ProcessingView() {
       </div>
 
       {/* Progress bar */}
-      {(status === 'running' || status === 'done') && totalFrames > 0 && (
+      {showProgressBar && (
         <div className="flex-shrink-0">
           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
             <span data-testid="progress-text">
-              Processing frame {currentFrame}/{totalFrames} ({progress}%)
+              {currentFrame === 0 && totalFrames === 0
+                ? 'Starting…'
+                : totalFrames > 0
+                  ? `Processing frame ${currentFrame}/${totalFrames} (${progress}%)`
+                  : `Processing frame ${currentFrame}/${totalFrames}`}
             </span>
           </div>
           <div className="w-full h-2 bg-gray-700 rounded overflow-hidden">
             <div
               data-testid="progress-bar"
-              className={`h-full transition-all duration-300 ${status === 'done' ? 'bg-green-500' : 'bg-blue-500'}`}
-              style={{ width: `${progress}%` }}
+              className={`h-full transition-all duration-300 ${status === 'done' ? 'bg-green-500' : 'bg-blue-500'} ${isIndeterminateProgress ? 'animate-pulse' : ''}`}
+              style={{ width: isIndeterminateProgress ? '100%' : `${progress}%` }}
             />
           </div>
         </div>
@@ -225,18 +234,21 @@ export default function ProcessingView() {
         {status === 'idle' && (
           <div className="text-gray-600 text-sm">Ready to process. Configure settings and click Start.</div>
         )}
-        {(status === 'running' || status === 'done') && totalFrames > 0 && (
+        {(status === 'running' || status === 'done') && (
           <div className="text-center">
             <div className="text-5xl font-mono font-bold text-blue-400 mb-3">
-              {currentFrame}<span className="text-gray-600 text-3xl">/{totalFrames}</span>
+              {frameCounterLabel.includes('/') ? (
+                <>
+                  {currentFrame}<span className="text-gray-600 text-3xl">/{totalFrames}</span>
+                </>
+              ) : (
+                frameCounterLabel
+              )}
             </div>
             <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath}>
               {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : 'Waiting for first frame…'}
             </div>
           </div>
-        )}
-        {(status === 'running' || status === 'done') && totalFrames === 0 && (
-          <div className="text-gray-600 text-sm">Starting…</div>
         )}
         {status === 'error' && (
           <div className="text-red-500 text-sm">Processing failed</div>

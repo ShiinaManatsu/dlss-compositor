@@ -3,7 +3,7 @@
  * Returns { current, total } if it's a progress line, null otherwise.
  */
 export function parseProgressLine(line: string): { current: number; total: number } | null {
-  const match = line.match(/^Processing frame (\d+)\/(\d+)/)
+  const match = line.match(/Processing frame (\d+)\/(\d+)/)
   if (!match) return null
   return { current: parseInt(match[1], 10), total: parseInt(match[2], 10) }
 }
