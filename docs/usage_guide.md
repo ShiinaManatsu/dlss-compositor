@@ -15,20 +15,16 @@ To use DLSS Compositor, you must render your animation from Blender with specifi
 
 ## Frame Generation Workflow
 
-Frame interpolation generates intermediate frames between your renders to increase smoothness. It preserves HDR scene-linear values and uses NVIDIA DLSS-G optical flow.
+Frame interpolation generates intermediate frames between your renders to increase smoothness. It preserves HDR scene-linear values using PQ (ST 2084) transport encoding and uses NVIDIA DLSS-G optical flow.
 
 - **Hardware requirement**: RTX 40+ for 2x, RTX 50+ for 4x.
 - **Interpolation factor**: `2x` generates 1 intermediate frame per pair. `4x` generates 3 intermediate frames per pair.
 - **Output naming**: Original and interpolated frames are interleaved and re-numbered sequentially (e.g., 0001, 0002, 0003...).
 
 ### Step 1: Exporting Camera Data from Blender
-Frame Generation requires per-frame camera matrices. Run the export script via Blender's CLI:
+Frame Generation requires per-frame camera matrices. In the **DLSS Compositor** panel (registered by `aov_export_preset.py`), click **Export Camera Data**. This exports a `camera.json` file to your configured output directory.
 
-```bash
-blender --background scene.blend --python blender/export_camera_data.py -- --output camera.json --start 1 --end 250
-```
-
-This exports the camera data needed for optical flow. Ensure `--start` and `--end` match your rendered frame range.
+Ensure the frame range in the panel matches your rendered frame range.
 
 ### Step 2: Run Interpolation
 Run the compositor with the `--interpolate` and `--camera-data` flags:
@@ -72,8 +68,12 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--quality <mode>` | Balanced | DLSS quality mode: `MaxQuality`, `Balanced`, `Performance`, `UltraPerformance`. |
 | `--encode-video [file]` | — | Encode the output sequence to an MP4 video. Requires FFmpeg on your PATH. |
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
-| `--interpolate <2x|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
-| `--camera-data <file>` | — | Required when `--interpolate` is used. Path to per-frame camera JSON exported by `export_camera_data.py`. |
+| `--interpolate <2x\|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
+| `--camera-data <file>` | — | Required when `--interpolate` is used. Path to per-frame camera JSON exported from the Blender panel. |
+| `--tonemap <mode>` | pq | FG transport encoding mode: `pq` (PQ ST 2084, default) or `none` (raw scene-linear). |
+| `--no-inverse-tonemap` | — | Skip inverse PQ decode on FG output (output stays PQ-encoded). |
+| `--tonemap-lut <file>` | — | Custom forward LUT binary file (implies custom LUT mode). |
+| `--inverse-tonemap-lut <file>` | — | Custom inverse LUT binary file. |
 | `--memory-budget <GB>` | 8 | GPU memory budget in GB for texture preloading and pooling. Minimum 1. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
 | `--gui` | — | Launch the ImGui viewer for visual inspection. |

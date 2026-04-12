@@ -1,0 +1,65 @@
+#version 450
+
+// Compute shader: Apply a 3D LUT to an image.
+//
+// Two modes controlled by push constant `useLogShaper`:
+//   1 = Forward (scene-linear input):  apply log2 shaper before LUT lookup.
+//   0 = Inverse (display-referred input): use RGB directly as LUT coordinates.
+//
+// Input: 2D image (R16G16B16A16_SFLOAT or R32G32B32A32_SFLOAT)
+// Output: 2D image (same format)
+// LUT: 3D texture (R32G32B32A32_SFLOAT), sampled with trilinear filtering
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform readonly image2D inputImage;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outputImage;
+layout(set = 0, binding = 2) uniform sampler3D lutSampler;
+
+layout(push_constant) uniform PushConstants {
+    float shaperLog2Min;    // -12.0 (only used when useLogShaper == 1)
+    float shaperLog2Max;    // 16.0  (only used when useLogShaper == 1)
+    int   imageWidth;
+    int   imageHeight;
+    int   useLogShaper;     // 1 = forward (log2 shaper), 0 = inverse (direct)
+} pc;
+
+// Map a scene-linear value to [0, 1] shaper coordinate via log2.
+// Values outside the shaper range are clamped.
+float linearToShaper(float linearVal) {
+    float minVal = exp2(pc.shaperLog2Min);
+    float maxVal = exp2(pc.shaperLog2Max);
+    float clamped = clamp(linearVal, minVal, maxVal);
+
+    float log2Val = log2(clamped);
+    return (log2Val - pc.shaperLog2Min) / (pc.shaperLog2Max - pc.shaperLog2Min);
+}
+
+void main() {
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pixelCoord.x >= pc.imageWidth || pixelCoord.y >= pc.imageHeight) {
+        return;
+    }
+
+    vec4 color = imageLoad(inputImage, pixelCoord);
+
+    vec3 shaperCoord;
+    if (pc.useLogShaper != 0) {
+        // Forward mode: scene-linear input -> log2 shaper -> [0,1] LUT coords
+        shaperCoord = vec3(
+            linearToShaper(color.r),
+            linearToShaper(color.g),
+            linearToShaper(color.b)
+        );
+    } else {
+        // Inverse mode: display-referred input already in [0,1] -> use directly
+        shaperCoord = clamp(color.rgb, vec3(0.0), vec3(1.0));
+    }
+
+    // Sample 3D LUT with trilinear interpolation
+    vec4 lutResult = textureLod(lutSampler, shaperCoord, 0.0);
+
+    // Preserve original alpha
+    imageStore(outputImage, pixelCoord, vec4(lutResult.rgb, color.a));
+}

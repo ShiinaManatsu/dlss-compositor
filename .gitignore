@@ -38,7 +38,15 @@ build-clangd/
 .cache/
 2026.02.10_UE5.7_DLSS4.5Plugin_v8.5.0/
 
+# Generated LUTs
+luts/
+
+# Research notes (scratch)
+ACES2_QUICK_REFERENCE.txt
+ACES2_RESEARCH.md
+
 # Runtime logs / temp
+generation.log
 nvngx*.log
 nvngx_dlssd*.log
 nvsdk_ngx*.log

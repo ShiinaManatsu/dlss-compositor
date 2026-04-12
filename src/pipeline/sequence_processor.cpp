@@ -9,8 +9,11 @@
 #include "dlss/dlss_fg_processor.h"
 #include "dlss/dlss_rr_processor.h"
 #include "dlss/ngx_wrapper.h"
+#include "gpu/lut_processor.h"
+#include "gpu/pq_transfer_processor.h"
 #include "gpu/texture_pool.h"
 #include "gpu/texture_pipeline.h"
+#include "pipeline/async_exr_writer.h"
 #include "pipeline/frame_prefetcher.h"
 #include "gpu/vulkan_context.h"
 
@@ -29,7 +32,25 @@
 #include <system_error>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace {
+
+/// Return the directory containing the running executable.
+std::filesystem::path getExeDir() {
+    namespace fs = std::filesystem;
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) {
+        return fs::path(buf).parent_path();
+    }
+#endif
+    // Fallback: current working directory
+    return fs::current_path();
+}
 
 struct DlssFeatureGuard {
     explicit DlssFeatureGuard(NgxContext& ngxIn) : ngx(ngxIn) {}
@@ -265,6 +286,195 @@ bool writeRgbaExr(const std::filesystem::path& outputDir,
             errorMsg = "Failed to write output EXR.";
         }
         return false;
+    }
+
+    return true;
+}
+
+/// Build an AsyncExrWriter::WriteJob ready for submission.
+/// Moves the rgba data out of the source vector (caller must not reuse it).
+AsyncExrWriter::WriteJob buildWriteJob(const std::filesystem::path& outputDir,
+                                       int outputFrameCounter,
+                                       int width,
+                                       int height,
+                                       std::vector<float>& rgba,
+                                       const AppConfig& config) {
+    std::ostringstream oss;
+    oss << "frame_" << std::setfill('0') << std::setw(4) << outputFrameCounter << ".exr";
+    AsyncExrWriter::WriteJob job;
+    job.path = (outputDir / oss.str()).string();
+    job.width = width;
+    job.height = height;
+    job.rgba = std::move(rgba);
+    job.compression = config.exrCompression;
+    job.dwaQuality = config.exrDwaQuality;
+    return job;
+}
+
+/// Overload that copies from a const vector (for buffers that must remain valid).
+AsyncExrWriter::WriteJob buildWriteJobCopy(const std::filesystem::path& outputDir,
+                                           int outputFrameCounter,
+                                           int width,
+                                           int height,
+                                           const std::vector<float>& rgba,
+                                           const AppConfig& config) {
+    std::ostringstream oss;
+    oss << "frame_" << std::setfill('0') << std::setw(4) << outputFrameCounter << ".exr";
+    AsyncExrWriter::WriteJob job;
+    job.path = (outputDir / oss.str()).string();
+    job.width = width;
+    job.height = height;
+    job.rgba = rgba; // copy
+    job.compression = config.exrCompression;
+    job.dwaQuality = config.exrDwaQuality;
+    return job;
+}
+
+/// Resolve the path for a default LUT file relative to the executable directory.
+/// Searches: <exe_dir>/luts/<name>, ./luts/<name>, ../luts/<name>.
+std::string resolveDefaultLutPath(const std::string& filename) {
+    namespace fs = std::filesystem;
+
+    // Try relative to executable directory first (most reliable)
+    fs::path exePath = getExeDir() / "luts" / filename;
+    if (fs::exists(exePath)) {
+        return exePath.string();
+    }
+
+    // Try relative to CWD
+    fs::path cwdPath = fs::path("luts") / filename;
+    if (fs::exists(cwdPath)) {
+        return cwdPath.string();
+    }
+
+    // Try parent of CWD (common in build trees)
+    fs::path parentPath = fs::path("../luts") / filename;
+    if (fs::exists(parentPath)) {
+        return parentPath.string();
+    }
+
+    // Return the exe-relative path as fallback (will fail with a clear error)
+    return exePath.string();
+}
+
+/// Resolve path for a shader SPV file.
+/// Searches: <exe_dir>/shaders/<name>, ./shaders/<name>, ../shaders/<name>.
+std::string resolveShaderPath(const std::string& filename) {
+    namespace fs = std::filesystem;
+
+    // Try relative to executable directory first
+    fs::path exePath = getExeDir() / "shaders" / filename;
+    if (fs::exists(exePath)) {
+        return exePath.string();
+    }
+
+    fs::path cwdPath = fs::path("shaders") / filename;
+    if (fs::exists(cwdPath)) {
+        return cwdPath.string();
+    }
+
+    fs::path parentPath = fs::path("../shaders") / filename;
+    if (fs::exists(parentPath)) {
+        return parentPath.string();
+    }
+
+    return exePath.string();
+}
+
+/// Initialize forward and inverse LUT processors based on AppConfig.
+/// Returns true if tonemapping is active (at least forward LUT loaded).
+/// Used only for Custom LUT mode.
+bool initLutProcessors(VulkanContext& ctx,
+                       const AppConfig& config,
+                       LutProcessor& forwardLut,
+                       LutProcessor& inverseLut,
+                       bool& forwardReady,
+                       bool& inverseReady,
+                       std::string& errorMsg) {
+    forwardReady = false;
+    inverseReady = false;
+
+    if (config.tonemapMode != TonemapMode::Custom) {
+        return true;
+    }
+
+    // Only apply tonemapping when FG is active
+    if (config.interpolateFactor <= 0) {
+        return true;
+    }
+
+    const std::string& forwardPath = config.forwardLutFile;
+    const std::string& inversePath = config.inverseLutFile;
+    constexpr int kLutSize = 128;
+
+    // Load forward LUT
+    if (!forwardPath.empty()) {
+        if (!forwardLut.loadLut(forwardPath, kLutSize, errorMsg)) {
+            return false;
+        }
+    }
+
+    // Load inverse LUT (only if inverse is enabled)
+    if (config.inverseTonemapEnabled && !inversePath.empty()) {
+        if (!inverseLut.loadLut(inversePath, kLutSize, errorMsg)) {
+            return false;
+        }
+    }
+
+    // Create compute pipeline (shared SPIR-V for both)
+    const std::string spvPath = resolveShaderPath("apply_lut.comp.spv");
+
+    if (!forwardPath.empty()) {
+        if (!forwardLut.createPipeline(spvPath, errorMsg)) {
+            return false;
+        }
+        forwardReady = true;
+        std::fprintf(stdout, "Forward tonemapping enabled (%s)\n", forwardPath.c_str());
+    }
+
+    if (config.inverseTonemapEnabled && !inversePath.empty()) {
+        if (!inverseLut.createPipeline(spvPath, errorMsg)) {
+            return false;
+        }
+        inverseReady = true;
+        std::fprintf(stdout, "Inverse tonemapping enabled (%s)\n", inversePath.c_str());
+    }
+
+    if (!config.inverseTonemapEnabled) {
+        std::fprintf(stdout, "Inverse tonemapping disabled; FG output will be display-referred\n");
+    }
+
+    return true;
+}
+
+/// Initialize PQ transfer processor for FG transport encoding.
+/// Returns true on success. pqReady is set to true if PQ transport is active.
+bool initPqTransfer(VulkanContext& ctx,
+                    const AppConfig& config,
+                    PqTransferProcessor& pqTransfer,
+                    bool& pqReady,
+                    std::string& errorMsg) {
+    pqReady = false;
+
+    if (config.tonemapMode != TonemapMode::PQ) {
+        return true;
+    }
+
+    // Only apply PQ transport when FG is active
+    if (config.interpolateFactor <= 0) {
+        return true;
+    }
+
+    const std::string spvPath = resolveShaderPath("pq_transfer.comp.spv");
+    if (!pqTransfer.createPipeline(spvPath, errorMsg)) {
+        return false;
+    }
+
+    pqReady = true;
+    std::fprintf(stdout, "PQ transport encoding enabled (ST 2084, 10000 nits)\n");
+
+    if (!config.inverseTonemapEnabled) {
+        std::fprintf(stdout, "Inverse PQ decode disabled; FG output will be PQ-encoded\n");
     }
 
     return true;
@@ -636,6 +846,10 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                                              const AppConfig& config,
                                              std::string& errorMsg) {
     errorMsg.clear();
+    std::fprintf(stdout, "[RRFG] Starting combined RR+FG pipeline\n");
+    std::fprintf(stdout, "[RRFG]   input:  %s\n", inputDir.c_str());
+    std::fprintf(stdout, "[RRFG]   output: %s\n", outputDir.c_str());
+    std::fprintf(stdout, "[RRFG]   scale=%d  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
 
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
@@ -646,11 +860,14 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     std::vector<SequenceFrameInfo> frames;
     if (!scanAndSort(inputDir, frames, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] scanAndSort failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] Found %d EXR frames\n", static_cast<int>(frames.size()));
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -658,29 +875,37 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     std::filesystem::create_directories(outputDir, ec);
     if (ec) {
         errorMsg = "Failed to create output directory: " + outputDir;
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (pathsAreEquivalent(inputDir, outputDir)) {
         errorMsg = "Input and output directories must be different for interpolation.";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     CameraDataLoader cameraLoader;
+    std::fprintf(stdout, "[RRFG] Loading camera data: %s\n", config.cameraDataFile.c_str());
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
             errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
+            std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
             return false;
         }
         if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
             errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
+            std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
             return false;
         }
     }
+    std::fprintf(stdout, "[RRFG] All frames have matching camera data\n");
 
     unsigned int multiFrameCount = 0;
     if (config.interpolateFactor == 2) {
@@ -690,30 +915,37 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     } else {
         errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
                    ". Only 2x and 4x are supported.";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (!m_ngx.isDlssFGAvailable()) {
         errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] DLSS-FG available\n");
 
     if (!m_ngx.isDlssRRAvailable()) {
         errorMsg = m_ngx.unavailableReason();
         if (errorMsg.empty()) {
             errorMsg = "DLSS Ray Reconstruction is not supported on this GPU.";
         }
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] DLSS-RR available\n");
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
                    std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     ExrReader firstReader;
     if (!firstReader.open(frames.front().path.string(), errorMsg)) {
+        std::fprintf(stderr, "[RRFG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -721,12 +953,16 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     const int expectedInputHeight = firstReader.height();
     const int expectedOutputWidth = expectedInputWidth * config.scaleFactor;
     const int expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+    std::fprintf(stdout, "[RRFG] Input resolution: %dx%d -> Output: %dx%d\n",
+                 expectedInputWidth, expectedInputHeight, expectedOutputWidth, expectedOutputHeight);
 
     DlssFeatureGuard featureGuardRR(m_ngx);
     DlssFgFeatureGuard featureGuardFG(m_ngx);
 
+    std::fprintf(stdout, "[RRFG] Creating DLSS-RR feature...\n");
     VkCommandBuffer createCmdBufRR = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufRR, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] Failed to allocate RR command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBufRR, errorMsg) ||
@@ -737,15 +973,20 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                             config.quality,
                             createCmdBufRR,
                             errorMsg)) {
+        std::fprintf(stderr, "[RRFG] DLSS-RR feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufRR);
         return false;
     }
     if (!submitAndWait(m_ctx, createCmdBufRR, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] DLSS-RR feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] DLSS-RR feature created\n");
 
+    std::fprintf(stdout, "[RRFG] Creating DLSS-FG feature...\n");
     VkCommandBuffer createCmdBufFG = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufFG, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] Failed to allocate FG command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBufFG, errorMsg) ||
@@ -754,12 +995,15 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                             static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
                             createCmdBufFG,
                             errorMsg)) {
+        std::fprintf(stderr, "[RRFG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufFG);
         return false;
     }
     if (!submitAndWait(m_ctx, createCmdBufFG, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] DLSS-FG feature created\n");
 
     ChannelMapper channelMapper;
     MvConverter mvConverter;
@@ -769,14 +1013,40 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
     TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
 
+    // Initialize FG transport encoding (PQ or Custom LUT)
+    std::fprintf(stdout, "[RRFG] Initializing FG transport...\n");
+    PqTransferProcessor pqTransfer(m_ctx);
+    bool pqReady = false;
+    LutProcessor forwardLut(m_ctx);
+    LutProcessor inverseLut(m_ctx);
+    bool forwardLutReady = false;
+    bool inverseLutReady = false;
+    if (!initPqTransfer(m_ctx, config, pqTransfer, pqReady, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] PQ transfer init failed: %s\n", errorMsg.c_str());
+        return false;
+    }
+    if (!initLutProcessors(m_ctx, config, forwardLut, inverseLut,
+                           forwardLutReady, inverseLutReady, errorMsg)) {
+        std::fprintf(stderr, "[RRFG] LUT init failed: %s\n", errorMsg.c_str());
+        return false;
+    }
+    const bool transportReady = pqReady || forwardLutReady;
+    const bool inverseReady = pqReady ? config.inverseTonemapEnabled : inverseLutReady;
+    std::fprintf(stdout, "[RRFG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
+                 pqReady ? "yes" : "no", forwardLutReady ? "yes" : "no",
+                 inverseReady ? "yes" : "no");
+
     FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedInputWidth, expectedInputHeight);
     prefetcher.start(frames);
 
+    std::fprintf(stdout, "[RRFG] Prefetching first frame...\n");
     auto firstPrefetched = prefetcher.getNext();
     if (!firstPrefetched || !firstPrefetched->valid) {
         errorMsg = "Failed to prefetch first frame";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[RRFG] First frame prefetched OK\n");
 
     auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
     const auto& firstMvResult = firstPrefetched->mvResult;
@@ -871,16 +1141,14 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     }
 
     int outputFrameCounter = 1;
-    const std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
-    if (!writeRgbaExr(outputPath,
-                      outputFrameCounter,
-                      expectedOutputWidth,
-                      expectedOutputHeight,
-                      firstOutputData,
-                      config,
-                      errorMsg)) {
-        return false;
-    }
+    AsyncExrWriter asyncWriter;
+    std::fprintf(stdout, "[RRFG] Async EXR writer started (%zu threads)\n",
+                 static_cast<size_t>(std::thread::hardware_concurrency()));
+    std::fprintf(stdout, "[RRFG] Downloading and submitting first RR output...\n");
+    std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
+    asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
+                                     expectedOutputWidth, expectedOutputHeight,
+                                     firstOutputData, config));
     ++outputFrameCounter;
 
     for (size_t i = 1; i < frames.size(); ++i) {
@@ -888,7 +1156,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         const SequenceFrameInfo& currentFrameInfo = frames[i];
         const std::string filename = currentFrameInfo.path.filename().string();
         std::fprintf(stdout,
-                     "Processing frame pair %d/%d: %s -> %s\n",
+                     "[RRFG] Processing frame pair %d/%d: %s -> %s\n",
                      static_cast<int>(i),
                      static_cast<int>(frames.size() - 1),
                      previousFrameInfo.path.filename().string().c_str(),
@@ -899,12 +1167,14 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                                             previousFrameInfo.frameNumber,
                                             camParams,
                                             errorMsg)) {
+            std::fprintf(stderr, "[RRFG] Camera pair params failed: %s\n", errorMsg.c_str());
             return false;
         }
 
         auto prefetched = prefetcher.getNext();
         if (!prefetched || !prefetched->valid) {
             errorMsg = "Failed to prefetch frame: " + currentFrameInfo.path.filename().string();
+            std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -954,6 +1224,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
             pool.updateData(rrOutput, rrOutputInit.data());
         } catch (const std::exception& ex) {
             errorMsg = ex.what();
+            std::fprintf(stderr, "[RRFG] Upload failed: %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -996,6 +1267,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_GENERAL);
         if (!rrProcessor.evaluate(rrEvalCmdBuf, rrFrame, errorMsg)) {
+            std::fprintf(stderr, "[RRFG] RR evaluate failed: %s\n", errorMsg.c_str());
             vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &rrEvalCmdBuf);
             return false;
         }
@@ -1004,6 +1276,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                         VK_IMAGE_LAYOUT_GENERAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         if (!submitAndWait(m_ctx, rrEvalCmdBuf, errorMsg)) {
+            std::fprintf(stderr, "[RRFG] RR submit failed: %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -1015,9 +1288,19 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                                                     4,
                                                     VK_FORMAT_R16G16B16A16_SFLOAT);
 
+            // Temporary texture for encoded backbuffer (PQ or forward LUT output)
+            TextureHandle tonemappedBuf;
+            if (transportReady) {
+                tonemappedBuf = m_texturePipeline.upload(rrOutputInit.data(),
+                                                         expectedOutputWidth,
+                                                         expectedOutputHeight,
+                                                         4,
+                                                         VK_FORMAT_R16G16B16A16_SFLOAT);
+            }
+
             DlssFgFrameInput fgInput{};
-            fgInput.backbuffer = rrOutput.image;
-            fgInput.backbufferView = rrOutput.view;
+            fgInput.backbuffer = transportReady ? tonemappedBuf.image : rrOutput.image;
+            fgInput.backbufferView = transportReady ? tonemappedBuf.view : rrOutput.view;
             fgInput.depth = depth.image;
             fgInput.depthView = depth.view;
             fgInput.motionVectors = motion.image;
@@ -1034,12 +1317,50 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
             VkCommandBuffer fgEvalCmdBuf = VK_NULL_HANDLE;
             if (!allocateCommandBuffer(m_ctx, fgEvalCmdBuf, errorMsg)) {
                 destroyHandle(m_texturePipeline, outputInterp);
+                destroyHandle(m_texturePipeline, tonemappedBuf);
                 return false;
             }
             if (!beginCommandBuffer(fgEvalCmdBuf, errorMsg)) {
                 vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &fgEvalCmdBuf);
                 destroyHandle(m_texturePipeline, outputInterp);
+                destroyHandle(m_texturePipeline, tonemappedBuf);
                 return false;
+            }
+
+            // Forward transport: rrOutput (scene-linear) -> tonemappedBuf (PQ or display-referred)
+            if (transportReady) {
+                transitionImage(fgEvalCmdBuf,
+                                rrOutput.image,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                VK_IMAGE_LAYOUT_GENERAL);
+                transitionImage(fgEvalCmdBuf,
+                                tonemappedBuf.image,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                VK_IMAGE_LAYOUT_GENERAL);
+                if (pqReady) {
+                    pqTransfer.apply(fgEvalCmdBuf,
+                                     rrOutput.image,
+                                     rrOutput.view,
+                                     tonemappedBuf.image,
+                                     tonemappedBuf.view,
+                                     expectedOutputWidth,
+                                     expectedOutputHeight,
+                                     true); // encode: scene-linear -> PQ
+                } else {
+                    forwardLut.apply(fgEvalCmdBuf,
+                                     rrOutput.image,
+                                     rrOutput.view,
+                                     tonemappedBuf.image,
+                                     tonemappedBuf.view,
+                                     expectedOutputWidth,
+                                     expectedOutputHeight);
+                }
+                // Transition rrOutput back — NGX expects SHADER_READ_ONLY
+                transitionImage(fgEvalCmdBuf,
+                                rrOutput.image,
+                                VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                // tonemappedBuf stays GENERAL for NGX to read
             }
 
             transitionImage(fgEvalCmdBuf,
@@ -1047,48 +1368,83 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                             VK_IMAGE_LAYOUT_GENERAL);
             if (!fgProcessor.evaluate(fgEvalCmdBuf, fgInput, errorMsg)) {
+                std::fprintf(stderr, "[RRFG] FG evaluate failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
                 vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &fgEvalCmdBuf);
                 destroyHandle(m_texturePipeline, outputInterp);
+                destroyHandle(m_texturePipeline, tonemappedBuf);
                 return false;
             }
+
+            // Inverse transport: outputInterp (PQ or display-referred) -> tonemappedBuf (scene-linear)
+            if (inverseReady && transportReady) {
+                // tonemappedBuf is still GENERAL from forward pass
+                // outputInterp is GENERAL from FG evaluate
+                if (pqReady) {
+                    pqTransfer.apply(fgEvalCmdBuf,
+                                     outputInterp.image,
+                                     outputInterp.view,
+                                     tonemappedBuf.image,
+                                     tonemappedBuf.view,
+                                     expectedOutputWidth,
+                                     expectedOutputHeight,
+                                     false); // decode: PQ -> scene-linear
+                } else {
+                    inverseLut.apply(fgEvalCmdBuf,
+                                     outputInterp.image,
+                                     outputInterp.view,
+                                     tonemappedBuf.image,
+                                     tonemappedBuf.view,
+                                     expectedOutputWidth,
+                                     expectedOutputHeight,
+                                     false); // display-referred input, no log2 shaper
+                }
+                transitionImage(fgEvalCmdBuf,
+                                tonemappedBuf.image,
+                                VK_IMAGE_LAYOUT_GENERAL,
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+
             transitionImage(fgEvalCmdBuf,
                             outputInterp.image,
                             VK_IMAGE_LAYOUT_GENERAL,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             if (!submitAndWait(m_ctx, fgEvalCmdBuf, errorMsg)) {
+                std::fprintf(stderr, "[RRFG] FG submit failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
                 destroyHandle(m_texturePipeline, outputInterp);
+                destroyHandle(m_texturePipeline, tonemappedBuf);
                 return false;
             }
 
-            const std::vector<float> interpOutputData = m_texturePipeline.download(outputInterp);
-            if (!writeRgbaExr(outputPath,
-                              outputFrameCounter,
-                              expectedOutputWidth,
-                              expectedOutputHeight,
-                              interpOutputData,
-                              config,
-                              errorMsg)) {
-                destroyHandle(m_texturePipeline, outputInterp);
-                return false;
-            }
+            // Download the result — from tonemappedBuf if inverse was applied, else outputInterp
+            const TextureHandle& downloadSource = (inverseReady && transportReady) ? tonemappedBuf : outputInterp;
+            std::vector<float> interpOutputData = m_texturePipeline.download(downloadSource);
+
+            asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
+                                             expectedOutputWidth, expectedOutputHeight,
+                                             interpOutputData, config));
             ++outputFrameCounter;
             destroyHandle(m_texturePipeline, outputInterp);
+            destroyHandle(m_texturePipeline, tonemappedBuf);
         }
 
-        const std::vector<float> rrOutputData = m_texturePipeline.download(rrOutput);
-        if (!writeRgbaExr(outputPath,
-                          outputFrameCounter,
-                          expectedOutputWidth,
-                          expectedOutputHeight,
-                          rrOutputData,
-                          config,
-                          errorMsg)) {
-            return false;
-        }
+        std::vector<float> rrOutputData = m_texturePipeline.download(rrOutput);
+        asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
+                                         expectedOutputWidth, expectedOutputHeight,
+                                         rrOutputData, config));
         ++outputFrameCounter;
     }
 
+    // Wait for all async writes to complete before releasing GPU resources
+    std::fprintf(stdout, "[RRFG] Flushing async writer (%d errors so far)...\n", asyncWriter.errorCount());
+    asyncWriter.flush();
+    if (asyncWriter.errorCount() > 0) {
+        errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriter.errorCount()) + " write error(s)";
+        std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
+        pool.releaseAll();
+        return false;
+    }
     pool.releaseAll();
+    std::fprintf(stdout, "[RRFG] Done. %d output frames written.\n", outputFrameCounter - 1);
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);
@@ -1110,18 +1466,25 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 }
 
 bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
-                                           const std::string& outputDir,
-                                           const AppConfig& config,
-                                           std::string& errorMsg) {
+                                            const std::string& outputDir,
+                                            const AppConfig& config,
+                                            std::string& errorMsg) {
     errorMsg.clear();
+    std::fprintf(stdout, "[FG] Starting FG-only pipeline\n");
+    std::fprintf(stdout, "[FG]   input:  %s\n", inputDir.c_str());
+    std::fprintf(stdout, "[FG]   output: %s\n", outputDir.c_str());
+    std::fprintf(stdout, "[FG]   interpolate=%dx\n", config.interpolateFactor);
 
     std::vector<SequenceFrameInfo> frames;
     if (!scanAndSort(inputDir, frames, errorMsg)) {
+        std::fprintf(stderr, "[FG] scanAndSort failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[FG] Found %d EXR frames\n", static_cast<int>(frames.size()));
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -1129,26 +1492,33 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     std::filesystem::create_directories(outputDir, ec);
     if (ec) {
         errorMsg = "Failed to create output directory: " + outputDir;
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (pathsAreEquivalent(inputDir, outputDir)) {
         errorMsg = "Input and output directories must be different for interpolation.";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     CameraDataLoader cameraLoader;
+    std::fprintf(stdout, "[FG] Loading camera data: %s\n", config.cameraDataFile.c_str());
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
+        std::fprintf(stderr, "[FG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[FG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
             errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
+            std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
             return false;
         }
         if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
             errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
+            std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
             return false;
         }
     }
@@ -1161,30 +1531,38 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     } else {
         errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
                    ". Only 2x and 4x are supported.";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (!m_ngx.isDlssFGAvailable()) {
         errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[FG] DLSS-FG available\n");
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
                    std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     ExrReader firstReader;
     if (!firstReader.open(frames.front().path.string(), errorMsg)) {
+        std::fprintf(stderr, "[FG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
 
     const int expectedWidth = firstReader.width();
     const int expectedHeight = firstReader.height();
+    std::fprintf(stdout, "[FG] Resolution: %dx%d\n", expectedWidth, expectedHeight);
 
+    std::fprintf(stdout, "[FG] Creating DLSS-FG feature...\n");
     VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg)) {
+        std::fprintf(stderr, "[FG] Failed to allocate command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBuf, errorMsg) ||
@@ -1193,13 +1571,16 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                             static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
                             createCmdBuf,
                             errorMsg)) {
+        std::fprintf(stderr, "[FG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBuf);
         return false;
     }
     DlssFgFeatureGuard featureGuard(m_ngx);
     if (!submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
+        std::fprintf(stderr, "[FG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
+    std::fprintf(stdout, "[FG] DLSS-FG feature created\n");
 
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
     TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
@@ -1220,6 +1601,29 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     MvConverter mvConverter;
     DlssFgProcessor fgProcessor(m_ctx, m_ngx);
 
+    // Initialize FG transport encoding (PQ or Custom LUT)
+    std::fprintf(stdout, "[FG] Initializing FG transport...\n");
+    PqTransferProcessor pqTransferFG(m_ctx);
+    bool pqReadyFG = false;
+    LutProcessor forwardLutFG(m_ctx);
+    LutProcessor inverseLutFG(m_ctx);
+    bool forwardLutReadyFG = false;
+    bool inverseLutReadyFG = false;
+    if (!initPqTransfer(m_ctx, config, pqTransferFG, pqReadyFG, errorMsg)) {
+        std::fprintf(stderr, "[FG] PQ transfer init failed: %s\n", errorMsg.c_str());
+        return false;
+    }
+    if (!initLutProcessors(m_ctx, config, forwardLutFG, inverseLutFG,
+                           forwardLutReadyFG, inverseLutReadyFG, errorMsg)) {
+        std::fprintf(stderr, "[FG] LUT init failed: %s\n", errorMsg.c_str());
+        return false;
+    }
+    const bool transportReadyFG = pqReadyFG || forwardLutReadyFG;
+    const bool inverseReadyFG = pqReadyFG ? config.inverseTonemapEnabled : inverseLutReadyFG;
+    std::fprintf(stdout, "[FG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
+                 pqReadyFG ? "yes" : "no", forwardLutReadyFG ? "yes" : "no",
+                 inverseReadyFG ? "yes" : "no");
+
     FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedWidth, expectedHeight);
     prefetcher.start(frames);
 
@@ -1233,15 +1637,11 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
 
     int outputFrameCounter = 1;
     const std::filesystem::path outputPath(outputDir);
-    if (!writeRgbaExr(outputPath,
-                      outputFrameCounter,
-                      expectedWidth,
-                      expectedHeight,
-                      firstMappedBuffers.color,
-                      config,
-                      errorMsg)) {
-        return false;
-    }
+    AsyncExrWriter asyncWriterFG;
+    std::fprintf(stdout, "[FG] Async EXR writer started\n");
+    asyncWriterFG.submit(buildWriteJobCopy(outputPath, outputFrameCounter,
+                                           expectedWidth, expectedHeight,
+                                           firstMappedBuffers.color, config));
     ++outputFrameCounter;
 
     for (size_t i = 1; i < frames.size(); ++i) {
@@ -1249,7 +1649,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         const SequenceFrameInfo& currentFrameInfo = frames[i];
         const std::string filename = currentFrameInfo.path.filename().string();
         std::fprintf(stdout,
-                     "Processing frame pair %d/%d: %s -> %s\n",
+                     "[FG] Processing frame pair %d/%d: %s -> %s\n",
                      static_cast<int>(i),
                      static_cast<int>(frames.size() - 1),
                      previousFrameInfo.path.filename().string().c_str(),
@@ -1304,6 +1704,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                                                         4u,
                                                     0.0f);
                 TextureHandle outputInterp;
+                TextureHandle tonemappedBuf;
 
                 try {
                     outputInterp = m_texturePipeline.upload(outputInit.data(),
@@ -1312,9 +1713,18 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                                                             4,
                                                             VK_FORMAT_R16G16B16A16_SFLOAT);
 
+                    // Temporary texture for encoded backbuffer (PQ or forward LUT output)
+                    if (transportReadyFG) {
+                        tonemappedBuf = m_texturePipeline.upload(outputInit.data(),
+                                                                  expectedWidth,
+                                                                  expectedHeight,
+                                                                  4,
+                                                                  VK_FORMAT_R16G16B16A16_SFLOAT);
+                    }
+
                     DlssFgFrameInput fgInput{};
-                    fgInput.backbuffer = color.image;
-                    fgInput.backbufferView = color.view;
+                    fgInput.backbuffer = transportReadyFG ? tonemappedBuf.image : color.image;
+                    fgInput.backbufferView = transportReadyFG ? tonemappedBuf.view : color.view;
                     fgInput.depth = depth.image;
                     fgInput.depthView = depth.view;
                     fgInput.motionVectors = motion.image;
@@ -1338,6 +1748,42 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                     }
 
                     try {
+                        // Forward transport: color (scene-linear) -> tonemappedBuf (PQ or display-referred)
+                        if (transportReadyFG) {
+                            transitionImage(evalCmdBuf,
+                                            color.image,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                            VK_IMAGE_LAYOUT_GENERAL);
+                            transitionImage(evalCmdBuf,
+                                            tonemappedBuf.image,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                            VK_IMAGE_LAYOUT_GENERAL);
+                            if (pqReadyFG) {
+                                pqTransferFG.apply(evalCmdBuf,
+                                                   color.image,
+                                                   color.view,
+                                                   tonemappedBuf.image,
+                                                   tonemappedBuf.view,
+                                                   expectedWidth,
+                                                   expectedHeight,
+                                                   true); // encode: scene-linear -> PQ
+                            } else {
+                                forwardLutFG.apply(evalCmdBuf,
+                                                   color.image,
+                                                   color.view,
+                                                   tonemappedBuf.image,
+                                                   tonemappedBuf.view,
+                                                   expectedWidth,
+                                                   expectedHeight);
+                            }
+                            // Transition color back — pool textures expect SHADER_READ_ONLY
+                            transitionImage(evalCmdBuf,
+                                            color.image,
+                                            VK_IMAGE_LAYOUT_GENERAL,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                            // tonemappedBuf stays GENERAL for NGX to read
+                        }
+
                         transitionImage(evalCmdBuf,
                                         outputInterp.image,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1345,6 +1791,36 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                         if (!fgProcessor.evaluate(evalCmdBuf, fgInput, errorMsg)) {
                             throw std::runtime_error(errorMsg);
                         }
+
+                        // Inverse transport: outputInterp (PQ or display-referred) -> tonemappedBuf (scene-linear)
+                        if (inverseReadyFG && transportReadyFG) {
+                            // tonemappedBuf is still GENERAL from forward pass
+                            // outputInterp is GENERAL from FG evaluate
+                            if (pqReadyFG) {
+                                pqTransferFG.apply(evalCmdBuf,
+                                                   outputInterp.image,
+                                                   outputInterp.view,
+                                                   tonemappedBuf.image,
+                                                   tonemappedBuf.view,
+                                                   expectedWidth,
+                                                   expectedHeight,
+                                                   false); // decode: PQ -> scene-linear
+                            } else {
+                                inverseLutFG.apply(evalCmdBuf,
+                                                   outputInterp.image,
+                                                   outputInterp.view,
+                                                   tonemappedBuf.image,
+                                                   tonemappedBuf.view,
+                                                   expectedWidth,
+                                                   expectedHeight,
+                                                   false); // display-referred input, no log2 shaper
+                            }
+                            transitionImage(evalCmdBuf,
+                                            tonemappedBuf.image,
+                                            VK_IMAGE_LAYOUT_GENERAL,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        }
+
                         transitionImage(evalCmdBuf,
                                         outputInterp.image,
                                         VK_IMAGE_LAYOUT_GENERAL,
@@ -1358,42 +1834,45 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                         throw std::runtime_error(errorMsg);
                     }
 
-                    const std::vector<float> outputData = m_texturePipeline.download(outputInterp);
-                    if (!writeRgbaExr(outputPath,
-                                      outputFrameCounter,
-                                      expectedWidth,
-                                      expectedHeight,
-                                      outputData,
-                                      config,
-                                      errorMsg)) {
-                        throw std::runtime_error(errorMsg);
-                    }
+                    // Download the result — from tonemappedBuf if inverse was applied, else outputInterp
+                    const TextureHandle& dlSource = (inverseReadyFG && transportReadyFG) ? tonemappedBuf : outputInterp;
+                    std::vector<float> outputData = m_texturePipeline.download(dlSource);
+
+                    asyncWriterFG.submit(buildWriteJob(outputPath, outputFrameCounter,
+                                                       expectedWidth, expectedHeight,
+                                                       outputData, config));
                     ++outputFrameCounter;
                 } catch (...) {
                     destroyHandle(m_texturePipeline, outputInterp);
+                    destroyHandle(m_texturePipeline, tonemappedBuf);
                     throw;
                 }
 
                 destroyHandle(m_texturePipeline, outputInterp);
+                destroyHandle(m_texturePipeline, tonemappedBuf);
             }
         } catch (const std::exception& ex) {
             errorMsg = ex.what();
             return false;
         }
 
-        if (!writeRgbaExr(outputPath,
-                          outputFrameCounter,
-                          expectedWidth,
-                          expectedHeight,
-                          mappedBuffers.color,
-                          config,
-                          errorMsg)) {
-            return false;
-        }
+        asyncWriterFG.submit(buildWriteJobCopy(outputPath, outputFrameCounter,
+                                               expectedWidth, expectedHeight,
+                                               mappedBuffers.color, config));
         ++outputFrameCounter;
     }
 
+    // Wait for all async writes to complete before releasing GPU resources
+    std::fprintf(stdout, "[FG] Flushing async writer (%d errors so far)...\n", asyncWriterFG.errorCount());
+    asyncWriterFG.flush();
+    if (asyncWriterFG.errorCount() > 0) {
+        errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriterFG.errorCount()) + " write error(s)";
+        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        pool.releaseAll();
+        return false;
+    }
     pool.releaseAll();
+    std::fprintf(stdout, "[FG] Done. %d output frames written.\n", outputFrameCounter - 1);
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);

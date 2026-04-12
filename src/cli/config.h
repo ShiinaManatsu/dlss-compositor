@@ -14,6 +14,12 @@ enum class DlssQualityMode {
     UltraPerformance
 };
 
+enum class TonemapMode {
+    None,        // No transport encoding — pass through scene-linear (may clamp HDR)
+    PQ,          // PQ (ST 2084) per-channel encode/decode (default for FG)
+    Custom       // User-provided forward/inverse LUT files
+};
+
 enum class OutputPass : uint32_t {
     Beauty = 1u << 0,
     Depth = 1u << 1,
@@ -62,4 +68,9 @@ struct AppConfig {
     ExrCompression exrCompression = ExrCompression::Dwaa;
     float exrDwaQuality = 95.0f;
     OutputPass outputPasses = OutputPass::Beauty;
+
+    TonemapMode tonemapMode = TonemapMode::PQ;
+    bool inverseTonemapEnabled = true;
+    std::string forwardLutFile;
+    std::string inverseLutFile;
 };

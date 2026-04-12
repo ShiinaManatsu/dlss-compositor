@@ -82,6 +82,18 @@ const char* qualityToString(DlssQualityMode mode) {
     return "Balanced";
 }
 
+bool parseTonemapMode(const char* value, TonemapMode& out) {
+    if (std::strcmp(value, "none") == 0) {
+        out = TonemapMode::None;
+        return true;
+    }
+    if (std::strcmp(value, "pq") == 0) {
+        out = TonemapMode::PQ;
+        return true;
+    }
+    return false;
+}
+
 bool parseCompression(const char* value, ExrCompression& out) {
     if (std::strcmp(value, "none") == 0) {
         out = ExrCompression::None;
@@ -330,6 +342,39 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--tonemap") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--tonemap requires a value";
+                return false;
+            }
+            if (!parseTonemapMode(argv[++i], config.tonemapMode)) {
+                errorMsg = "--tonemap must be one of: none, pq";
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--no-inverse-tonemap") == 0) {
+            config.inverseTonemapEnabled = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--tonemap-lut") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--tonemap-lut requires a value";
+                return false;
+            }
+            config.forwardLutFile = argv[++i];
+            config.tonemapMode = TonemapMode::Custom;
+            continue;
+        }
+        if (std::strcmp(arg, "--inverse-tonemap-lut") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--inverse-tonemap-lut requires a value";
+                return false;
+            }
+            config.inverseLutFile = argv[++i];
+            config.tonemapMode = TonemapMode::Custom;
+            continue;
+        }
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
@@ -338,6 +383,18 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
     if (config.interpolateFactor > 0 && config.cameraDataFile.empty()) {
         errorMsg = "--interpolate requires --camera-data";
         return false;
+    }
+
+    if (config.tonemapMode == TonemapMode::Custom) {
+        if (config.forwardLutFile.empty()) {
+            errorMsg = "--tonemap-lut is required when using custom LUT files";
+            return false;
+        }
+        if (config.inverseTonemapEnabled && config.inverseLutFile.empty()) {
+            errorMsg = "--inverse-tonemap-lut is required when using custom LUT with inverse enabled. "
+                       "Use --no-inverse-tonemap to skip inverse, or provide --inverse-tonemap-lut.";
+            return false;
+        }
     }
 
     return true;
@@ -360,6 +417,10 @@ void CliParser::printHelp() {
     std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
     std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
     std::printf("  --output-passes <list> Output passes (comma-separated: beauty,depth,normals; default: beauty)\n");
+    std::printf("  --tonemap <mode>       FG transport encoding (none|pq; default: pq)\n");
+    std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");
+    std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
+    std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
     std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --gui                  Launch ImGui viewer\n");

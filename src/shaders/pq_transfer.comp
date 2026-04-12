@@ -1,0 +1,85 @@
+#version 450
+
+// Compute shader: PQ (Perceptual Quantizer, ST 2084) per-channel transfer.
+//
+// Two modes controlled by push constant `direction`:
+//   1 = Encode: scene-linear -> PQ [0, 1]
+//   0 = Decode: PQ [0, 1] -> scene-linear
+//
+// PQ encodes absolute luminance in nits. We pre-scale scene-linear values
+// so that 1.0 = 100 nits (the sRGB reference white), giving a useful range
+// of 0 to 100 (= 10 000 nits) in scene-linear before encoding.
+//
+// The PQ EOTF constants are from SMPTE ST 2084.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform readonly  image2D inputImage;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform PushConstants {
+    int imageWidth;
+    int imageHeight;
+    int direction;      // 1 = encode (linear -> PQ), 0 = decode (PQ -> linear)
+    int _pad;           // alignment padding
+} pc;
+
+// ST 2084 constants
+const float m1 = 0.1593017578125;        // 2610 / 16384
+const float m2 = 78.84375;               // 2523 / 4096 * 128
+const float c1 = 0.8359375;              // 3424 / 4096
+const float c2 = 18.8515625;             // 2413 / 4096 * 32
+const float c3 = 18.6875;               // 2392 / 4096 * 32
+
+// Scene-linear 1.0 = 100 nits.  PQ reference white = 10000 nits.
+const float PQ_MAX_NITS = 10000.0;
+const float SDR_WHITE_NITS = 100.0;
+
+// Encode: scene-linear -> PQ code value [0, 1]
+float linearToPQ(float L) {
+    // L is scene-linear where 1.0 = 100 nits
+    float Lp = clamp(L * SDR_WHITE_NITS / PQ_MAX_NITS, 0.0, 1.0); // normalize to [0, 1] in nits/10000
+    float Lm1 = pow(Lp, m1);
+    float num = c1 + c2 * Lm1;
+    float den = 1.0 + c3 * Lm1;
+    return pow(num / den, m2);
+}
+
+// Decode: PQ code value [0, 1] -> scene-linear
+float pqToLinear(float N) {
+    float Np = clamp(N, 0.0, 1.0);
+    float Nm2 = pow(Np, 1.0 / m2);
+    float num = max(Nm2 - c1, 0.0);
+    float den = c2 - c3 * Nm2;
+    float Lp = pow(num / max(den, 1e-10), 1.0 / m1);
+    return Lp * PQ_MAX_NITS / SDR_WHITE_NITS; // back to scene-linear (1.0 = 100 nits)
+}
+
+void main() {
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pixelCoord.x >= pc.imageWidth || pixelCoord.y >= pc.imageHeight) {
+        return;
+    }
+
+    vec4 color = imageLoad(inputImage, pixelCoord);
+    vec3 result;
+
+    if (pc.direction != 0) {
+        // Encode: scene-linear -> PQ
+        result = vec3(
+            linearToPQ(color.r),
+            linearToPQ(color.g),
+            linearToPQ(color.b)
+        );
+    } else {
+        // Decode: PQ -> scene-linear
+        result = vec3(
+            pqToLinear(color.r),
+            pqToLinear(color.g),
+            pqToLinear(color.b)
+        );
+    }
+
+    imageStore(outputImage, pixelCoord, vec4(result, color.a));
+}
