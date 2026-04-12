@@ -22,7 +22,9 @@ let mainWindow: BrowserWindow | null = null
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1024,
-    height: 720,
+    height: 768,
+    minWidth: 1024,
+    minHeight: 768,
     title: 'DLSS Compositor',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
