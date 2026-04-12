@@ -49,6 +49,20 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --interp
 
 **Output naming:** Original upscaled frames and interpolated frames are interleaved and numbered sequentially, same as FG-only mode.
 
+## Custom Scale Factors
+
+The `--scale` flag supports any float value between 1.0 and 8.0. This allows for precise matching of target resolutions.
+
+| Target Resolution | Source Resolution | Scale Factor | Example Command |
+|-------------------|-------------------|--------------|-----------------|
+| 1080p (1920x1080) | 720p (1280x720)   | 1.5          | `--scale 1.5`   |
+| 4K (3840x2160)    | 1080p (1920x1080) | 2.0          | `--scale 2.0`   |
+| 4K (3840x2160)    | 720p (1280x720)   | 3.0          | `--scale 3.0`   |
+| Native Denoise    | Native            | 1.0          | `--scale 1.0 --quality DLAA` |
+
+**Denoise-only (DLAA) Mode:**
+By setting `--scale 1.0` and `--quality DLAA`, the compositor performs high-quality temporal denoising and ray reconstruction at the original resolution without any spatial upscaling.
+
 ## CLI Usage
 
 The `dlss-compositor.exe` tool processes EXR sequences.
@@ -64,8 +78,8 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 |------|---------|-------------|
 | `--input-dir <dir>` | — | Directory containing the input EXR sequence. |
 | `--output-dir <dir>` | — | Directory where processed EXRs will be saved. |
-| `--scale <factor>` | 2 | Upscale factor. Must be 2, 3, or 4. |
-| `--quality <mode>` | Balanced | DLSS quality mode: `MaxQuality`, `Balanced`, `Performance`, `UltraPerformance`. |
+| `--scale <factor>` | 2.0 | Upscale factor. Float value ≥ 1.0 (e.g., 1.5, 2.0). Use 1.0 for denoise-only (DLAA). |
+| `--quality <mode>` | Balanced | DLSS quality mode: `DLAA`, `MaxQuality`, `Balanced`, `Performance`, `UltraPerformance`. |
 | `--encode-video [file]` | — | Encode the output sequence to an MP4 video. Requires FFmpeg on your PATH. |
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
 | `--interpolate <2x\|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |

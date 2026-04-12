@@ -30,8 +30,8 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 
 ## Quick Start
 1. **Build**: Clone the repository and build using CMake (see [Build Guide](docs/build_guide.md)).
-2. **Configure Blender**: Open your scene, go to the Scripting tab, open `blender/aov_export_preset.py` and click **Run Script** to register the DLSS Compositor panel.
-3. **Render**: Use the panel to configure passes and render your animation as a MultiLayer EXR sequence.
+2. **Configure Blender**: In Blender 5.x, go to **Edit > Preferences > Extensions**. Click the down arrow next to "Install from Disk" and select the `blender/dlss_compositor_aov/` folder. For development, you can symlink this folder to your Blender extensions directory.
+3. **Render**: Use the **DLSS Compositor** panel in the Render properties to configure passes and render your animation as a MultiLayer EXR sequence.
 4. **Process (DLSS-RR)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
 5. **Process (DLSS-FG)**: In the Blender panel, click **Export Camera Data** to generate `camera.json`, then run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
 6. **Process (Combined)**: Run both upscale and interpolation together: `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2 --interpolate 2x --camera-data camera.json`.
@@ -41,8 +41,17 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 # Basic processing with 2x upscale
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2
 
+# Custom float scale (e.g. 720p to 1080p is 1.5x)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1.5
+
+# Denoise-only mode (1.0x scale with DLAA)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1.0 --quality DLAA
+
 # Max quality mode
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --quality MaxQuality
+
+# DLAA quality mode (superior denoising at native resolution)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1.0 --quality DLAA
 
 # Frame interpolation (2x)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
