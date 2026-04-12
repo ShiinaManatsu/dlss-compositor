@@ -1,0 +1,70 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { DlssConfig } from '../types/dlss-config'
+
+export type ProcessingStatus = 'idle' | 'running' | 'done' | 'error'
+
+export interface ProcessingState {
+  status: ProcessingStatus
+  progress: number
+  currentFrame: number
+  totalFrames: number
+  log: string[]
+  errors: string[]
+  start: (config: DlssConfig) => void
+  stop: () => void
+}
+
+const MAX_LOG_LINES = 5000
+
+export function useProcessing(): ProcessingState {
+  const [status, setStatus] = useState<ProcessingStatus>('idle')
+  const [currentFrame, setCurrentFrame] = useState(0)
+  const [totalFrames, setTotalFrames] = useState(0)
+  const [log, setLog] = useState<string[]>([])
+  const [errors, setErrors] = useState<string[]>([])
+  const registeredRef = useRef(false)
+
+  useEffect(() => {
+    if (registeredRef.current) return
+    registeredRef.current = true
+
+    window.dlssApi.onProgress((data) => {
+      setCurrentFrame(data.current)
+      setTotalFrames(data.total)
+    })
+
+    window.dlssApi.onError((message) => {
+      setErrors((prev) => [...prev, message])
+      setStatus('error')
+    })
+
+    window.dlssApi.onComplete(() => {
+      setStatus('done')
+    })
+
+    window.dlssApi.onLog((line: string) => {
+      setLog((prev) => {
+        const next = [...prev, line]
+        return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next
+      })
+    })
+  }, [])
+
+  const progress = totalFrames > 0 ? Math.round((currentFrame / totalFrames) * 100) : 0
+
+  const start = useCallback((config: DlssConfig) => {
+    setStatus('running')
+    setCurrentFrame(0)
+    setTotalFrames(0)
+    setLog([])
+    setErrors([])
+    window.dlssApi.startProcessing(config)
+  }, [])
+
+  const stop = useCallback(() => {
+    window.dlssApi.stopProcessing()
+    setStatus('idle')
+  }, [])
+
+  return { status, progress, currentFrame, totalFrames, log, errors, start, stop }
+}

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import path from 'node:path'
 import { IPC_CHANNELS } from './ipc-channels'
+import { parseProgressLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
 
@@ -82,8 +83,17 @@ function registerIpcHandlers(): void {
 
     const proc = startProcess(exePath, buildCliArgs(config, exePath))
 
-    proc.stdout?.on('data', () => {
-      win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: 0, total: 0 })
+    const lineBuffer = new ProgressLineBuffer()
+    lineBuffer.onLine = (line: string) => {
+      const progress = parseProgressLine(line)
+      if (progress) {
+        win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, progress)
+      }
+      win.webContents.send(IPC_CHANNELS.PROCESS_LOG, line)
+    }
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      lineBuffer.feed(chunk.toString())
     })
 
     proc.stderr?.on('data', (chunk) => {
@@ -95,6 +105,7 @@ function registerIpcHandlers(): void {
     })
 
     proc.once('exit', () => {
+      lineBuffer.flush()
       win.webContents.send(IPC_CHANNELS.PROCESS_COMPLETE)
     })
   })

@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('dlssApi', {
   onComplete: (callback: () => void): void => {
     ipcRenderer.on('process:complete', () => callback())
   },
+  onLog: (callback: (line: string) => void): void => {
+    ipcRenderer.on('process:log', (_event, line) => callback(line))
+  },
   getSettings: (): Promise<unknown> =>
     ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown): Promise<void> =>
