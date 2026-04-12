@@ -53,6 +53,9 @@ gui/out/
 gui/test-results/
 gui/playwright-report/
 
+# Release packages
+dist/
+
 # Runtime logs / temp
 generation.log
 nvngx*.log
