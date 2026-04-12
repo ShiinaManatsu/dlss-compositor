@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "dlss_compositor_aov"
+version = "1.0.0"
+name = "DLSS Compositor AOV Export"
+tagline = "Configure render passes and AOVs for DLSS Compositor"
+type = "add-on"
+blender_version_min = "5.0.0"
+license = ["SPDX:MIT"]
+maintainer = "DLSS Compositor"
+tags = ["Render"]
+permissions = ["files"]
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "*.pyc"]
