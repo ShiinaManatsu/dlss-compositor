@@ -1,0 +1,14 @@
+Task 10 verification - 2026-04-12
+
+Build:
+- `npm run build` in `gui/` completed successfully (exit 0).
+
+buildCliArgs verification:
+- Temporary bundle created with `npx esbuild "electron/cli-args.ts" --bundle --platform=node --format=esm --outfile=".temp-test-dist/electron/cli-args.js"`
+- `node test-args.mjs` result: PASS
+- Output:
+  ["--input-dir","renders","--output-dir","output","--scale","1.5","--quality","Balanced","--interpolate","2x","--camera-data","camera.json","--memory-budget","4","--encode-video","result.mp4","--fps","30","--exr-compression","dwab","--exr-dwa-quality","90","--output-depth","--output-normals","--tonemap","none","--no-inverse-tonemap","--tonemap-lut","forward.bin","--inverse-tonemap-lut","inverse.bin","--channel-map","channels.json"]
+
+window.dlssApi verification:
+- `dist-electron/preload.mjs` contains `contextBridge.exposeInMainWorld("dlssApi", ...)`
+- Exposed methods found: selectDirectory, selectFile, startProcessing, stopProcessing, onProgress, onError, onComplete, getSettings, saveSettings

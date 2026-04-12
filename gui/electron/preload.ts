@@ -1,4 +1,25 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
-// Context bridge stub — IPC bindings will be added in Task 10
-contextBridge.exposeInMainWorld('api', {})
+contextBridge.exposeInMainWorld('dlssApi', {
+  selectDirectory: (): Promise<string> =>
+    ipcRenderer.invoke('dialog:openDirectory'),
+  selectFile: (filters: Electron.FileFilter[]): Promise<string> =>
+    ipcRenderer.invoke('dialog:openFile', filters),
+  startProcessing: (config: unknown): void =>
+    ipcRenderer.send('process:start', config),
+  stopProcessing: (): void =>
+    ipcRenderer.send('process:stop'),
+  onProgress: (callback: (data: { current: number; total: number }) => void): void => {
+    ipcRenderer.on('process:progress', (_event, data) => callback(data))
+  },
+  onError: (callback: (message: string) => void): void => {
+    ipcRenderer.on('process:error', (_event, message) => callback(message))
+  },
+  onComplete: (callback: () => void): void => {
+    ipcRenderer.on('process:complete', () => callback())
+  },
+  getSettings: (): Promise<unknown> =>
+    ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings: unknown): Promise<void> =>
+    ipcRenderer.invoke('settings:save', settings),
+})

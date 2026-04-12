@@ -40,3 +40,18 @@
 - Added specific examples for common scale factors like 1.5x (720p to 1080p) and 1.0x (denoise-only).
 - Maintained existing CLI examples while adding new ones to ensure backward compatibility in documentation tone.
 </findings>
+
+## [2026-04-12] Task 9: Electron Scaffold
+- electron-vite requires config file named electron.vite.config.ts (NOT ite.config.ts — it explicitly rejects that name).
+- When main and preload share the same outDir (e.g. dist-electron/), the preload build clears main's output. Fix: set emptyOutDir: false on the preload config.
+- electron-vite with "type": "module" in package.json emits preload as .mjs; the main.ts preload reference must use preload.mjs accordingly.
+- externalizeDepsPlugin() is required for main/preload configs to externalize Node.js built-in modules and npm dependencies.
+- Tailwind v3 + PostCSS + autoprefixer work out of the box with electron-vite's renderer pipeline — no special configuration needed.
+- electron-vite's process.env.ELECTRON_RENDERER_URL is the correct env var for dev server URL detection (not VITE_DEV_SERVER_URL).
+- The oot: '.' in renderer config is needed when index.html is at project root (not in src/).
+- Build produces: dist-electron/main.js (~1KB), dist-electron/preload.mjs (~0.1KB), dist/index.html + dist/assets/* (~225KB total).
+
+## [2026-04-12] Task 10: Electron IPC + Process Management
+- Duplicating IPC channel constants under both `gui/src/ipc/` and `gui/electron/` keeps renderer and main/preload bundles aligned without relying on cross-bundle runtime imports.
+- A pure `gui/electron/cli-args.ts` helper makes `buildCliArgs()` independently testable from Node, which is useful before any renderer UI exists.
+- Inspecting the built preload bundle is sufficient to confirm `window.dlssApi` exposes the expected bridge methods before wiring them into renderer components.
