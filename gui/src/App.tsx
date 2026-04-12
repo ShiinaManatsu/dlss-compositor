@@ -9,7 +9,7 @@ import ProcessingView from './components/ProcessingView';
 import type { Settings } from './types/dlss-config';
 
 function AppContent() {
-  const { dispatch } = useConfig();
+  const { state, dispatch } = useConfig();
   const [loaded, setLoaded] = React.useState(false);
   const [toastError, setToastError] = React.useState<string | null>(null);
 
@@ -52,6 +52,18 @@ function AppContent() {
       setLoaded(true);
     });
   }, [dispatch]);
+
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+
+    void window.dlssApi.saveSettings({
+      lastInputDir: state.inputDir,
+      lastOutputDir: state.outputDir,
+      config: state,
+    });
+  }, [loaded, state]);
 
   return (
     <div data-testid="app-root" className="h-screen bg-gray-900 text-gray-100 overflow-hidden flex flex-col relative">

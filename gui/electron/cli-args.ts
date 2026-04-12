@@ -39,12 +39,9 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
     args.push('--exr-dwa-quality', String(config.exrDwaQuality))
   }
 
-  if (config.outputPasses.includes('depth')) {
-    args.push('--output-depth')
-  }
-
-  if (config.outputPasses.includes('normals')) {
-    args.push('--output-normals')
+  const extraPasses = config.outputPasses?.filter((pass) => pass !== 'beauty') ?? []
+  if (extraPasses.length > 0) {
+    args.push('--output-passes', extraPasses.join(','))
   }
 
   if (config.tonemapMode === 'none') {
