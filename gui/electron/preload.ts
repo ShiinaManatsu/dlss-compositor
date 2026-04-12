@@ -9,17 +9,25 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.send('process:start', { config, exePath: exePath ?? '' }),
   stopProcessing: (): void =>
     ipcRenderer.send('process:stop'),
-  onProgress: (callback: (data: { current: number; total: number }) => void): void => {
-    ipcRenderer.on('process:progress', (_event, data) => callback(data))
+  onProgress: (callback: (data: { current: number; total: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { current: number; total: number }) => callback(data)
+    ipcRenderer.on('process:progress', handler)
+    return () => ipcRenderer.removeListener('process:progress', handler)
   },
-  onError: (callback: (message: string) => void): void => {
-    ipcRenderer.on('process:error', (_event, message) => callback(message))
+  onError: (callback: (message: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
+    ipcRenderer.on('process:error', handler)
+    return () => ipcRenderer.removeListener('process:error', handler)
   },
-  onComplete: (callback: () => void): void => {
-    ipcRenderer.on('process:complete', () => callback())
+  onComplete: (callback: () => void): (() => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('process:complete', handler)
+    return () => ipcRenderer.removeListener('process:complete', handler)
   },
-  onLog: (callback: (line: string) => void): void => {
-    ipcRenderer.on('process:log', (_event, line) => callback(line))
+  onLog: (callback: (line: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, line: string) => callback(line)
+    ipcRenderer.on('process:log', handler)
+    return () => ipcRenderer.removeListener('process:log', handler)
   },
   getSettings: (): Promise<unknown> =>
     ipcRenderer.invoke('settings:get'),

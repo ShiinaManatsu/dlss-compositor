@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { DlssConfig } from '../types/dlss-config'
 import { setGlobalIsRunning } from '../state/processing-store'
 
@@ -19,29 +19,31 @@ export function useProcessing(): ProcessingState {
   const [currentFrame, setCurrentFrame] = useState(0)
   const [totalFrames, setTotalFrames] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
-  const registeredRef = useRef(false)
 
   useEffect(() => {
     setGlobalIsRunning(status === 'running');
   }, [status]);
 
   useEffect(() => {
-    if (registeredRef.current) return
-    registeredRef.current = true
-
-    window.dlssApi.onProgress((data) => {
+    const unlistenProgress = window.dlssApi.onProgress((data) => {
       setCurrentFrame(data.current)
       setTotalFrames(data.total)
     })
 
-    window.dlssApi.onError((message) => {
+    const unlistenError = window.dlssApi.onError((message) => {
       setErrors((prev) => [...prev, message])
       setStatus('error')
     })
 
-    window.dlssApi.onComplete(() => {
+    const unlistenComplete = window.dlssApi.onComplete(() => {
       setStatus('done')
     })
+
+    return () => {
+      unlistenProgress()
+      unlistenError()
+      unlistenComplete()
+    }
   }, [])
 
   const progress = totalFrames > 0 ? Math.round((currentFrame / totalFrames) * 100) : 0

@@ -3,7 +3,8 @@
  * Returns { current, total } if it's a progress line, null otherwise.
  */
 export function parseProgressLine(line: string): { current: number; total: number } | null {
-  const match = line.match(/Processing frame (\d+)\/(\d+)/)
+  const normalizedLine = line.replace(/\0/g, '')
+  const match = normalizedLine.match(/Processing frame(?: pair)? (\d+)\/(\d+)/)
   if (!match) return null
   return { current: parseInt(match[1], 10), total: parseInt(match[2], 10) }
 }
@@ -16,7 +17,7 @@ export class ProgressLineBuffer {
   public onLine: (line: string) => void = () => {}
 
   feed(chunk: string): void {
-    this.buffer += chunk
+    this.buffer += chunk.replace(/\0/g, '')
     const lines = this.buffer.split('\n')
     // All but the last element are complete lines
     for (let i = 0; i < lines.length - 1; i++) {
@@ -31,7 +32,10 @@ export class ProgressLineBuffer {
 
   flush(): void {
     if (this.buffer.length > 0) {
-      this.onLine(this.buffer.trimEnd())
+      const line = this.buffer.replace(/\0/g, '').trimEnd()
+      if (line.length > 0) {
+        this.onLine(line)
+      }
       this.buffer = ''
     }
   }

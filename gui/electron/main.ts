@@ -92,8 +92,10 @@ function registerIpcHandlers(): void {
 
     const lineBuffer = new ProgressLineBuffer()
     lineBuffer.onLine = (line: string) => {
+      console.log('[main] stdout line:', JSON.stringify(line))
       const progress = parseProgressLine(line)
       if (progress) {
+        console.log('[main] parsed progress:', progress)
         win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, progress)
       }
       win.webContents.send(IPC_CHANNELS.PROCESS_LOG, line)
