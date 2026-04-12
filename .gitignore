@@ -45,6 +45,12 @@ luts/
 ACES2_QUICK_REFERENCE.txt
 ACES2_RESEARCH.md
 
+# Node.js (gui/)
+gui/node_modules/
+gui/dist/
+gui/dist-electron/
+gui/out/
+
 # Runtime logs / temp
 generation.log
 nvngx*.log
