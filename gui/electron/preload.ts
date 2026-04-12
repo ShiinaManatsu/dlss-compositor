@@ -27,4 +27,6 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('settings:save', settings),
   validateExePath: (exePath: string): Promise<boolean> =>
     ipcRenderer.invoke('settings:validate-exe-path', exePath),
+  getLatestFrame: (outputDir: string): Promise<string> =>
+    ipcRenderer.invoke('frame:latest', outputDir),
 })

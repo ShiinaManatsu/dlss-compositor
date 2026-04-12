@@ -11,14 +11,45 @@ function formatElapsed(seconds: number): string {
 
 export default function ProcessingView() {
   const { state } = useConfig();
-  const { status, progress, currentFrame, totalFrames, log, errors, start, stop } = useProcessing();
+  const { status, progress, currentFrame, totalFrames, errors, start, stop } = useProcessing();
   const [exePath, setExePath] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [completionMsg, setCompletionMsg] = useState('');
-  const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(0);
+
+  const [latestFramePath, setLatestFramePath] = useState<string>('')
+  const previewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Poll for latest frame every 3 seconds while running
+  useEffect(() => {
+    if (status === 'running' && state.outputDir) {
+      previewTimerRef.current = setInterval(async () => {
+        const p = await window.dlssApi.getLatestFrame(state.outputDir)
+        if (p) {
+          setLatestFramePath(p)
+        }
+      }, 3000)
+    } else {
+      if (previewTimerRef.current) {
+        clearInterval(previewTimerRef.current)
+        previewTimerRef.current = null
+      }
+      // On done/idle, do one final fetch
+      if ((status === 'done') && state.outputDir) {
+        window.dlssApi.getLatestFrame(state.outputDir).then(p => {
+          if (p) { setLatestFramePath(p) }
+        })
+      }
+    }
+    return () => {
+      if (previewTimerRef.current) {
+        clearInterval(previewTimerRef.current)
+        previewTimerRef.current = null
+      }
+    }
+  }, [status, state.outputDir])
 
   useEffect(() => {
     window.dlssApi.getSettings().then((raw: unknown) => {
@@ -54,13 +85,6 @@ export default function ProcessingView() {
     }
   }, [status, elapsed, totalFrames]);
 
-  useEffect(() => {
-    const el = logRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [log]);
-
   const canStart =
     !!exePath &&
     !!state.inputDir &&
@@ -71,6 +95,7 @@ export default function ProcessingView() {
 
   const handleStart = useCallback(() => {
     setCompletionMsg('');
+    setLatestFramePath('');
     start(state, exePath);
   }, [start, state, exePath]);
 
@@ -192,25 +217,29 @@ export default function ProcessingView() {
         </div>
       )}
 
-      {/* Log output */}
+      {/* Frame preview */}
       <div
-        ref={logRef}
-        data-testid="log-output"
-        className="flex-1 bg-gray-950 border border-gray-700 rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed min-h-0"
+        data-testid="frame-preview"
+        className="flex-1 bg-gray-950 border border-gray-700 rounded overflow-hidden min-h-0 flex items-center justify-center"
       >
-        {log.length === 0 && status === 'idle' ? (
-          <div className="flex items-center justify-center h-full text-gray-600">
-            Ready to process. Configure settings and click Start.
-          </div>
-        ) : (
-          log.map((line, i) => (
-            <div
-              key={i}
-              className={errors.includes(line) ? 'text-red-400' : 'text-gray-300'}
-            >
-              {line}
+        {status === 'idle' && (
+          <div className="text-gray-600 text-sm">Ready to process. Configure settings and click Start.</div>
+        )}
+        {(status === 'running' || status === 'done') && totalFrames > 0 && (
+          <div className="text-center">
+            <div className="text-5xl font-mono font-bold text-blue-400 mb-3">
+              {currentFrame}<span className="text-gray-600 text-3xl">/{totalFrames}</span>
             </div>
-          ))
+            <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath}>
+              {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : 'Waiting for first frame…'}
+            </div>
+          </div>
+        )}
+        {(status === 'running' || status === 'done') && totalFrames === 0 && (
+          <div className="text-gray-600 text-sm">Starting…</div>
+        )}
+        {status === 'error' && (
+          <div className="text-red-500 text-sm">Processing failed</div>
         )}
       </div>
 

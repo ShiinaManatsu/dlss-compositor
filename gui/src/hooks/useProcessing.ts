@@ -9,19 +9,15 @@ export interface ProcessingState {
   progress: number
   currentFrame: number
   totalFrames: number
-  log: string[]
   errors: string[]
   start: (config: DlssConfig, exePath?: string) => void
   stop: () => void
 }
 
-const MAX_LOG_LINES = 5000
-
 export function useProcessing(): ProcessingState {
   const [status, setStatus] = useState<ProcessingStatus>('idle')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [totalFrames, setTotalFrames] = useState(0)
-  const [log, setLog] = useState<string[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const registeredRef = useRef(false)
 
@@ -46,13 +42,6 @@ export function useProcessing(): ProcessingState {
     window.dlssApi.onComplete(() => {
       setStatus('done')
     })
-
-    window.dlssApi.onLog((line: string) => {
-      setLog((prev) => {
-        const next = [...prev, line]
-        return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next
-      })
-    })
   }, [])
 
   const progress = totalFrames > 0 ? Math.round((currentFrame / totalFrames) * 100) : 0
@@ -61,7 +50,6 @@ export function useProcessing(): ProcessingState {
     setStatus('running')
     setCurrentFrame(0)
     setTotalFrames(0)
-    setLog([])
     setErrors([])
     window.dlssApi.startProcessing(config, exePath)
   }, [])
@@ -71,5 +59,5 @@ export function useProcessing(): ProcessingState {
     setStatus('idle')
   }, [])
 
-  return { status, progress, currentFrame, totalFrames, log, errors, start, stop }
+  return { status, progress, currentFrame, totalFrames, errors, start, stop }
 }
