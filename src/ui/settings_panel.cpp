@@ -7,7 +7,6 @@
 #include <imgui.h>
 #include <filesystem>
 #include <mutex>
-#include <iostream>
 
 SettingsPanel::SettingsPanel(AppConfig& config, VulkanContext* computeCtx, NgxContext* ngxCtx, TexturePipeline* pipeline)
     : m_config(config), m_computeCtx(computeCtx), m_ngxCtx(ngxCtx), m_pipeline(pipeline) {
@@ -31,19 +30,16 @@ void SettingsPanel::render() {
         m_config.outputDir = m_outputDirBuf;
     }
 
-    const char* scaleFactors[] = { "2x", "3x", "4x" };
-    int scaleIndex = m_config.scaleFactor - 2;
-    if (scaleIndex < 0 || scaleIndex > 2) scaleIndex = 0;
-    
-    if (ImGui::Combo("Scale Factor", &scaleIndex, scaleFactors, 3)) {
-        m_config.scaleFactor = scaleIndex + 2;
+    if (ImGui::InputFloat("Scale", &m_config.scaleFactor, 0.1f, 0.5f, "%.1f")) {
+        if (m_config.scaleFactor < 1.0f) m_config.scaleFactor = 1.0f;
+        if (m_config.scaleFactor > 8.0f) m_config.scaleFactor = 8.0f;
     }
 
-    const char* qualityModes[] = { "MaxQuality", "Balanced", "Performance", "UltraPerformance" };
+    const char* qualityModes[] = { "DLAA", "MaxQuality", "Balanced", "Performance", "UltraPerformance" };
     int qualityIndex = static_cast<int>(m_config.quality);
-    if (qualityIndex < 0 || qualityIndex > 3) qualityIndex = 1;
+    if (qualityIndex < 0 || qualityIndex > 4) qualityIndex = 1;
     
-    if (ImGui::Combo("DLSS Quality", &qualityIndex, qualityModes, 4)) {
+    if (ImGui::Combo("DLSS Quality", &qualityIndex, qualityModes, 5)) {
         m_config.quality = static_cast<DlssQualityMode>(qualityIndex);
     }
 

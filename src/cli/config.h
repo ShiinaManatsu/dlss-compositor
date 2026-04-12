@@ -5,8 +5,6 @@
 #include <cstdint>
 
 #include <string>
-#include <vector>
-
 enum class DlssQualityMode {
     DLAA,
     MaxQuality,
@@ -43,7 +41,7 @@ struct AppConfig {
     std::string inputDir;
     std::string outputDir;
 
-    float scaleFactor = 2.0f;
+    float scaleFactor = 0.0f;
     bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::MaxQuality;
 

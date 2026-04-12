@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -584,7 +585,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                                          std::string& errorMsg) {
     errorMsg.clear();
 
-    if (config.interpolateFactor > 0 && config.scaleFactor > 1) {
+    if (config.interpolateFactor > 0 && config.scaleFactor >= 1.0f) {
         return processDirectoryRRFG(inputDir, outputDir, config, errorMsg);
     }
     if (config.interpolateFactor > 0) {
@@ -598,8 +599,8 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                      "Warning: only 'beauty' pass output is currently supported. Other passes will be ignored.\n");
     }
 
-    if (config.scaleFactor <= 0) {
-        errorMsg = "Scale factor must be positive.";
+    if (config.scaleExplicit && config.scaleFactor < 1.0f) {
+        errorMsg = "Scale factor must be at least 1.0.";
         return false;
     }
 
@@ -630,8 +631,14 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
 
     const int expectedInputWidth = peekReader.width();
     const int expectedInputHeight = peekReader.height();
-    const int expectedOutputWidth = expectedInputWidth * config.scaleFactor;
-    const int expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+    auto roundEven = [](double value) -> int {
+        const int rounded = static_cast<int>(std::round(value));
+        return (rounded % 2 != 0) ? rounded + 1 : rounded;
+    };
+    const int expectedOutputWidth =
+        roundEven(static_cast<double>(expectedInputWidth) * static_cast<double>(config.scaleFactor));
+    const int expectedOutputHeight =
+        roundEven(static_cast<double>(expectedInputHeight) * static_cast<double>(config.scaleFactor));
 
     VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg) ||
@@ -849,7 +856,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     std::fprintf(stdout, "[RRFG] Starting combined RR+FG pipeline\n");
     std::fprintf(stdout, "[RRFG]   input:  %s\n", inputDir.c_str());
     std::fprintf(stdout, "[RRFG]   output: %s\n", outputDir.c_str());
-    std::fprintf(stdout, "[RRFG]   scale=%d  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
+    std::fprintf(stdout, "[RRFG]   scale=%.2f  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
 
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
@@ -951,8 +958,14 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     const int expectedInputWidth = firstReader.width();
     const int expectedInputHeight = firstReader.height();
-    const int expectedOutputWidth = expectedInputWidth * config.scaleFactor;
-    const int expectedOutputHeight = expectedInputHeight * config.scaleFactor;
+    auto roundEven = [](double value) -> int {
+        const int rounded = static_cast<int>(std::round(value));
+        return (rounded % 2 != 0) ? rounded + 1 : rounded;
+    };
+    const int expectedOutputWidth =
+        roundEven(static_cast<double>(expectedInputWidth) * static_cast<double>(config.scaleFactor));
+    const int expectedOutputHeight =
+        roundEven(static_cast<double>(expectedInputHeight) * static_cast<double>(config.scaleFactor));
     std::fprintf(stdout, "[RRFG] Input resolution: %dx%d -> Output: %dx%d\n",
                  expectedInputWidth, expectedInputHeight, expectedOutputWidth, expectedOutputHeight);
 
