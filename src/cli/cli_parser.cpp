@@ -41,6 +41,10 @@ bool parseFloat(const char* value, float& out) {
 }
 
 bool parseQuality(const char* value, DlssQualityMode& out) {
+    if (std::strcmp(value, "DLAA") == 0) {
+        out = DlssQualityMode::DLAA;
+        return true;
+    }
     if (std::strcmp(value, "MaxQuality") == 0) {
         out = DlssQualityMode::MaxQuality;
         return true;
@@ -74,12 +78,13 @@ bool parseInterpolateFactor(const char* value, int& out) {
 
 const char* qualityToString(DlssQualityMode mode) {
     switch (mode) {
+    case DlssQualityMode::DLAA: return "DLAA";
     case DlssQualityMode::MaxQuality: return "MaxQuality";
     case DlssQualityMode::Balanced: return "Balanced";
     case DlssQualityMode::Performance: return "Performance";
     case DlssQualityMode::UltraPerformance: return "UltraPerformance";
     }
-    return "Balanced";
+    return "MaxQuality";
 }
 
 bool parseTonemapMode(const char* value, TonemapMode& out) {
@@ -268,7 +273,7 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             if (!parseQuality(argv[++i], config.quality)) {
-                errorMsg = "--quality must be one of: MaxQuality, Balanced, Performance, UltraPerformance";
+                errorMsg = "--quality must be one of: DLAA, MaxQuality, Balanced, Performance, UltraPerformance";
                 return false;
             }
             continue;
@@ -410,7 +415,7 @@ void CliParser::printHelp() {
     std::printf("  --interpolate <mode>   Frame interpolation (2x or 4x; requires --camera-data). Can combine with --scale.\n");
     std::printf("  --camera-data <file>   Camera metadata JSON file\n");
     std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
-    std::printf("  --quality <mode>       DLSS quality mode (MaxQuality|Balanced|Performance|UltraPerformance)\n");
+    std::printf("  --quality <mode>       DLSS quality mode (DLAA|MaxQuality|Balanced|Performance|UltraPerformance)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");

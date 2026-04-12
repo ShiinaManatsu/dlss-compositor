@@ -318,6 +318,8 @@ bool NgxContext::isInitialized() const {
 
 NVSDK_NGX_PerfQuality_Value NgxContext::mapQuality(DlssQualityMode quality) const {
     switch (quality) {
+    case DlssQualityMode::DLAA:
+        return NVSDK_NGX_PerfQuality_Value_DLAA;
     case DlssQualityMode::MaxQuality:
         return NVSDK_NGX_PerfQuality_Value_MaxQuality;
     case DlssQualityMode::Balanced:

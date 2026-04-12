@@ -8,6 +8,7 @@
 #include <vector>
 
 enum class DlssQualityMode {
+    DLAA,
     MaxQuality,
     Balanced,
     Performance,
@@ -44,7 +45,7 @@ struct AppConfig {
 
     int scaleFactor = 2;
     bool scaleExplicit = false;
-    DlssQualityMode quality = DlssQualityMode::Balanced;
+    DlssQualityMode quality = DlssQualityMode::MaxQuality;
 
     int interpolateFactor = 0;
     std::string cameraDataFile;
