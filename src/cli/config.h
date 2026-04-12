@@ -43,7 +43,7 @@ struct AppConfig {
     std::string inputDir;
     std::string outputDir;
 
-    int scaleFactor = 2;
+    float scaleFactor = 2.0f;
     bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::MaxQuality;
 

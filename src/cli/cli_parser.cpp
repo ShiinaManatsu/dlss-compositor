@@ -224,9 +224,9 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 errorMsg = "--scale requires a value";
                 return false;
             }
-            int scale = 0;
-            if (!parseInt(argv[++i], scale) || (scale != 2 && scale != 3 && scale != 4)) {
-                errorMsg = "--scale must be 2, 3, or 4";
+            float scale = 0.0f;
+            if (!parseFloat(argv[++i], scale) || scale < 1.0f || scale > 8.0f) {
+                errorMsg = "--scale must be between 1.0 and 8.0";
                 return false;
             }
             config.scaleFactor = scale;
@@ -411,7 +411,7 @@ void CliParser::printHelp() {
     std::printf("Options:\n");
     std::printf("  --input-dir <dir>      Input EXR sequence directory\n");
     std::printf("  --output-dir <dir>     Output EXR sequence directory\n");
-    std::printf("  --scale <factor>       Upscale factor (2, 3, or 4). Can combine with --interpolate.\n");
+    std::printf("  --scale <factor>       Upscale factor (float, 1.0–8.0; default 2.0). Can combine with --interpolate.\n");
     std::printf("  --interpolate <mode>   Frame interpolation (2x or 4x; requires --camera-data). Can combine with --scale.\n");
     std::printf("  --camera-data <file>   Camera metadata JSON file\n");
     std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
