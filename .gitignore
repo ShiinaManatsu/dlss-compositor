@@ -50,6 +50,8 @@ gui/node_modules/
 gui/dist/
 gui/dist-electron/
 gui/out/
+gui/test-results/
+gui/playwright-report/
 
 # Runtime logs / temp
 generation.log
