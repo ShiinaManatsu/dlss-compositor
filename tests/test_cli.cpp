@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "../src/cli/cli_parser.h"
 #include "../src/cli/config.h"
@@ -52,8 +53,97 @@ TEST_CASE("CliParser - scale and quality", "[cli]") {
     REQUIRE(cfg.quality == DlssQualityMode::Performance);
 }
 
+TEST_CASE("CliParser - float scale values", "[cli]") {
+    {
+        FakeArgs fa{"--scale", "1.5"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(ok);
+        REQUIRE(cfg.scaleFactor == Catch::Approx(1.5f));
+        REQUIRE(cfg.scaleExplicit);
+    }
+
+    {
+        FakeArgs fa{"--scale", "1.0"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(ok);
+        REQUIRE(cfg.scaleFactor == Catch::Approx(1.0f));
+        REQUIRE(cfg.scaleExplicit);
+    }
+
+    {
+        FakeArgs fa{"--scale", "2.0"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(ok);
+        REQUIRE(cfg.scaleFactor == Catch::Approx(2.0f));
+        REQUIRE(cfg.scaleExplicit);
+    }
+
+    {
+        FakeArgs fa{"--scale", "2"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(ok);
+        REQUIRE(cfg.scaleFactor == Catch::Approx(2.0f));
+        REQUIRE(cfg.scaleExplicit);
+    }
+}
+
+TEST_CASE("CliParser - invalid float scale values", "[cli]") {
+    {
+        FakeArgs fa{"--scale", "0.5"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(!ok);
+        REQUIRE(!err.empty());
+    }
+
+    {
+        FakeArgs fa{"--scale", "9.0"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(!ok);
+        REQUIRE(!err.empty());
+    }
+
+    {
+        FakeArgs fa{"--scale", "abc"};
+        AppConfig cfg;
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+        REQUIRE(!ok);
+        REQUIRE(!err.empty());
+    }
+}
+
+TEST_CASE("CliParser - DLAA quality mode", "[cli]") {
+    FakeArgs fa{"--quality", "DLAA"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.quality == DlssQualityMode::DLAA);
+}
+
+TEST_CASE("CliParser - invalid DLAA quality casing", "[cli]") {
+    FakeArgs fa{"--quality", "dlaa"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
+}
+
 TEST_CASE("CliParser - invalid scale", "[cli]") {
-    FakeArgs fa{"--scale", "7"};
+    FakeArgs fa{"--scale", "9"};
     AppConfig cfg;
     std::string err;
     bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
