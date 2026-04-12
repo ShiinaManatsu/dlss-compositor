@@ -3,6 +3,7 @@ import path from 'node:path'
 import { IPC_CHANNELS } from './ipc-channels'
 import { parseProgressLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
+import { getSettings, saveSettings, validateExePath } from './settings-store'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
 
 type ProcessStartPayload = {
@@ -10,30 +11,33 @@ type ProcessStartPayload = {
   config: DlssConfig;
 }
 
-const EMPTY_SETTINGS: Settings = {
-  exePath: '',
-  lastInputDir: '',
-  lastOutputDir: '',
-  config: {},
-}
-
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const savedSettings = getSettings()
+  const savedBounds = savedSettings.windowBounds
+
   const win = new BrowserWindow({
-    width: 1024,
-    height: 768,
+    width: savedBounds?.width ?? 1024,
+    height: savedBounds?.height ?? 768,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 1024,
     minHeight: 768,
     title: 'DLSS Compositor',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   })
 
   mainWindow = win
+
+  win.on('close', () => {
+    saveSettings({ windowBounds: win.getBounds() })
+  })
 
   win.on('closed', () => {
     if (mainWindow === win) {
@@ -119,11 +123,15 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, () => {
-    return EMPTY_SETTINGS
+    return getSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, async (_event, _settings: unknown) => {
-    return
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, async (_event, settings: Partial<Settings>) => {
+    saveSettings(settings)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.VALIDATE_EXE_PATH, (_event, exePath: string) => {
+    return validateExePath(exePath)
   })
 }
 

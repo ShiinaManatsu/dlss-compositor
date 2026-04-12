@@ -9,4 +9,5 @@ export const IPC_CHANNELS = {
   PROCESS_LOG: 'process:log',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
+  VALIDATE_EXE_PATH: 'settings:validate-exe-path',
 } as const;

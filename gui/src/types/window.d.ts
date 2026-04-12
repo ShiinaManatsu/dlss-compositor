@@ -11,6 +11,7 @@ interface DlssApi {
   onLog(callback: (line: string) => void): void
   getSettings(): Promise<unknown>
   saveSettings(settings: unknown): Promise<void>
+  validateExePath(path: string): Promise<boolean>
 }
 
 declare global {
