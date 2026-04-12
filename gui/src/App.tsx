@@ -3,6 +3,7 @@ import { ConfigProvider } from './state/config-store';
 import Layout from './components/Layout';
 import InputOutputPanel from './components/InputOutputPanel';
 import BasicSettings from './components/BasicSettings';
+import AdvancedSettings from './components/AdvancedSettings';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <div className="flex flex-col">
               <InputOutputPanel />
               <BasicSettings />
+              <AdvancedSettings />
             </div>
           }
           main={

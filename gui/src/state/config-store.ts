@@ -15,7 +15,16 @@ type ConfigAction =
   | { type: 'SET_CAMERA_DATA_FILE'; payload: string }
   | { type: 'SET_ENCODE_VIDEO'; payload: boolean }
   | { type: 'SET_VIDEO_OUTPUT_FILE'; payload: string }
-  | { type: 'SET_FPS'; payload: number };
+  | { type: 'SET_FPS'; payload: number }
+  | { type: 'SET_EXR_COMPRESSION'; payload: DlssConfig['exrCompression'] }
+  | { type: 'SET_EXR_DWA_QUALITY'; payload: number }
+  | { type: 'SET_OUTPUT_PASSES'; payload: ('beauty' | 'depth' | 'normals')[] }
+  | { type: 'SET_TONEMAP_MODE'; payload: DlssConfig['tonemapMode'] }
+  | { type: 'SET_INVERSE_TONEMAP'; payload: boolean }
+  | { type: 'SET_FORWARD_LUT'; payload: string }
+  | { type: 'SET_INVERSE_LUT'; payload: string }
+  | { type: 'SET_MEMORY_BUDGET'; payload: number }
+  | { type: 'SET_CHANNEL_MAP_FILE'; payload: string };
 
 interface ConfigContextValue {
   state: ConfigState;
@@ -66,6 +75,24 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       return { ...state, videoOutputFile: action.payload };
     case 'SET_FPS':
       return { ...state, fps: action.payload };
+    case 'SET_EXR_COMPRESSION':
+      return { ...state, exrCompression: action.payload };
+    case 'SET_EXR_DWA_QUALITY':
+      return { ...state, exrDwaQuality: action.payload };
+    case 'SET_OUTPUT_PASSES':
+      return { ...state, outputPasses: action.payload };
+    case 'SET_TONEMAP_MODE':
+      return { ...state, tonemapMode: action.payload };
+    case 'SET_INVERSE_TONEMAP':
+      return { ...state, inverseTonemapEnabled: action.payload };
+    case 'SET_FORWARD_LUT':
+      return { ...state, forwardLutFile: action.payload };
+    case 'SET_INVERSE_LUT':
+      return { ...state, inverseLutFile: action.payload };
+    case 'SET_MEMORY_BUDGET':
+      return { ...state, memoryBudgetGB: action.payload };
+    case 'SET_CHANNEL_MAP_FILE':
+      return { ...state, channelMapFile: action.payload };
     default:
       return state;
   }
