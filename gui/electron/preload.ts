@@ -5,8 +5,8 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('dialog:openDirectory'),
   selectFile: (filters: Electron.FileFilter[]): Promise<string> =>
     ipcRenderer.invoke('dialog:openFile', filters),
-  startProcessing: (config: unknown): void =>
-    ipcRenderer.send('process:start', config),
+  startProcessing: (config: unknown, exePath?: string): void =>
+    ipcRenderer.send('process:start', { config, exePath: exePath ?? '' }),
   stopProcessing: (): void =>
     ipcRenderer.send('process:stop'),
   onProgress: (callback: (data: { current: number; total: number }) => void): void => {
