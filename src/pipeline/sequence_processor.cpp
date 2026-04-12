@@ -431,6 +431,7 @@ bool initLutProcessors(VulkanContext& ctx,
         }
         forwardReady = true;
         std::fprintf(stdout, "Forward tonemapping enabled (%s)\n", forwardPath.c_str());
+        std::fflush(stdout);
     }
 
     if (config.inverseTonemapEnabled && !inversePath.empty()) {
@@ -439,10 +440,12 @@ bool initLutProcessors(VulkanContext& ctx,
         }
         inverseReady = true;
         std::fprintf(stdout, "Inverse tonemapping enabled (%s)\n", inversePath.c_str());
+        std::fflush(stdout);
     }
 
     if (!config.inverseTonemapEnabled) {
         std::fprintf(stdout, "Inverse tonemapping disabled; FG output will be display-referred\n");
+        std::fflush(stdout);
     }
 
     return true;
@@ -472,10 +475,12 @@ bool initPqTransfer(VulkanContext& ctx,
     }
 
     pqReady = true;
-    std::fprintf(stdout, "PQ transport encoding enabled (ST 2084, 10000 nits)\n");
+        std::fprintf(stdout, "PQ transport encoding enabled (ST 2084, 10000 nits)\n");
+        std::fflush(stdout);
 
     if (!config.inverseTonemapEnabled) {
         std::fprintf(stdout, "Inverse PQ decode disabled; FG output will be PQ-encoded\n");
+        std::fflush(stdout);
     }
 
     return true;
@@ -686,6 +691,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                      static_cast<int>(index + 1),
                      static_cast<int>(frames.size()),
                      filename.c_str());
+        std::fflush(stdout);
 
         if (index > 0 && resetFlags[index]) {
             std::fprintf(stderr,
@@ -854,9 +860,13 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                                              std::string& errorMsg) {
     errorMsg.clear();
     std::fprintf(stdout, "[RRFG] Starting combined RR+FG pipeline\n");
+    std::fflush(stdout);
     std::fprintf(stdout, "[RRFG]   input:  %s\n", inputDir.c_str());
+    std::fflush(stdout);
     std::fprintf(stdout, "[RRFG]   output: %s\n", outputDir.c_str());
+    std::fflush(stdout);
     std::fprintf(stdout, "[RRFG]   scale=%.2f  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
+    std::fflush(stdout);
 
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
@@ -871,6 +881,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] Found %d EXR frames\n", static_cast<int>(frames.size()));
+    std::fflush(stdout);
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
@@ -894,11 +905,13 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     CameraDataLoader cameraLoader;
     std::fprintf(stdout, "[RRFG] Loading camera data: %s\n", config.cameraDataFile.c_str());
+    std::fflush(stdout);
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
         std::fprintf(stderr, "[RRFG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
     std::fprintf(stdout, "[RRFG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+    std::fflush(stdout);
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
@@ -913,6 +926,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         }
     }
     std::fprintf(stdout, "[RRFG] All frames have matching camera data\n");
+    std::fflush(stdout);
 
     unsigned int multiFrameCount = 0;
     if (config.interpolateFactor == 2) {
@@ -932,6 +946,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] DLSS-FG available\n");
+    std::fflush(stdout);
 
     if (!m_ngx.isDlssRRAvailable()) {
         errorMsg = m_ngx.unavailableReason();
@@ -942,6 +957,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] DLSS-RR available\n");
+    std::fflush(stdout);
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
@@ -968,11 +984,13 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         roundEven(static_cast<double>(expectedInputHeight) * static_cast<double>(config.scaleFactor));
     std::fprintf(stdout, "[RRFG] Input resolution: %dx%d -> Output: %dx%d\n",
                  expectedInputWidth, expectedInputHeight, expectedOutputWidth, expectedOutputHeight);
+    std::fflush(stdout);
 
     DlssFeatureGuard featureGuardRR(m_ngx);
     DlssFgFeatureGuard featureGuardFG(m_ngx);
 
     std::fprintf(stdout, "[RRFG] Creating DLSS-RR feature...\n");
+    std::fflush(stdout);
     VkCommandBuffer createCmdBufRR = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufRR, errorMsg)) {
         std::fprintf(stderr, "[RRFG] Failed to allocate RR command buffer: %s\n", errorMsg.c_str());
@@ -995,8 +1013,10 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] DLSS-RR feature created\n");
+    std::fflush(stdout);
 
     std::fprintf(stdout, "[RRFG] Creating DLSS-FG feature...\n");
+    std::fflush(stdout);
     VkCommandBuffer createCmdBufFG = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufFG, errorMsg)) {
         std::fprintf(stderr, "[RRFG] Failed to allocate FG command buffer: %s\n", errorMsg.c_str());
@@ -1017,6 +1037,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] DLSS-FG feature created\n");
+    std::fflush(stdout);
 
     ChannelMapper channelMapper;
     MvConverter mvConverter;
@@ -1028,6 +1049,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     // Initialize FG transport encoding (PQ or Custom LUT)
     std::fprintf(stdout, "[RRFG] Initializing FG transport...\n");
+    std::fflush(stdout);
     PqTransferProcessor pqTransfer(m_ctx);
     bool pqReady = false;
     LutProcessor forwardLut(m_ctx);
@@ -1048,11 +1070,13 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     std::fprintf(stdout, "[RRFG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
                  pqReady ? "yes" : "no", forwardLutReady ? "yes" : "no",
                  inverseReady ? "yes" : "no");
+    std::fflush(stdout);
 
     FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedInputWidth, expectedInputHeight);
     prefetcher.start(frames);
 
     std::fprintf(stdout, "[RRFG] Prefetching first frame...\n");
+    std::fflush(stdout);
     auto firstPrefetched = prefetcher.getNext();
     if (!firstPrefetched || !firstPrefetched->valid) {
         errorMsg = "Failed to prefetch first frame";
@@ -1060,6 +1084,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[RRFG] First frame prefetched OK\n");
+    std::fflush(stdout);
 
     auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
     const auto& firstMvResult = firstPrefetched->mvResult;
@@ -1157,7 +1182,9 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     AsyncExrWriter asyncWriter;
     std::fprintf(stdout, "[RRFG] Async EXR writer started (%zu threads)\n",
                  static_cast<size_t>(std::thread::hardware_concurrency()));
+    std::fflush(stdout);
     std::fprintf(stdout, "[RRFG] Downloading and submitting first RR output...\n");
+    std::fflush(stdout);
     std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
     asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
                                      expectedOutputWidth, expectedOutputHeight,
@@ -1174,6 +1201,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
                      static_cast<int>(frames.size() - 1),
                      previousFrameInfo.path.filename().string().c_str(),
                      filename.c_str());
+        std::fflush(stdout);
 
         DlssFgCameraParams camParams{};
         if (!cameraLoader.computePairParams(currentFrameInfo.frameNumber,
@@ -1449,6 +1477,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     // Wait for all async writes to complete before releasing GPU resources
     std::fprintf(stdout, "[RRFG] Flushing async writer (%d errors so far)...\n", asyncWriter.errorCount());
+    std::fflush(stdout);
     asyncWriter.flush();
     if (asyncWriter.errorCount() > 0) {
         errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriter.errorCount()) + " write error(s)";
@@ -1458,6 +1487,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     }
     pool.releaseAll();
     std::fprintf(stdout, "[RRFG] Done. %d output frames written.\n", outputFrameCounter - 1);
+    std::fflush(stdout);
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);
@@ -1484,9 +1514,13 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                                             std::string& errorMsg) {
     errorMsg.clear();
     std::fprintf(stdout, "[FG] Starting FG-only pipeline\n");
+    std::fflush(stdout);
     std::fprintf(stdout, "[FG]   input:  %s\n", inputDir.c_str());
+    std::fflush(stdout);
     std::fprintf(stdout, "[FG]   output: %s\n", outputDir.c_str());
+    std::fflush(stdout);
     std::fprintf(stdout, "[FG]   interpolate=%dx\n", config.interpolateFactor);
+    std::fflush(stdout);
 
     std::vector<SequenceFrameInfo> frames;
     if (!scanAndSort(inputDir, frames, errorMsg)) {
@@ -1494,6 +1528,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[FG] Found %d EXR frames\n", static_cast<int>(frames.size()));
+    std::fflush(stdout);
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
@@ -1517,11 +1552,13 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
 
     CameraDataLoader cameraLoader;
     std::fprintf(stdout, "[FG] Loading camera data: %s\n", config.cameraDataFile.c_str());
+    std::fflush(stdout);
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
         std::fprintf(stderr, "[FG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
     std::fprintf(stdout, "[FG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+    std::fflush(stdout);
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
@@ -1554,6 +1591,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[FG] DLSS-FG available\n");
+    std::fflush(stdout);
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
@@ -1571,8 +1609,10 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     const int expectedWidth = firstReader.width();
     const int expectedHeight = firstReader.height();
     std::fprintf(stdout, "[FG] Resolution: %dx%d\n", expectedWidth, expectedHeight);
+    std::fflush(stdout);
 
     std::fprintf(stdout, "[FG] Creating DLSS-FG feature...\n");
+    std::fflush(stdout);
     VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg)) {
         std::fprintf(stderr, "[FG] Failed to allocate command buffer: %s\n", errorMsg.c_str());
@@ -1594,6 +1634,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         return false;
     }
     std::fprintf(stdout, "[FG] DLSS-FG feature created\n");
+    std::fflush(stdout);
 
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
     TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
@@ -1616,6 +1657,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
 
     // Initialize FG transport encoding (PQ or Custom LUT)
     std::fprintf(stdout, "[FG] Initializing FG transport...\n");
+    std::fflush(stdout);
     PqTransferProcessor pqTransferFG(m_ctx);
     bool pqReadyFG = false;
     LutProcessor forwardLutFG(m_ctx);
@@ -1636,6 +1678,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     std::fprintf(stdout, "[FG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
                  pqReadyFG ? "yes" : "no", forwardLutReadyFG ? "yes" : "no",
                  inverseReadyFG ? "yes" : "no");
+    std::fflush(stdout);
 
     FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedWidth, expectedHeight);
     prefetcher.start(frames);
@@ -1652,6 +1695,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     const std::filesystem::path outputPath(outputDir);
     AsyncExrWriter asyncWriterFG;
     std::fprintf(stdout, "[FG] Async EXR writer started\n");
+    std::fflush(stdout);
     asyncWriterFG.submit(buildWriteJobCopy(outputPath, outputFrameCounter,
                                            expectedWidth, expectedHeight,
                                            firstMappedBuffers.color, config));
@@ -1667,6 +1711,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                      static_cast<int>(frames.size() - 1),
                      previousFrameInfo.path.filename().string().c_str(),
                      filename.c_str());
+        std::fflush(stdout);
 
         const bool hasGap = previousFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
                             currentFrameInfo.frameNumber != std::numeric_limits<int>::max() &&
@@ -1877,6 +1922,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
 
     // Wait for all async writes to complete before releasing GPU resources
     std::fprintf(stdout, "[FG] Flushing async writer (%d errors so far)...\n", asyncWriterFG.errorCount());
+    std::fflush(stdout);
     asyncWriterFG.flush();
     if (asyncWriterFG.errorCount() > 0) {
         errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriterFG.errorCount()) + " write error(s)";
@@ -1886,6 +1932,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     }
     pool.releaseAll();
     std::fprintf(stdout, "[FG] Done. %d output frames written.\n", outputFrameCounter - 1);
+    std::fflush(stdout);
 
     if (config.encodeVideo) {
         std::filesystem::path videoOutputPath(config.videoOutputFile);
