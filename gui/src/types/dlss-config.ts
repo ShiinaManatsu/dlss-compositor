@@ -4,6 +4,7 @@ export interface DlssConfig {
   scaleEnabled: boolean;
   scaleFactor: number;
   quality: 'DLAA' | 'MaxQuality' | 'Balanced' | 'Performance' | 'UltraPerformance';
+  preset: 'J' | 'K' | 'L' | 'M';
   interpolateFactor: 0 | 2 | 4;
   cameraDataFile: string;
   memoryBudgetGB: number;
@@ -26,6 +27,7 @@ export const DEFAULT_CONFIG: DlssConfig = {
   scaleEnabled: true,
   scaleFactor: 2.0,
   quality: 'MaxQuality',
+  preset: 'L',
   interpolateFactor: 0,
   cameraDataFile: '',
   memoryBudgetGB: 8,

@@ -11,6 +11,7 @@ type ConfigAction =
   | { type: 'SET_SCALE_ENABLED'; payload: boolean }
   | { type: 'SET_SCALE'; payload: number }
   | { type: 'SET_QUALITY'; payload: DlssConfig['quality'] }
+  | { type: 'SET_PRESET'; payload: DlssConfig['preset'] }
   | { type: 'SET_INTERPOLATION'; payload: 0 | 2 | 4 }
   | { type: 'SET_CAMERA_DATA_FILE'; payload: string }
   | { type: 'SET_ENCODE_VIDEO'; payload: boolean }
@@ -65,6 +66,8 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
     }
     case 'SET_QUALITY':
       return { ...state, quality: action.payload, qualityManuallyOverridden: true };
+    case 'SET_PRESET':
+      return { ...state, preset: action.payload };
     case 'SET_INTERPOLATION':
       return { ...state, interpolateFactor: action.payload };
     case 'SET_CAMERA_DATA_FILE':
