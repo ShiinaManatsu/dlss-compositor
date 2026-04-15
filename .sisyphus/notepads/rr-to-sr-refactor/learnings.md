@@ -85,3 +85,11 @@
 - Residual RR references were limited to comments, test strings, and NGX feature discovery code paths.
 - `RayReconstruction` needed to become `SuperResolution` in the Vulkan NGX feature discovery path; string-only RR mentions in tests/comments were updated to SR wording.
 - The safe search pattern for final verification is to scan `src/` and `gui/src/` separately, then treat `tests/` as a cleanup sweep with expected SDK DLL-name false positives.
+
+## 2026-04-15 — Task 8 Build Verification
+- Build result: PASS (exit code 0) — all targets compiled: core lib, main exe, test exe
+- TSC result: PASS (exit code 0) — zero type errors
+- RR audit: 1 residual reference found in docs/usage_guide.md:105 ("ray reconstruction" lowercase, generic description in DLAA mode section)
+- src/, tests/, gui/src/, README.md: all CLEAN — zero RR matches
+- No old C++ types (DlssRRProcessor, DlssFrameInput, createDlssRR, isDlssRRAvailable) found anywhere
+- LSP errors remain pre-existing (volk.h, NVSDK types) — expected, not caused by refactor
