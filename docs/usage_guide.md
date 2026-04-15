@@ -102,7 +102,7 @@ The `--scale` flag supports any float value between 1.0 and 8.0. This allows for
 | Native Denoise    | Native            | 1.0          | `--scale 1.0 --quality DLAA` |
 
 **Denoise-only (DLAA) Mode:**
-By setting `--scale 1.0` and `--quality DLAA`, the compositor performs high-quality temporal denoising and ray reconstruction at the original resolution without any spatial upscaling.
+By setting `--scale 1.0` and `--quality DLAA`, the compositor performs high-quality temporal denoising and super resolution AI upscaling at the original resolution without any spatial upscaling.
 
 ## CLI Usage
 

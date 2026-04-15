@@ -173,7 +173,7 @@ target_compile_definitions(dlss-compositor PRIVATE
 
 # Copy DLSS DLL/lib to output directory
 if(MSVC)
-    file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
+    file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlss.dll")
     foreach(DLL ${DLSS_NGXCORE_DLLS})
         add_custom_command(TARGET dlss-compositor POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" $<TARGET_FILE_DIR:dlss-compositor>
