@@ -85,6 +85,22 @@ export default function BasicSettings() {
               <option value="UltraPerformance">UltraPerformance</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Preset</label>
+            <select
+              data-testid="preset-select"
+              value={state.preset}
+              disabled={isRunning}
+              onChange={(e) => dispatch({ type: 'SET_PRESET', payload: e.target.value as DlssConfig['preset'] })}
+              className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+            >
+              <option value="J">Preset J</option>
+              <option value="K">Preset K</option>
+              <option value="L">Preset L (Default)</option>
+              <option value="M">Preset M</option>
+            </select>
+          </div>
         </div>
       </div>
 

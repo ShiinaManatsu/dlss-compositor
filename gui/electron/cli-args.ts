@@ -9,7 +9,7 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
   ]
 
   if (config.scaleEnabled) {
-    args.push('--scale', String(config.scaleFactor), '--quality', config.quality)
+    args.push('--scale', String(config.scaleFactor), '--quality', config.quality, '--preset', config.preset)
   }
 
   if (config.interpolateFactor > 0) {
