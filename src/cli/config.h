@@ -13,6 +13,13 @@ enum class DlssQualityMode {
     UltraPerformance
 };
 
+enum class DlssSRPreset {
+    J = 10,
+    K = 11,
+    L = 12,
+    M = 13
+};
+
 enum class TonemapMode {
     None,        // No transport encoding — pass through scene-linear (may clamp HDR)
     PQ,          // PQ (ST 2084) per-channel encode/decode (default for FG)
@@ -44,6 +51,7 @@ struct AppConfig {
     float scaleFactor = 0.0f;
     bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::MaxQuality;
+    DlssSRPreset preset = DlssSRPreset::L;
 
     int interpolateFactor = 0;
     std::string cameraDataFile;

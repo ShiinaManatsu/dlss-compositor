@@ -64,6 +64,26 @@ bool parseQuality(const char* value, DlssQualityMode& out) {
     return false;
 }
 
+bool parsePreset(const char* value, DlssSRPreset& out) {
+    if (std::strcmp(value, "J") == 0) {
+        out = DlssSRPreset::J;
+        return true;
+    }
+    if (std::strcmp(value, "K") == 0) {
+        out = DlssSRPreset::K;
+        return true;
+    }
+    if (std::strcmp(value, "L") == 0) {
+        out = DlssSRPreset::L;
+        return true;
+    }
+    if (std::strcmp(value, "M") == 0) {
+        out = DlssSRPreset::M;
+        return true;
+    }
+    return false;
+}
+
 bool parseInterpolateFactor(const char* value, int& out) {
     if (std::strcmp(value, "2x") == 0 || std::strcmp(value, "2X") == 0) {
         out = 2;
@@ -278,6 +298,17 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--preset") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--preset requires a value";
+                return false;
+            }
+            if (!parsePreset(argv[++i], config.preset)) {
+                errorMsg = "--preset must be one of: J, K, L, M";
+                return false;
+            }
+            continue;
+        }
         if (std::strcmp(arg, "--channel-map") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--channel-map requires a value";
@@ -416,6 +447,7 @@ void CliParser::printHelp() {
     std::printf("  --camera-data <file>   Camera metadata JSON file\n");
     std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
     std::printf("  --quality <mode>       DLSS quality mode (DLAA|MaxQuality|Balanced|Performance|UltraPerformance)\n");
+    std::printf("  --preset <mode>        SR preset hint (J|K|L|M; default: L)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
@@ -426,7 +458,7 @@ void CliParser::printHelp() {
     std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
-    std::printf("  --test-ngx             Test NGX/DLSS-RR availability and exit\n");
+    std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --gui                  Launch ImGui viewer\n");
     std::printf("  --test-gui             Non-interactive GUI smoke test\n");
