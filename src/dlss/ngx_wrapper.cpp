@@ -6,10 +6,9 @@
 
 #include "dlss/ngx_wrapper.h"
 
+#include <nvsdk_ngx_helpers_vk.h>
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
-#include <nvsdk_ngx_defs_dlssd.h>
 #include <nvsdk_ngx_params.h>
-#include <nvsdk_ngx_params_dlssd.h>
 #include <nvsdk_ngx_vk.h>
 
 #ifndef NOMINMAX
@@ -29,7 +28,6 @@ namespace {
 constexpr wchar_t kNgxWorkDir[] = L".";
 constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
 constexpr char kNgxEngineVersion[] = "0.1.0";
-constexpr char kRayReconstructionAvailableParam[] = "RayReconstruction.Available";
 
 void NVSDK_CONV ngxLogCallback(const char* message,
                                NVSDK_NGX_Logging_Level,
@@ -93,7 +91,7 @@ bool NgxContext::init(VkInstance instance,
     shutdown();
     errorMsg.clear();
     m_device = device;
-    m_dlssRRAvailable = false;
+    m_dlssSRAvailable = false;
     m_dlssFGAvailable = false;
     m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
@@ -128,13 +126,13 @@ bool NgxContext::init(VkInstance instance,
     }
 
     m_initialized = true;
-    queryDlssRRAvailability();
+    queryDlssSRAvailability();
     queryDlssFGAvailability();
     return true;
 }
 
-bool NgxContext::isDlssRRAvailable() const {
-    return m_initialized && m_dlssRRAvailable;
+bool NgxContext::isDlssSRAvailable() const {
+    return m_initialized && m_dlssSRAvailable;
 }
 
 bool NgxContext::isDlssFGAvailable() const {
@@ -145,11 +143,12 @@ std::string NgxContext::unavailableReason() const {
     return m_unavailableReason;
 }
 
-bool NgxContext::createDlssRR(int inputWidth,
+bool NgxContext::createDlssSR(int inputWidth,
                               int inputHeight,
                               int outputWidth,
                               int outputHeight,
                               DlssQualityMode quality,
+                              DlssSRPreset preset,
                               VkCommandBuffer cmdBuf,
                               std::string& errorMsg) {
     errorMsg.clear();
@@ -159,46 +158,40 @@ bool NgxContext::createDlssRR(int inputWidth,
         return false;
     }
 
-    if (!m_dlssRRAvailable) {
-        errorMsg = m_unavailableReason.empty() ? "DLSS-RR is not available." : m_unavailableReason;
+    if (!m_dlssSRAvailable) {
+        errorMsg = m_unavailableReason.empty() ? "DLSS-SR is not available." : m_unavailableReason;
         return false;
     }
 
-    releaseDlssRR();
+    releaseDlssSR();
 
-    NVSDK_NGX_DLSSD_Create_Params createParams{};
-    createParams.InDenoiseMode = NVSDK_NGX_DLSS_Denoise_Mode_DLUnified;
-    createParams.InRoughnessMode = NVSDK_NGX_DLSS_Roughness_Mode_Unpacked;
-    createParams.InUseHWDepth = NVSDK_NGX_DLSS_Depth_Type_Linear;
-    createParams.InWidth = static_cast<unsigned int>(inputWidth);
-    createParams.InHeight = static_cast<unsigned int>(inputHeight);
-    createParams.InTargetWidth = static_cast<unsigned int>(outputWidth);
-    createParams.InTargetHeight = static_cast<unsigned int>(outputHeight);
-    createParams.InPerfQualityValue = mapQuality(quality);
+    NVSDK_NGX_DLSS_Create_Params createParams{};
+    createParams.Feature.InWidth = static_cast<unsigned int>(inputWidth);
+    createParams.Feature.InHeight = static_cast<unsigned int>(inputHeight);
+    createParams.Feature.InTargetWidth = static_cast<unsigned int>(outputWidth);
+    createParams.Feature.InTargetHeight = static_cast<unsigned int>(outputHeight);
+    createParams.Feature.InPerfQualityValue = mapQuality(quality);
     createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
                                         NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
     createParams.InEnableOutputSubrects = false;
 
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_CreationNodeMask, 1);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_VisibilityNodeMask, 1);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_Width, createParams.InWidth);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_Height, createParams.InHeight);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_OutWidth, createParams.InTargetWidth);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_OutHeight, createParams.InTargetHeight);
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_PerfQualityValue, createParams.InPerfQualityValue);
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, createParams.InFeatureCreateFlags);
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Enable_Output_Subrects, createParams.InEnableOutputSubrects ? 1 : 0);
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Denoise_Mode, NVSDK_NGX_DLSS_Denoise_Mode_DLUnified);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_DLSS_Roughness_Mode, createParams.InRoughnessMode);
-    NVSDK_NGX_Parameter_SetUI(m_parameters, NVSDK_NGX_Parameter_Use_HW_Depth, createParams.InUseHWDepth);
+    const int presetValue = static_cast<int>(preset);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, presetValue);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, presetValue);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, presetValue);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, presetValue);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, presetValue);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, presetValue);
 
-    const NVSDK_NGX_Result createResult = NVSDK_NGX_VULKAN_CreateFeature1(m_device,
-                                                                           cmdBuf,
-                                                                           NVSDK_NGX_Feature_RayReconstruction,
-                                                                           m_parameters,
-                                                                           &m_featureHandle);
+    const NVSDK_NGX_Result createResult = NGX_VULKAN_CREATE_DLSS_EXT1(m_device,
+                                                                       cmdBuf,
+                                                                       1,
+                                                                       1,
+                                                                       &m_featureHandle,
+                                                                       m_parameters,
+                                                                       &createParams);
     if (NVSDK_NGX_FAILED(createResult)) {
-        errorMsg = "Failed to create DLSS-RR feature: " + ngxResultToString(createResult);
+        errorMsg = "Failed to create DLSS-SR feature: " + ngxResultToString(createResult);
         m_featureHandle = nullptr;
         return false;
     }
@@ -253,7 +246,7 @@ bool NgxContext::createDlssFG(unsigned int width,
     return true;
 }
 
-void NgxContext::releaseDlssRR() {
+void NgxContext::releaseDlssSR() {
     if (m_featureHandle == nullptr) {
         return;
     }
@@ -273,7 +266,7 @@ void NgxContext::releaseDlssFG() {
 
 void NgxContext::shutdown() {
     releaseDlssFG();
-    releaseDlssRR();
+    releaseDlssSR();
 
     if (m_parameters != nullptr) {
         NVSDK_NGX_VULKAN_DestroyParameters(m_parameters);
@@ -286,7 +279,7 @@ void NgxContext::shutdown() {
 
     m_device = nullptr;
     m_initialized = false;
-    m_dlssRRAvailable = false;
+    m_dlssSRAvailable = false;
     m_dlssFGAvailable = false;
     m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
@@ -333,24 +326,23 @@ NVSDK_NGX_PerfQuality_Value NgxContext::mapQuality(DlssQualityMode quality) cons
     return NVSDK_NGX_PerfQuality_Value_Balanced;
 }
 
-bool NgxContext::queryDlssRRAvailability() {
+bool NgxContext::queryDlssSRAvailability() {
     if (m_parameters == nullptr) {
-        m_dlssRRAvailable = false;
+        m_dlssSRAvailable = false;
         m_unavailableReason = "NGX capability parameters are unavailable.";
         return false;
     }
 
     int available = 0;
-    if (readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSamplingDenoising_Available, available) ||
-        readIntParameter(m_parameters, kRayReconstructionAvailableParam, available)) {
-        m_dlssRRAvailable = available != 0;
+    if (readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSampling_Available, available)) {
+        m_dlssSRAvailable = available != 0;
     } else {
-        m_dlssRRAvailable = false;
-        m_unavailableReason = "DLSS-RR availability flag was not exposed by the NGX runtime.";
+        m_dlssSRAvailable = false;
+        m_unavailableReason = "DLSS-SR availability flag was not exposed by the NGX runtime.";
         return false;
     }
 
-    if (m_dlssRRAvailable) {
+    if (m_dlssSRAvailable) {
         m_unavailableReason.clear();
         return true;
     }
@@ -359,12 +351,12 @@ bool NgxContext::queryDlssRRAvailability() {
     int minDriverMajor = 0;
     int minDriverMinor = 0;
     int featureInitResult = 0;
-    const bool hasNeedsDriver = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSamplingDenoising_NeedsUpdatedDriver, needsUpdatedDriver);
-    const bool hasMinDriverMajor = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSamplingDenoising_MinDriverVersionMajor, minDriverMajor);
-    const bool hasMinDriverMinor = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSamplingDenoising_MinDriverVersionMinor, minDriverMinor);
-    const bool hasFeatureInitResult = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSamplingDenoising_FeatureInitResult, featureInitResult);
+    const bool hasNeedsDriver = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, needsUpdatedDriver);
+    const bool hasMinDriverMajor = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMajor, minDriverMajor);
+    const bool hasMinDriverMinor = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSampling_MinDriverVersionMinor, minDriverMinor);
+    const bool hasFeatureInitResult = readIntParameter(m_parameters, NVSDK_NGX_Parameter_SuperSampling_FeatureInitResult, featureInitResult);
 
-    m_unavailableReason = "DLSS-RR not available";
+    m_unavailableReason = "DLSS-SR not available";
     if (hasNeedsDriver && needsUpdatedDriver != 0) {
         m_unavailableReason += " (driver update required";
         if (hasMinDriverMajor) {

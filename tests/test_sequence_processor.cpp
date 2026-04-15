@@ -35,8 +35,8 @@ TEST_CASE("sequence_processor_5_frames", "[gpu][sequence]") {
 
     NgxContext ngx;
     REQUIRE(ngx.init(ctx.instance(), ctx.physicalDevice(), ctx.device(), nullptr, errorMsg));
-    if (!ngx.isDlssRRAvailable()) {
-        SKIP("DLSS-RR not available");
+    if (!ngx.isDlssSRAvailable()) {
+        SKIP("DLSS-SR not available");
     }
 
     TexturePipeline pipeline(ctx);

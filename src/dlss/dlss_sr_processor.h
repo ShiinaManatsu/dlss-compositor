@@ -11,17 +11,16 @@
 class VulkanContext;
 class NgxContext;
 
-struct DlssFrameInput {
+struct DlssSRFrameInput {
     VkImage color = VK_NULL_HANDLE;
     VkImageView colorView = VK_NULL_HANDLE;
     VkImage depth = VK_NULL_HANDLE;
     VkImageView depthView = VK_NULL_HANDLE;
     VkImage motionVectors = VK_NULL_HANDLE;
     VkImageView motionView = VK_NULL_HANDLE;
+    // Optional GBuffer hints — VK_NULL_HANDLE to skip
     VkImage diffuseAlbedo = VK_NULL_HANDLE;
     VkImageView diffuseView = VK_NULL_HANDLE;
-    VkImage specularAlbedo = VK_NULL_HANDLE;
-    VkImageView specularView = VK_NULL_HANDLE;
     VkImage normals = VK_NULL_HANDLE;
     VkImageView normalsView = VK_NULL_HANDLE;
     VkImage roughness = VK_NULL_HANDLE;
@@ -39,11 +38,11 @@ struct DlssFrameInput {
     bool reset = false;
 };
 
-class DlssRRProcessor {
+class DlssSRProcessor {
 public:
-    DlssRRProcessor(VulkanContext& ctx, NgxContext& ngx);
+    DlssSRProcessor(VulkanContext& ctx, NgxContext& ngx);
 
-    bool evaluate(VkCommandBuffer cmdBuf, const DlssFrameInput& frame, std::string& errorMsg);
+    bool evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& frame, std::string& errorMsg);
 
 private:
     VulkanContext& m_ctx;

@@ -39,8 +39,8 @@ TEST_CASE("e2e_sequence_processing", "[integration]") {
     if (!ngx.init(ctx.instance(), ctx.physicalDevice(), ctx.device(), nullptr, errorMsg)) {
         SKIP("NGX init failed: " + errorMsg);
     }
-    if (!ngx.isDlssRRAvailable()) {
-        SKIP("DLSS-RR not available");
+    if (!ngx.isDlssSRAvailable()) {
+        SKIP("DLSS-SR not available");
     }
 
     {
@@ -170,8 +170,8 @@ TEST_CASE("dlss_rrfg_e2e_combined", "[integration][rrfg]") {
     if (!ngx.init(ctx.instance(), ctx.physicalDevice(), ctx.device(), nullptr, errorMsg)) {
         SKIP("NGX init failed: " + errorMsg);
     }
-    if (!ngx.isDlssRRAvailable()) {
-        SKIP("DLSS-RR not available");
+    if (!ngx.isDlssSRAvailable()) {
+        SKIP("DLSS-SR not available");
     }
     if (!ngx.isDlssFGAvailable()) {
         SKIP("DLSS-G not available");

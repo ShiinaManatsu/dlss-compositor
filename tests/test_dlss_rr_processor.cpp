@@ -5,7 +5,7 @@
 #endif
 
 #include "config.h"
-#include "dlss/dlss_rr_processor.h"
+#include "dlss/dlss_sr_processor.h"
 #include "dlss/ngx_wrapper.h"
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
@@ -148,17 +148,18 @@ TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
 
     NgxContext ngx;
     REQUIRE(ngx.init(ctx.instance(), ctx.physicalDevice(), ctx.device(), nullptr, errorMsg));
-    if (!ngx.isDlssRRAvailable()) {
-        SKIP("DLSS-RR not available");
+    if (!ngx.isDlssSRAvailable()) {
+        SKIP("DLSS-SR not available");
     }
 
     VkCommandBuffer createCmdBuf = allocateCommandBuffer(ctx);
     beginCommandBuffer(createCmdBuf);
-    REQUIRE(ngx.createDlssRR(kInputWidth,
+    REQUIRE(ngx.createDlssSR(kInputWidth,
                              kInputHeight,
                              kOutputWidth,
                              kOutputHeight,
                              DlssQualityMode::Balanced,
+                             DlssSRPreset::L,
                              createCmdBuf,
                              errorMsg));
     submitAndWait(ctx, createCmdBuf);
@@ -170,7 +171,6 @@ TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
     const std::vector<float> depthData = makeData(kInputWidth, kInputHeight, 1, 0.2f);
     const std::vector<float> motionData = makeData(kInputWidth, kInputHeight, 2, 0.01f);
     const std::vector<float> diffuseData = makeData(kInputWidth, kInputHeight, 4, 0.3f);
-    const std::vector<float> specularData = makeData(kInputWidth, kInputHeight, 4, 0.05f);
     const std::vector<float> normalsData = makeData(kInputWidth, kInputHeight, 4, 0.4f);
     const std::vector<float> roughnessData = makeData(kInputWidth, kInputHeight, 1, 0.5f);
     const std::vector<float> outputInit(static_cast<size_t>(kOutputWidth) * static_cast<size_t>(kOutputHeight) * 4u, 0.0f);
@@ -183,8 +183,6 @@ TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
     textureGuard.track(motion);
     auto diffuse = pipeline.upload(diffuseData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
     textureGuard.track(diffuse);
-    auto specular = pipeline.upload(specularData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-    textureGuard.track(specular);
     auto normals = pipeline.upload(normalsData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
     textureGuard.track(normals);
     auto roughness = pipeline.upload(roughnessData.data(), kInputWidth, kInputHeight, 1, VK_FORMAT_R32_SFLOAT);
@@ -192,9 +190,9 @@ TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
     auto output = pipeline.upload(outputInit.data(), kOutputWidth, kOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
     textureGuard.track(output);
 
-    DlssRRProcessor processor(ctx, ngx);
+    DlssSRProcessor processor(ctx, ngx);
 
-    DlssFrameInput frame{};
+    DlssSRFrameInput frame{};
     frame.color = color.image;
     frame.colorView = color.view;
     frame.depth = depth.image;
@@ -203,8 +201,6 @@ TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
     frame.motionView = motion.view;
     frame.diffuseAlbedo = diffuse.image;
     frame.diffuseView = diffuse.view;
-    frame.specularAlbedo = specular.image;
-    frame.specularView = specular.view;
     frame.normals = normals.image;
     frame.normalsView = normals.view;
     frame.roughness = roughness.image;

@@ -56,14 +56,14 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        if (ngx.isDlssRRAvailable()) {
-            printf("DLSS-RR available: true\n");
+        if (ngx.isDlssSRAvailable()) {
+            printf("DLSS-SR available: true\n");
             ngx.shutdown();
             context.destroy();
             return 0;
         }
 
-        fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
+        fprintf(stderr, "DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
         ngx.shutdown();
         context.destroy();
         return 1;
@@ -111,8 +111,8 @@ int main(int argc, char* argv[]) {
         }
 
         if (config.interpolateFactor == 0 || config.scaleExplicit) {
-            if (!ngx.isDlssRRAvailable()) {
-                fprintf(stderr, "DLSS-RR not available: %s\n", ngx.unavailableReason().c_str());
+            if (!ngx.isDlssSRAvailable()) {
+                fprintf(stderr, "DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
                 ngx.shutdown();
                 context.destroy();
                 return 1;

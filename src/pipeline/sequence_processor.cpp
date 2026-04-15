@@ -7,7 +7,7 @@
 #include "core/exr_writer.h"
 #include "core/mv_converter.h"
 #include "dlss/dlss_fg_processor.h"
-#include "dlss/dlss_rr_processor.h"
+#include "dlss/dlss_sr_processor.h"
 #include "dlss/ngx_wrapper.h"
 #include "gpu/lut_processor.h"
 #include "gpu/pq_transfer_processor.h"
@@ -57,7 +57,7 @@ struct DlssFeatureGuard {
     explicit DlssFeatureGuard(NgxContext& ngxIn) : ngx(ngxIn) {}
 
     ~DlssFeatureGuard() {
-        ngx.releaseDlssRR();
+        ngx.releaseDlssSR();
     }
 
     NgxContext& ngx;
@@ -623,7 +623,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
 
     const std::vector<bool> resetFlags = computeResetFlags(frames);
     ChannelMapper channelMapper;
-    DlssRRProcessor processor(m_ctx, m_ngx);
+    DlssSRProcessor processor(m_ctx, m_ngx);
     DlssFeatureGuard featureGuard(m_ngx);
 
     // Peek at the first frame to determine input resolution for feature creation and prefetcher.
@@ -648,11 +648,12 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg) ||
         !beginCommandBuffer(createCmdBuf, errorMsg) ||
-        !m_ngx.createDlssRR(expectedInputWidth,
+        !m_ngx.createDlssSR(expectedInputWidth,
                             expectedInputHeight,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
+                            config.preset,
                             createCmdBuf,
                             errorMsg) ||
         !submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
@@ -679,7 +680,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     TextureHandle depth;
     TextureHandle motion;
     TextureHandle diffuse;
-    TextureHandle specular;
     TextureHandle normals;
     TextureHandle roughness;
     TextureHandle output;
@@ -713,7 +713,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
             auto& mvResult = prefetched->mvResult;
 
             const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
-            const std::vector<float> specularRgba = expandRgbToRgba(mappedBuffers.specularAlbedo, 1.0f);
             const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
 
             try {
@@ -722,7 +721,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     depth = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
                     motion = texturePool->acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
                     diffuse = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-                    specular = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
                     normals = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
                     roughness = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
                     output = texturePool->acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -733,12 +731,11 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 texturePool->updateData(depth, mappedBuffers.depth.data());
                 texturePool->updateData(motion, mvResult.mvXY.data());
                 texturePool->updateData(diffuse, diffuseRgba.data());
-                texturePool->updateData(specular, specularRgba.data());
                 texturePool->updateData(normals, normalsRgba.data());
                 texturePool->updateData(roughness, mappedBuffers.roughness.data());
                 texturePool->updateData(output, outputInit.data());
 
-                DlssFrameInput frame{};
+                DlssSRFrameInput frame{};
                 frame.color = color.image;
                 frame.colorView = color.view;
                 frame.depth = depth.image;
@@ -747,8 +744,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frame.motionView = motion.view;
                 frame.diffuseAlbedo = diffuse.image;
                 frame.diffuseView = diffuse.view;
-                frame.specularAlbedo = specular.image;
-                frame.specularView = specular.view;
                 frame.normals = normals.image;
                 frame.normalsView = normals.view;
                 frame.roughness = roughness.image;
@@ -948,15 +943,15 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     std::fprintf(stdout, "[RRFG] DLSS-FG available\n");
     std::fflush(stdout);
 
-    if (!m_ngx.isDlssRRAvailable()) {
+    if (!m_ngx.isDlssSRAvailable()) {
         errorMsg = m_ngx.unavailableReason();
         if (errorMsg.empty()) {
-            errorMsg = "DLSS Ray Reconstruction is not supported on this GPU.";
+            errorMsg = "DLSS Super Resolution is not supported on this GPU.";
         }
         std::fprintf(stderr, "[RRFG] %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[RRFG] DLSS-RR available\n");
+    std::fprintf(stdout, "[RRFG] DLSS-SR available\n");
     std::fflush(stdout);
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
@@ -989,7 +984,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     DlssFeatureGuard featureGuardRR(m_ngx);
     DlssFgFeatureGuard featureGuardFG(m_ngx);
 
-    std::fprintf(stdout, "[RRFG] Creating DLSS-RR feature...\n");
+    std::fprintf(stdout, "[RRFG] Creating DLSS-SR feature...\n");
     std::fflush(stdout);
     VkCommandBuffer createCmdBufRR = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufRR, errorMsg)) {
@@ -997,22 +992,23 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
     if (!beginCommandBuffer(createCmdBufRR, errorMsg) ||
-        !m_ngx.createDlssRR(expectedInputWidth,
+        !m_ngx.createDlssSR(expectedInputWidth,
                             expectedInputHeight,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
+                            config.preset,
                             createCmdBufRR,
                             errorMsg)) {
-        std::fprintf(stderr, "[RRFG] DLSS-RR feature creation failed: %s\n", errorMsg.c_str());
+        std::fprintf(stderr, "[RRFG] DLSS-SR feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufRR);
         return false;
     }
     if (!submitAndWait(m_ctx, createCmdBufRR, errorMsg)) {
-        std::fprintf(stderr, "[RRFG] DLSS-RR feature submit failed: %s\n", errorMsg.c_str());
+        std::fprintf(stderr, "[RRFG] DLSS-SR feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[RRFG] DLSS-RR feature created\n");
+    std::fprintf(stdout, "[RRFG] DLSS-SR feature created\n");
     std::fflush(stdout);
 
     std::fprintf(stdout, "[RRFG] Creating DLSS-FG feature...\n");
@@ -1041,7 +1037,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
 
     ChannelMapper channelMapper;
     MvConverter mvConverter;
-    DlssRRProcessor rrProcessor(m_ctx, m_ngx);
+    DlssSRProcessor rrProcessor(m_ctx, m_ngx);
     DlssFgProcessor fgProcessor(m_ctx, m_ngx);
     const std::filesystem::path outputPath(outputDir);
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
@@ -1089,7 +1085,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
     const auto& firstMvResult = firstPrefetched->mvResult;
     const std::vector<float> firstDiffuseRgba = expandRgbToRgba(firstMappedBuffers.diffuseAlbedo, 1.0f);
-    const std::vector<float> firstSpecularRgba = expandRgbToRgba(firstMappedBuffers.specularAlbedo, 1.0f);
     const std::vector<float> firstNormalsRgba = expandRgbToRgba(firstMappedBuffers.normals, 1.0f);
     const std::vector<float> rrOutputInit(static_cast<size_t>(expectedOutputWidth) *
                                               static_cast<size_t>(expectedOutputHeight) *
@@ -1100,7 +1095,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     TextureHandle firstDepth;
     TextureHandle firstMotion;
     TextureHandle firstDiffuse;
-    TextureHandle firstSpecular;
     TextureHandle firstNormals;
     TextureHandle firstRoughness;
     TextureHandle firstOutput;
@@ -1110,7 +1104,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         firstDepth = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
         firstMotion = pool.acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
         firstDiffuse = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-        firstSpecular = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
         firstNormals = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
         firstRoughness = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
         firstOutput = pool.acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -1119,7 +1112,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         pool.updateData(firstDepth, firstMappedBuffers.depth.data());
         pool.updateData(firstMotion, firstMvResult.mvXY.data());
         pool.updateData(firstDiffuse, firstDiffuseRgba.data());
-        pool.updateData(firstSpecular, firstSpecularRgba.data());
         pool.updateData(firstNormals, firstNormalsRgba.data());
         pool.updateData(firstRoughness, firstMappedBuffers.roughness.data());
         pool.updateData(firstOutput, rrOutputInit.data());
@@ -1128,7 +1120,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         return false;
     }
 
-    DlssFrameInput firstFrame{};
+    DlssSRFrameInput firstFrame{};
     firstFrame.color = firstColor.image;
     firstFrame.colorView = firstColor.view;
     firstFrame.depth = firstDepth.image;
@@ -1137,8 +1129,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
     firstFrame.motionView = firstMotion.view;
     firstFrame.diffuseAlbedo = firstDiffuse.image;
     firstFrame.diffuseView = firstDiffuse.view;
-    firstFrame.specularAlbedo = firstSpecular.image;
-    firstFrame.specularView = firstSpecular.view;
     firstFrame.normals = firstNormals.image;
     firstFrame.normalsView = firstNormals.view;
     firstFrame.roughness = firstRoughness.image;
@@ -1233,14 +1223,12 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         auto& mappedBuffers = prefetched->mappedBuffers;
         auto& mvResult = prefetched->mvResult;
         const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
-        const std::vector<float> specularRgba = expandRgbToRgba(mappedBuffers.specularAlbedo, 1.0f);
         const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
 
         TextureHandle color;
         TextureHandle depth;
         TextureHandle motion;
         TextureHandle diffuse;
-        TextureHandle specular;
         TextureHandle normals;
         TextureHandle roughness;
         TextureHandle rrOutput;
@@ -1249,7 +1237,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         depth = firstDepth;
         motion = firstMotion;
         diffuse = firstDiffuse;
-        specular = firstSpecular;
         normals = firstNormals;
         roughness = firstRoughness;
         rrOutput = firstOutput;
@@ -1259,7 +1246,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
             pool.updateData(depth, mappedBuffers.depth.data());
             pool.updateData(motion, mvResult.mvXY.data());
             pool.updateData(diffuse, diffuseRgba.data());
-            pool.updateData(specular, specularRgba.data());
             pool.updateData(normals, normalsRgba.data());
             pool.updateData(roughness, mappedBuffers.roughness.data());
             pool.updateData(rrOutput, rrOutputInit.data());
@@ -1269,7 +1255,7 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
             return false;
         }
 
-        DlssFrameInput rrFrame{};
+        DlssSRFrameInput rrFrame{};
         rrFrame.color = color.image;
         rrFrame.colorView = color.view;
         rrFrame.depth = depth.image;
@@ -1278,8 +1264,6 @@ bool SequenceProcessor::processDirectoryRRFG(const std::string& inputDir,
         rrFrame.motionView = motion.view;
         rrFrame.diffuseAlbedo = diffuse.image;
         rrFrame.diffuseView = diffuse.view;
-        rrFrame.specularAlbedo = specular.image;
-        rrFrame.specularView = specular.view;
         rrFrame.normals = normals.image;
         rrFrame.normalsView = normals.view;
         rrFrame.roughness = roughness.image;

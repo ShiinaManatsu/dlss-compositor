@@ -114,7 +114,7 @@ add_library(dlss_compositor_core STATIC
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
     src/core/camera_data_loader.cpp
-    src/dlss/dlss_rr_processor.cpp
+    src/dlss/dlss_sr_processor.cpp
     src/dlss/dlss_fg_processor.cpp
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp

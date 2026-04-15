@@ -27,18 +27,19 @@ public:
               VkCommandBuffer cmdBuf,
               std::string& errorMsg);
 
-    bool isDlssRRAvailable() const;
+    bool isDlssSRAvailable() const;
     std::string unavailableReason() const;
 
-    bool createDlssRR(int inputWidth,
+    bool createDlssSR(int inputWidth,
                       int inputHeight,
                       int outputWidth,
                       int outputHeight,
                       DlssQualityMode quality,
+                      DlssSRPreset preset,
                       VkCommandBuffer cmdBuf,
                       std::string& errorMsg);
 
-    void releaseDlssRR();
+    void releaseDlssSR();
     bool isDlssFGAvailable() const;
     bool createDlssFG(unsigned int width,
                       unsigned int height,
@@ -58,14 +59,14 @@ public:
 
 private:
     NVSDK_NGX_PerfQuality_Value mapQuality(DlssQualityMode quality) const;
-    bool queryDlssRRAvailability();
+    bool queryDlssSRAvailability();
     bool queryDlssFGAvailability();
 
     NVSDK_NGX_Handle* m_featureHandle = nullptr;
     NVSDK_NGX_Parameter* m_parameters = nullptr;
     VkDevice m_device = nullptr;
     bool m_initialized = false;
-    bool m_dlssRRAvailable = false;
+    bool m_dlssSRAvailable = false;
     NVSDK_NGX_Handle* m_fgFeatureHandle = nullptr;
     bool m_dlssFGAvailable = false;
     int m_maxMultiFrameCount = 0;
