@@ -17,10 +17,11 @@ The GUI is divided into a configuration panel on the left and a processing panel
 - **Executable Path**: Path to `dlss-compositor.exe`. If the GUI and CLI are in the same folder, this is detected automatically.
 - **Input/Output Directory**: Source folder for EXR sequences and the target for processed output.
 
-#### DLSS-RR (Ray Reconstruction & Upscaling)
+#### DLSS-SR (Super Resolution & Upscaling)
 - **Enable Upscaling**: Toggle spatial upscaling and denoising.
 - **Scale Factor**: Choose a multiplier (e.g., 1.5, 2.0). Use 1.0 for denoise-only (DLAA).
 - **Quality Mode**: Select between `DLAA`, `MaxQuality`, `Balanced`, `Performance`, and `UltraPerformance`.
+- **SR Preset**: Select between `J`, `K`, `L`, or `M`. Default is `L`.
 
 #### DLSS-FG (Frame Generation & Interpolation)
 - **Interpolation**: Select `Off`, `2x` (RTX 40+), or `4x` (RTX 50+).
@@ -73,9 +74,9 @@ Use the GUI's **Interpolation** section or run the CLI with the `--interpolate` 
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json
 ```
 
-## Combined Mode (RR + FG)
+## Combined Mode (SR + FG)
 
-When both `--scale` and `--interpolate` are specified, the tool runs a combined pipeline: DLSS-RR upscales/denoises each frame first, then DLSS-FG interpolates between the upscaled frames. The RR output stays on the GPU and is handed directly to FG with zero CPU readback — matching how game engines like Unreal Engine chain these features.
+When both `--scale` and `--interpolate` are specified, the tool runs a combined pipeline: DLSS-SR upscales/denoises each frame first, then DLSS-FG interpolates between the upscaled frames. The SR output stays on the GPU and is handed directly to FG with zero CPU readback — matching how game engines like Unreal Engine chain these features.
 
 ```bash
 # 2x upscale + 2x interpolation — effective 4x frame count at 2x resolution
@@ -83,7 +84,7 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --interp
 ```
 
 **Requirements:**
-- All requirements for both RR and FG apply (RTX 40+ for 2x FG, RTX 50+ for 4x FG).
+- All requirements for both SR and FG apply (RTX 40+ for 2x FG, RTX 50+ for 4x FG).
 - Camera data JSON is required (same as FG-only mode).
 - Depth and motion vectors are kept at render resolution — they are not upscaled for FG input.
 
@@ -120,6 +121,7 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--output-dir <dir>` | — | Directory where processed EXRs will be saved. |
 | `--scale <factor>` | 2.0 | Upscale factor. Float value ≥ 1.0 (e.g., 1.5, 2.0). Use 1.0 for denoise-only (DLAA). |
 | `--quality <mode>` | Balanced | DLSS quality mode: `DLAA`, `MaxQuality`, `Balanced`, `Performance`, `UltraPerformance`. |
+| `--preset <mode>` | L | SR preset hint: `J`, `K`, `L`, `M`. |
 | `--encode-video [file]` | — | Encode the output sequence to an MP4 video. Requires FFmpeg on your PATH. |
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
 | `--interpolate <2x\|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
@@ -130,7 +132,7 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--inverse-tonemap-lut <file>` | — | Custom inverse LUT binary file. |
 | `--memory-budget <GB>` | 8 | GPU memory budget in GB for texture preloading and pooling. Minimum 1. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
-| `--test-ngx` | — | Verify DLSS Ray Reconstruction availability on your system and exit. |
+| `--test-ngx` | — | Verify DLSS Super Resolution availability on your system and exit. |
 | `--help`, `-h` | — | Show the help message. |
 | `--version` | — | Show the version number. |
 
@@ -140,14 +142,15 @@ If you use `--encode-video`, the tool will call FFmpeg to create a video from th
 ## Troubleshooting
 
 ### "InReset=true" on every frame
-DLSS-RR relies on temporal history. If your filenames are not sequentially numbered (e.g., `frame_01.exr`, `frame_03.exr`), the tool will reset its history on every gap, leading to lower quality. Ensure your sequence is contiguous.
+DLSS-SR relies on temporal history. If your filenames are not sequentially numbered (e.g., `frame_01.exr`, `frame_03.exr`), the tool will reset its history on every gap, leading to lower quality. Ensure your sequence is contiguous.
 
 ### Output is blurry
 - Try setting `--quality MaxQuality`.
+- Experiment with different `--preset` values (e.g., `K` or `M`).
 - Ensure your motion vectors are correctly rendered in Blender.
 
 ### Driver errors
-Update your NVIDIA drivers to version 520 or newer. Ray Reconstruction is a relatively new feature that requires modern drivers.
+Update your NVIDIA drivers to version 520 or newer. DLSS is a relatively new feature that requires modern drivers.
 
 ### Frame Generation: "RTX 40+ required"
 User's GPU doesn't support DLSS-G. Frame Generation requires Ada Lovelace (RTX 40) or newer architecture.

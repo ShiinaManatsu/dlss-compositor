@@ -1,19 +1,19 @@
 # DLSS Compositor
 
-> First open-source tool for processing offline Blender Cycles renders through NVIDIA DLSS Ray Reconstruction (DLSS-RR) and DLSS Frame Generation (DLSS-FG) — AI denoising, temporal upscaling, and 2x/4x frame interpolation for animation sequences.
+> First open-source tool for processing offline Blender Cycles renders through NVIDIA DLSS Super Resolution (DLSS-SR) and DLSS Frame Generation (DLSS-FG) — AI-powered upscaling, denoising, and 2x/4x frame interpolation for animation sequences.
 
 ## What It Does
-DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds them through NVIDIA DLSS-RR for denoising and upscaling or DLSS-FG for frame interpolation, and outputs high-quality EXR sequences. It's designed to bring the real-time AI power of DLSS to offline rendering workflows.
+DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds them through NVIDIA DLSS-SR for upscaling and denoising or DLSS-FG for frame interpolation, and outputs high-quality EXR sequences. It's designed to bring the real-time AI power of DLSS to offline rendering workflows.
 
 ## Features
-- DLSS-RR denoising and upscaling via Vulkan NGX API
+- DLSS-SR upscaling and denoising via Vulkan NGX API
 - DLSS Frame Generation 2x/4x interpolation via raw NGX Vulkan API (RTX 40+)
-- Combined RR+FG pipeline — upscale and interpolate in a single pass with zero-copy GPU handoff
+- Combined SR+FG pipeline — upscale and interpolate in a single pass with zero-copy GPU handoff
 - PQ (ST 2084) transport encoding for Frame Generation — preserves full HDR range beyond DLSS-FG's internal clamp
 - Async EXR writer with thread pool for overlapped disk I/O
 - Configurable memory budget (`--memory-budget`) for GPU texture preloading and pooling
 - Multi-layer EXR reading with Blender channel name mapping
-- Motion vector conversion (Blender 4-channel to DLSS-RR 2-channel current to previous)
+- Motion vector conversion (Blender 4-channel to DLSS-SR 2-channel current to previous)
 - Temporal history management with automatic reset on sequence gaps
 - CLI batch processing mode
 - Electron-based GUI for easy configuration and progress monitoring
@@ -22,7 +22,7 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 - Custom LUT support for advanced users (forward/inverse 3D LUT files)
 
 ## Requirements
-- **GPU**: NVIDIA RTX GPU (Turing, Ampere, Ada, or Blackwell architecture — must support DLSS Ray Reconstruction; RTX 40+ required for Frame Generation)
+- **GPU**: NVIDIA RTX GPU (Turing, Ampere, Ada, or Blackwell architecture; RTX 40+ required for Frame Generation)
 - **OS**: Windows 10/11 (64-bit)
 - **Driver**: NVIDIA driver 520 or newer
 - **Build tools**: Visual Studio 2022, CMake 3.20 or newer, Vulkan SDK 1.3 or newer
@@ -50,6 +50,9 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1.0 --qual
 # Max quality mode
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --quality MaxQuality
 
+# Set SR preset (J, K, L, M; default: L)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --preset K
+
 # DLAA quality mode (superior denoising at native resolution)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1.0 --quality DLAA
 
@@ -59,7 +62,7 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x -
 # Frame interpolation (4x)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 4x --camera-data camera.json
 
-# Combined upscale + interpolation (RR then FG, zero-copy GPU handoff)
+# Combined upscale + interpolation (SR then FG, zero-copy GPU handoff)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --interpolate 2x --camera-data camera.json
 
 # Custom memory budget for texture preloading (default 8 GB, minimum 1 GB)

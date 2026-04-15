@@ -7,7 +7,7 @@ This guide explains how to build DLSS Compositor from source on Windows.
 - **Visual Studio 2022**: Install the "Desktop development with C++" workload. Ensure the MSVC v143 toolset is selected.
 - **CMake 3.20+**: Available from [cmake.org](https://cmake.org/download/).
 - **Vulkan SDK 1.3+**: Download the installer from [vulkan.lunarg.com](https://vulkan.lunarg.com/).
-- **NVIDIA GPU**: RTX series (Turing architecture or newer) required for DLSS Ray Reconstruction.
+- **NVIDIA GPU**: RTX series (Turing architecture or newer) required for DLSS Super Resolution.
 - **NVIDIA Driver**: Version 520 or newer.
 
 ## Build Steps
@@ -100,5 +100,5 @@ Check your Node.js version (`node -v`). It must be version 18 or newer.
 ### "nvngx_dlssd.dll not found"
 The build process automatically copies this DLL from the DLSS SDK to the `build\Release` directory. If it's missing, manually copy `DLSS\lib\Windows_x86_64\rel\nvngx_dlssd.dll` to the directory containing `dlss-compositor.exe`.
 
-### "DLSS-RR not available"
-Check that your GPU is an NVIDIA RTX card and your drivers are up to date (520+). DLSS Ray Reconstruction specifically requires an RTX GPU.
+### "DLSS-SR not available"
+Check that your GPU is an NVIDIA RTX card and your drivers are up to date (520+). DLSS Super Resolution specifically requires an RTX GPU.
