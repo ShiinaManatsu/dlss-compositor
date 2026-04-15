@@ -217,7 +217,8 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
 
         file_output.format.file_format = "OPEN_EXR_MULTILAYER"
         file_output.format.color_depth = "32"
-        file_output.format.exr_codec = "ZIP"
+        file_output.format.exr_codec = "DWAA"
+        file_output.format.quality = 95
 
         if scene.dlsscomp_output_dir:
             file_output.directory = scene.dlsscomp_output_dir
