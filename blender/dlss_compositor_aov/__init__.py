@@ -113,7 +113,6 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         vl.use_pass_vector = True
         vl.use_pass_normal = True
         vl.use_pass_diffuse_color = True
-        vl.use_pass_glossy_color = True
 
         # 2 — Custom AOV: Roughness -------------------------------------------
         existing_aov_names = {aov.name for aov in vl.aovs}
@@ -231,7 +230,6 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
             ("Normal", "VECTOR"),
             ("Vector", "VECTOR"),
             ("Diffuse Color", "RGBA"),
-            ("Glossy Color", "RGBA"),
             ("Roughness", "FLOAT"),
         ]
 
@@ -256,7 +254,7 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
                     tree.links.new(rl_out, fo_in)
 
         # 5 — Report -----------------------------------------------------------
-        configured = "Combined, Z, Vector, Normal, DiffCol, GlossCol, Roughness(AOV)"
+        configured = "Combined, Z, Vector, Normal, DiffCol, Roughness(AOV)"
         self.report(
             {"INFO"},
             f"Passes configured: {configured} — wired {fixed_mats} material(s)",
@@ -329,11 +327,6 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
             text=f"Diffuse Color: {'ON' if vl.use_pass_diffuse_color else 'OFF'}",
             icon="CHECKMARK" if vl.use_pass_diffuse_color else "X",
         )
-        col.label(
-            text=f"Glossy Color: {'ON' if vl.use_pass_glossy_color else 'OFF'}",
-            icon="CHECKMARK" if vl.use_pass_glossy_color else "X",
-        )
-
         # Roughness AOV status
         aov_names = {aov.name for aov in vl.aovs}
         col.label(
@@ -381,7 +374,7 @@ if __name__ == "__main__":
             bpy.ops.dlsscomp.configure_passes()
             print(
                 "Passes configured: Combined, Z, Vector, Normal, "
-                "DiffCol, GlossCol, Roughness(AOV)"
+                "DiffCol, Roughness(AOV)"
             )
             sys.exit(0)
     except Exception as e:
