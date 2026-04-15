@@ -1,6 +1,6 @@
 {
   "name": "dlss-compositor-gui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DLSS Compositor — Electron GUI for NVIDIA DLSS Ray Reconstruction and Frame Generation",
   "type": "module",
   "main": "dist-electron/main.js",
