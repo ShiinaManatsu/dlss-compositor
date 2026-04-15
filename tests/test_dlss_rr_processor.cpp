@@ -62,7 +62,7 @@ void transitionImage(VkCommandBuffer cmdBuf,
         barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     } else {
-        FAIL("Unsupported image layout transition in DLSS-RR test");
+        FAIL("Unsupported image layout transition in DLSS-SR test");
     }
 
     vkCmdPipelineBarrier(cmdBuf,
@@ -134,7 +134,7 @@ std::vector<float> makeData(int width, int height, int channels, float seed) {
 
 } // namespace
 
-TEST_CASE("dlss_rr_single_evaluation", "[gpu][dlss]") {
+TEST_CASE("dlss_sr_single_evaluation", "[gpu][dlss]") {
     constexpr int kInputWidth = 64;
     constexpr int kInputHeight = 64;
     constexpr int kOutputWidth = 128;

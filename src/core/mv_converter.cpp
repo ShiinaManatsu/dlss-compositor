@@ -5,7 +5,7 @@
 //   Y = current_pixel_Y - previous_pixel_Y  (pixels, +down in image space)
 //   Z = depth delta (not used for motion)
 //
-// DLSS-RR InMVScaleX/Y: multiplied onto stored values to get pixel displacement.
+// DLSS-SR InMVScaleX/Y: multiplied onto stored values to get pixel displacement.
 //   actual_pixel_displacement = stored_value * scale
 //
 // Therefore:

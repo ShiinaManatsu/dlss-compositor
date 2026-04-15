@@ -1,0 +1,10 @@
+Task 7 evidence (2026-04-15)
+
+Searches run:
+- `Get-ChildItem -Path "src","gui/src" -Recurse -File | Select-String -Pattern "RayReconstruction|DLSS-RR|DlssRR|dlss_rr|DLSSD"`
+- `Get-ChildItem -Path "tests" -Recurse -File | Select-String -Pattern "RayReconstruction|DLSS-RR|DlssRR|dlss_rr|DLSSD"`
+
+Result:
+- `src/` and `gui/src/` returned no matches after cleanup.
+- `tests/` only retained the expected SDK DLL filename reference `nvngx_dlssd.dll` in `tests/CMakeLists.txt`.
+- Build verified: `cmake --build build --config Release` ✅

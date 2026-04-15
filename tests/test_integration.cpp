@@ -150,15 +150,15 @@ TEST_CASE("dlss_fg_e2e_interpolation", "[integration][fg]") {
     std::filesystem::remove_all("test_fg_integration_out/");
 }
 
-TEST_CASE("dlss_rrfg_e2e_combined", "[integration][rrfg]") {
+TEST_CASE("dlss_srfg_e2e_combined", "[integration][srfg]") {
     struct OutputDirCleanup {
         ~OutputDirCleanup() {
-            std::filesystem::remove_all("test_rrfg_integration_out/");
+            std::filesystem::remove_all("test_srfg_integration_out/");
         }
     } cleanup;
 
-    std::filesystem::remove_all("test_rrfg_integration_out/");
-    std::filesystem::create_directories("test_rrfg_integration_out/");
+    std::filesystem::remove_all("test_srfg_integration_out/");
+    std::filesystem::create_directories("test_srfg_integration_out/");
 
     VulkanContext ctx;
     std::string errorMsg;
@@ -183,7 +183,7 @@ TEST_CASE("dlss_rrfg_e2e_combined", "[integration][rrfg]") {
 
         AppConfig config;
         config.inputDir = "tests/fixtures/sequence/";
-        config.outputDir = "test_rrfg_integration_out/";
+        config.outputDir = "test_srfg_integration_out/";
         config.scaleFactor = 2;
         config.interpolateFactor = 2;
         config.cameraDataFile = "tests/fixtures/camera.json";
@@ -227,5 +227,5 @@ TEST_CASE("dlss_rrfg_e2e_combined", "[integration][rrfg]") {
 
     ngx.shutdown();
     ctx.destroy();
-    std::filesystem::remove_all("test_rrfg_integration_out/");
+    std::filesystem::remove_all("test_srfg_integration_out/");
 }

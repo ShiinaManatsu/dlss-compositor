@@ -32,8 +32,8 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 def _skip_if_no_rtx(result: subprocess.CompletedProcess[str]) -> None:
     combined = f"{result.stdout}\n{result.stderr}"
-    if "DLSS-RR not available" in combined or "No compatible GPU" in combined:
-        pytest.skip("No RTX GPU or DLSS-RR runtime available")
+    if "DLSS-SR not available" in combined or "No compatible GPU" in combined:
+        pytest.skip("No RTX GPU or DLSS-SR runtime available")
 
 
 def _ensure_output_exists() -> None:

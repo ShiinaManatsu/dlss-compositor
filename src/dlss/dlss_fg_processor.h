@@ -14,7 +14,7 @@ class VulkanContext;
 class NgxContext;
 
 struct DlssFgFrameInput {
-    // Current frame color buffer (DLSS-RR output or raw EXR color)
+    // Current frame color buffer (DLSS-SR output or raw EXR color)
     VkImage backbuffer = VK_NULL_HANDLE;
     VkImageView backbufferView = VK_NULL_HANDLE;
     // Current frame depth
