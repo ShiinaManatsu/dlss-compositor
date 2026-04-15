@@ -34,7 +34,7 @@ private:
                             const AppConfig& config,
                             std::string& errorMsg);
 
-    bool processDirectoryRRFG(const std::string& inputDir,
+    bool processDirectorySRFG(const std::string& inputDir,
                               const std::string& outputDir,
                               const AppConfig& config,
                               std::string& errorMsg);
