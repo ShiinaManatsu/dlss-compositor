@@ -111,6 +111,12 @@ std::vector<float> expandRgbToRgba(const std::vector<float>& rgb, float alpha) {
     return rgba;
 }
 
+void forceOpaqueAlpha(std::vector<float>& rgba) {
+    for (size_t i = 3; i < rgba.size(); i += 4u) {
+        rgba[i] = 1.0f;
+    }
+}
+
 void splitRgba(const std::vector<float>& rgba,
                std::vector<float>& r,
                std::vector<float>& g,
@@ -263,11 +269,13 @@ bool writeRgbaExr(const std::filesystem::path& outputDir,
                   const std::vector<float>& rgba,
                   const AppConfig& config,
                   std::string& errorMsg) {
+    std::vector<float> opaqueRgba = rgba;
+    forceOpaqueAlpha(opaqueRgba);
     std::vector<float> r;
     std::vector<float> g;
     std::vector<float> b;
     std::vector<float> a;
-    splitRgba(rgba, r, g, b, a);
+    splitRgba(opaqueRgba, r, g, b, a);
 
     ExrWriter writer;
     std::ostringstream oss;
@@ -785,7 +793,8 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     throw std::runtime_error(frameError);
                 }
 
-                const std::vector<float> outputData = m_texturePipeline.download(output);
+                std::vector<float> outputData = m_texturePipeline.download(output);
+                forceOpaqueAlpha(outputData);
                 std::vector<float> r;
                 std::vector<float> g;
                 std::vector<float> b;
@@ -1176,6 +1185,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     std::fprintf(stdout, "[SRFG] Downloading and submitting first SR output...\n");
     std::fflush(stdout);
     std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
+    forceOpaqueAlpha(firstOutputData);
     asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
                                      expectedOutputWidth, expectedOutputHeight,
                                      firstOutputData, config));
@@ -1443,6 +1453,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
             // Download the result — from tonemappedBuf if inverse was applied, else outputInterp
             const TextureHandle& downloadSource = (inverseReady && transportReady) ? tonemappedBuf : outputInterp;
             std::vector<float> interpOutputData = m_texturePipeline.download(downloadSource);
+            forceOpaqueAlpha(interpOutputData);
 
             asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
                                              expectedOutputWidth, expectedOutputHeight,
@@ -1453,6 +1464,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         }
 
         std::vector<float> srOutputData = m_texturePipeline.download(srOutput);
+        forceOpaqueAlpha(srOutputData);
         asyncWriter.submit(buildWriteJob(outputPath, outputFrameCounter,
                                          expectedOutputWidth, expectedOutputHeight,
                                          srOutputData, config));
@@ -1879,6 +1891,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                     // Download the result — from tonemappedBuf if inverse was applied, else outputInterp
                     const TextureHandle& dlSource = (inverseReadyFG && transportReadyFG) ? tonemappedBuf : outputInterp;
                     std::vector<float> outputData = m_texturePipeline.download(dlSource);
+                    forceOpaqueAlpha(outputData);
 
                     asyncWriterFG.submit(buildWriteJob(outputPath, outputFrameCounter,
                                                        expectedWidth, expectedHeight,
