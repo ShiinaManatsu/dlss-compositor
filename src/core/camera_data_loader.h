@@ -14,6 +14,8 @@ struct CameraFrameData {
     float up[3];          // extracted from matrix_world col 1
     float right[3];       // extracted from matrix_world col 0
     float forward[3];     // extracted from matrix_world col 2
+    float jitter_x = 0.0f;  // optional jitter offset in pixel space [-0.5, +0.5]
+    float jitter_y = 0.0f;  // optional jitter offset in pixel space [-0.5, +0.5]
 };
 
 struct DlssFgCameraParams {

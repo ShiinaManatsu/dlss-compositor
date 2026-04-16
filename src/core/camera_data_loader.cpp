@@ -229,6 +229,10 @@ bool CameraDataLoader::load(const std::string& path, std::string& errorMsg) {
             }
             frame.far_clip = frameJson["far_clip"].get<float>();
 
+            // Optional jitter fields (default 0.0 for backward compatibility)
+            frame.jitter_x = frameJson.value("jitter_x", 0.0f);
+            frame.jitter_y = frameJson.value("jitter_y", 0.0f);
+
         } catch (const std::exception& e) {
             errorMsg = "Error parsing frame '" + key + "': " + e.what();
             return false;

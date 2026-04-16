@@ -634,6 +634,23 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     DlssSRProcessor processor(m_ctx, m_ngx);
     DlssFeatureGuard featureGuard(m_ngx);
 
+    // Optionally load camera data for jitter values
+    CameraDataLoader cameraLoader;
+    bool hasCameraData = false;
+    if (!config.cameraDataFile.empty()) {
+        std::fprintf(stdout, "Loading camera data: %s\n", config.cameraDataFile.c_str());
+        std::fflush(stdout);
+        std::string cameraError;
+        if (cameraLoader.load(config.cameraDataFile, cameraError)) {
+            hasCameraData = true;
+            std::fprintf(stdout, "Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+            std::fflush(stdout);
+        } else {
+            std::fprintf(stderr, "Warning: Camera data load failed: %s\n", cameraError.c_str());
+            std::fprintf(stderr, "Continuing without jitter values (defaulting to 0.0)\n");
+        }
+    }
+
     // Peek at the first frame to determine input resolution for feature creation and prefetcher.
     ExrReader peekReader;
     std::string peekError;
@@ -765,6 +782,22 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frame.mvScaleX = mvResult.scaleX;
                 frame.mvScaleY = mvResult.scaleY;
                 frame.reset = resetFlags[index] || !anyFrameSucceeded;
+
+                // Assign jitter values from camera data if available
+                if (hasCameraData && cameraLoader.hasFrame(frameInfo.frameNumber)) {
+                    const auto& camData = cameraLoader.getFrame(frameInfo.frameNumber);
+                    frame.jitterX = camData.jitter_x;
+                    frame.jitterY = camData.jitter_y;
+                    
+                    // Log non-zero jitter values
+                    if (std::abs(frame.jitterX) > 1e-6f || std::abs(frame.jitterY) > 1e-6f) {
+                        std::fprintf(stdout, "Frame %d: Jitter offset = (%.4f, %.4f) pixels\n",
+                                     frameInfo.frameNumber, frame.jitterX, frame.jitterY);
+                    }
+                } else {
+                    frame.jitterX = 0.0f;
+                    frame.jitterY = 0.0f;
+                }
 
                 VkCommandBuffer evalCmdBuf = VK_NULL_HANDLE;
                 if (!allocateCommandBuffer(m_ctx, evalCmdBuf, frameError) ||

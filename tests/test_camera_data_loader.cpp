@@ -370,3 +370,81 @@ TEST_CASE("MatrixUtil inverse of singular matrix returns false", "[camera][matri
         for (int c = 0; c < 4; ++c)
             CHECK_THAT(inv[r][c], WithinAbs((r == c) ? 1.0f : 0.0f, 1e-6));
 }
+
+// =========================================================================
+// Scenario 4: Jitter field parsing (backward compatibility)
+// =========================================================================
+TEST_CASE("CameraDataLoader parses jitter fields when present", "[camera][jitter]") {
+    static const char* kCameraJsonWithJitter = R"({
+        "version": 1,
+        "render_width": 1920,
+        "render_height": 1080,
+        "frames": {
+            "0001": {
+                "matrix_world": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+                "projection": [[2,0,0,0],[0,2,0,0],[0,0,-1.002,-0.2002],[0,0,-1,0]],
+                "fov": 0.6911,
+                "aspect_ratio": 1.7778,
+                "near_clip": 0.1,
+                "far_clip": 100.0,
+                "jitter_x": 0.25,
+                "jitter_y": -0.125
+            },
+            "0002": {
+                "matrix_world": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+                "projection": [[2,0,0,0],[0,2,0,0],[0,0,-1.002,-0.2002],[0,0,-1,0]],
+                "fov": 0.6911,
+                "aspect_ratio": 1.7778,
+                "near_clip": 0.1,
+                "far_clip": 100.0,
+                "jitter_x": -0.375,
+                "jitter_y": 0.0625
+            }
+        }
+    })";
+
+    auto path = writeTempJson(kCameraJsonWithJitter, "test_camera_with_jitter.json");
+    CameraDataLoader loader;
+    std::string err;
+
+    REQUIRE(loader.load(path, err));
+    REQUIRE(err.empty());
+
+    SECTION("frame 1 jitter values parsed correctly") {
+        const auto& f = loader.getFrame(1);
+        CHECK_THAT(f.jitter_x, WithinAbs(0.25f, 1e-6));
+        CHECK_THAT(f.jitter_y, WithinAbs(-0.125f, 1e-6));
+    }
+
+    SECTION("frame 2 jitter values parsed correctly") {
+        const auto& f = loader.getFrame(2);
+        CHECK_THAT(f.jitter_x, WithinAbs(-0.375f, 1e-6));
+        CHECK_THAT(f.jitter_y, WithinAbs(0.0625f, 1e-6));
+    }
+
+    std::remove(path.c_str());
+}
+
+TEST_CASE("CameraDataLoader defaults jitter to 0.0 when fields missing", "[camera][jitter]") {
+    // Use existing kValidCameraJson which does NOT have jitter fields
+    auto path = writeTempJson(kValidCameraJson, "test_camera_no_jitter.json");
+    CameraDataLoader loader;
+    std::string err;
+
+    REQUIRE(loader.load(path, err));
+    REQUIRE(err.empty());
+
+    SECTION("frame 1 jitter defaults to 0.0") {
+        const auto& f = loader.getFrame(1);
+        CHECK_THAT(f.jitter_x, WithinAbs(0.0f, 1e-6));
+        CHECK_THAT(f.jitter_y, WithinAbs(0.0f, 1e-6));
+    }
+
+    SECTION("frame 2 jitter defaults to 0.0") {
+        const auto& f = loader.getFrame(2);
+        CHECK_THAT(f.jitter_x, WithinAbs(0.0f, 1e-6));
+        CHECK_THAT(f.jitter_y, WithinAbs(0.0f, 1e-6));
+    }
+
+    std::remove(path.c_str());
+}
