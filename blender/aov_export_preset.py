@@ -480,7 +480,7 @@ def register():
 
     # Register jitter handlers
     bpy.app.handlers.render_init.append(save_original_shift)
-    bpy.app.handlers.frame_change_pre.append(apply_jitter)
+    bpy.app.handlers.render_pre.append(apply_jitter)
     bpy.app.handlers.render_complete.append(restore_shift)
     bpy.app.handlers.render_cancel.append(restore_shift)
 
@@ -489,8 +489,8 @@ def unregister():
     # Unregister jitter handlers
     if save_original_shift in bpy.app.handlers.render_init:
         bpy.app.handlers.render_init.remove(save_original_shift)
-    if apply_jitter in bpy.app.handlers.frame_change_pre:
-        bpy.app.handlers.frame_change_pre.remove(apply_jitter)
+    if apply_jitter in bpy.app.handlers.render_pre:
+        bpy.app.handlers.render_pre.remove(apply_jitter)
     if restore_shift in bpy.app.handlers.render_complete:
         bpy.app.handlers.render_complete.remove(restore_shift)
     if restore_shift in bpy.app.handlers.render_cancel:
