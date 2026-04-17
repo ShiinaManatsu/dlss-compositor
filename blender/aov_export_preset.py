@@ -20,6 +20,87 @@ import bpy  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
+# Halton Sequence Generator (for DLSS jitter)
+# ---------------------------------------------------------------------------
+
+
+def halton(index, base):
+    """Generate Halton sequence value for the given index and base.
+
+    Args:
+        index: 0-based sequence index
+        base: Prime base (2 for X, 3 for Y)
+
+    Returns:
+        Float in [0, 1) range
+    """
+    result = 0.0
+    f = 1.0 / base
+    i = index
+    while i > 0:
+        result += f * (i % base)
+        i //= base
+        f /= base
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Jitter Handler State
+# ---------------------------------------------------------------------------
+
+# Global state for camera jitter handlers
+_original_shift_x = 0.0
+_original_shift_y = 0.0
+_jitter_enabled = False
+
+
+def save_original_shift(scene):
+    """Render init handler: save original camera shift values."""
+    global _original_shift_x, _original_shift_y, _jitter_enabled
+    camera = scene.camera
+    if camera and camera.data:
+        _original_shift_x = camera.data.shift_x
+        _original_shift_y = camera.data.shift_y
+        _jitter_enabled = True
+
+
+def apply_jitter(scene):
+    """Frame change handler: apply Halton jitter via camera shift."""
+    global _jitter_enabled, _original_shift_x, _original_shift_y
+    if not _jitter_enabled:
+        return
+
+    camera = scene.camera
+    if not camera or not camera.data:
+        return
+
+    render = scene.render
+    frame_num = scene.frame_current
+
+    # Halton(2,3) sequence, 8-sample cycle, [-0.5, +0.5] pixel range
+    jitter_x = halton(frame_num % 8, 2) - 0.5
+    jitter_y = halton(frame_num % 8, 3) - 0.5
+
+    # Convert pixel-space jitter to camera shift units (sensor width units)
+    camera.data.shift_x = _original_shift_x + jitter_x / render.resolution_x
+    camera.data.shift_y = _original_shift_y + jitter_y / render.resolution_y
+
+
+def restore_shift(scene):
+    """Render complete/cancel handler: restore original camera shift."""
+    global _original_shift_x, _original_shift_y, _jitter_enabled
+    if not _jitter_enabled:
+        return
+
+    camera = scene.camera
+    if camera and camera.data:
+        camera.data.shift_x = _original_shift_x
+        camera.data.shift_y = _original_shift_y
+
+    _jitter_enabled = False
+
+
+# ---------------------------------------------------------------------------
 # Operator
 # ---------------------------------------------------------------------------
 
@@ -87,6 +168,11 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                     depsgraph, x=render_width, y=render_height
                 )
             ]
+
+            # Calculate Halton jitter for this frame (pixel space, [-0.5, +0.5])
+            jitter_x = halton(frame_num % 8, 2) - 0.5
+            jitter_y = halton(frame_num % 8, 3) - 0.5
+
             data["frames"][key] = {
                 "matrix_world": matrix_world,
                 "projection": projection,
@@ -94,6 +180,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 "aspect_ratio": render_width / render_height,
                 "near_clip": near_clip,
                 "far_clip": far_clip,
+                "jitter_x": jitter_x,
+                "jitter_y": jitter_y,
             }
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -390,8 +478,24 @@ def register():
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.register_class(DLSSCOMP_PT_export_panel)
 
+    # Register jitter handlers
+    bpy.app.handlers.render_init.append(save_original_shift)
+    bpy.app.handlers.frame_change_pre.append(apply_jitter)
+    bpy.app.handlers.render_complete.append(restore_shift)
+    bpy.app.handlers.render_cancel.append(restore_shift)
+
 
 def unregister():
+    # Unregister jitter handlers
+    if save_original_shift in bpy.app.handlers.render_init:
+        bpy.app.handlers.render_init.remove(save_original_shift)
+    if apply_jitter in bpy.app.handlers.frame_change_pre:
+        bpy.app.handlers.frame_change_pre.remove(apply_jitter)
+    if restore_shift in bpy.app.handlers.render_complete:
+        bpy.app.handlers.render_complete.remove(restore_shift)
+    if restore_shift in bpy.app.handlers.render_cancel:
+        bpy.app.handlers.render_cancel.remove(restore_shift)
+
     bpy.utils.unregister_class(DLSSCOMP_PT_export_panel)
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.unregister_class(DLSSCOMP_OT_export_camera)
