@@ -171,8 +171,9 @@ bool NgxContext::createDlssSR(int inputWidth,
     createParams.Feature.InTargetWidth = static_cast<unsigned int>(outputWidth);
     createParams.Feature.InTargetHeight = static_cast<unsigned int>(outputHeight);
     createParams.Feature.InPerfQualityValue = mapQuality(quality);
-    createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
-                                        NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+     createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
+                                         NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
+                                         NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
     createParams.InEnableOutputSubrects = false;
 
     const int presetValue = static_cast<int>(preset);
