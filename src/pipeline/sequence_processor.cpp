@@ -525,7 +525,29 @@ bool pathsAreEquivalent(const std::filesystem::path& lhs, const std::filesystem:
     return lhsCanonical == rhsCanonical;
 }
 
-} // namespace
+}
+
+/// Convert Blender world-space depth (meters) to DLSS NDC depth [0, 1].
+/// Uses linear normalization: z_ndc = (z_world - near) / (far - near)
+/// If cameraData is nullptr or invalid, returns a copy of the original depth unchanged.
+std::vector<float> convertWorldDepthToNdc(const std::vector<float>& worldDepth, const CameraFrameData* cameraData) {
+    std::vector<float> result = worldDepth;
+    if (!cameraData) return result;
+    float n = cameraData->near_clip;
+    float f = cameraData->far_clip;
+    if (f <= n || f - n < 1e-6f) return result;
+    float range = f - n;
+    for (size_t i = 0; i < result.size(); ++i) {
+        float z = worldDepth[i];
+        if (z <= 0.0f) {
+            result[i] = 1.0f;
+        } else {
+            float z_ndc = (z - n) / range;
+            result[i] = std::clamp(z_ndc, 0.0f, 1.0f);
+        }
+    }
+    return result;
+}
 
 SequenceProcessor::SequenceProcessor(VulkanContext& ctx, NgxContext& ngx, TexturePipeline& texturePipeline)
     : m_ctx(ctx), m_ngx(ngx), m_texturePipeline(texturePipeline) {}
@@ -753,7 +775,15 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 }
 
                 texturePool->updateData(color, mappedBuffers.color.data());
-                texturePool->updateData(depth, mappedBuffers.depth.data());
+                
+                // Convert Blender world-space depth to DLSS NDC depth [0, 1]
+                const CameraFrameData* camFrame = nullptr;
+                if (hasCameraData && cameraLoader.hasFrame(frameInfo.frameNumber)) {
+                    camFrame = &cameraLoader.getFrame(frameInfo.frameNumber);
+                }
+                const std::vector<float> convertedDepth = convertWorldDepthToNdc(mappedBuffers.depth, camFrame);
+                texturePool->updateData(depth, convertedDepth.data());
+                
                 texturePool->updateData(motion, mvResult.mvXY.data());
                 texturePool->updateData(diffuse, diffuseRgba.data());
                 texturePool->updateData(normals, normalsRgba.data());
@@ -1286,7 +1316,12 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
 
         try {
             pool.updateData(color, mappedBuffers.color.data());
-            pool.updateData(depth, mappedBuffers.depth.data());
+            
+            // Convert Blender world-space depth to DLSS NDC depth [0, 1]
+            const CameraFrameData& camFrame = cameraLoader.getFrame(currentFrameInfo.frameNumber);
+            const std::vector<float> convertedDepth = convertWorldDepthToNdc(mappedBuffers.depth, &camFrame);
+            pool.updateData(depth, convertedDepth.data());
+            
             pool.updateData(motion, mvResult.mvXY.data());
             pool.updateData(diffuse, diffuseRgba.data());
             pool.updateData(normals, normalsRgba.data());
@@ -1782,7 +1817,12 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
 
         try {
             pool.updateData(color, mappedBuffers.color.data());
-            pool.updateData(depth, mappedBuffers.depth.data());
+            
+            // Convert Blender world-space depth to DLSS NDC depth [0, 1]
+            const CameraFrameData& camFrame = cameraLoader.getFrame(currentFrameInfo.frameNumber);
+            const std::vector<float> convertedDepth = convertWorldDepthToNdc(mappedBuffers.depth, &camFrame);
+            pool.updateData(depth, convertedDepth.data());
+            
             pool.updateData(motion, mvResult.mvXY.data());
 
             for (unsigned int multiFrameIndex = 1; multiFrameIndex <= multiFrameCount; ++multiFrameIndex) {
