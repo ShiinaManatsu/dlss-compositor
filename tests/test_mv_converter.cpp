@@ -18,7 +18,7 @@ TEST_CASE("MvConverter - 10px right motion converts to (-10, 0)", "[mv]") {
     auto result = MvConverter::convert(mv4.data(), W, H);
 
     REQUIRE(result.mvXY.size() == static_cast<size_t>(W * H * 2));
-    REQUIRE(std::fabs(result.mvXY[0] - 10.0f) < 1e-5f);
+    REQUIRE(std::fabs(result.mvXY[0] - (-10.0f)) < 1e-5f);
     REQUIRE(std::fabs(result.mvXY[1] - 0.0f) < 1e-5f);
 }
 
@@ -29,7 +29,7 @@ TEST_CASE("MvConverter - Y axis", "[mv]") {
 
     auto result = MvConverter::convert(mv4.data(), W, H);
 
-    REQUIRE(std::fabs(result.mvXY[1] - 5.0f) < 1e-5f);
+    REQUIRE(std::fabs(result.mvXY[1] - (-5.0f)) < 1e-5f);
 }
 
 TEST_CASE("MvConverter - zero motion vectors", "[mv]") {
@@ -73,6 +73,6 @@ TEST_CASE("MvConverter - only channels 0,1 used (channels 2,3 ignored)", "[mv]")
 
     auto result = MvConverter::convert(mv4.data(), W, H);
 
-    REQUIRE(std::fabs(result.mvXY[0] - 3.0f) < 1e-5f);
-    REQUIRE(std::fabs(result.mvXY[1] - 4.0f) < 1e-5f);
+    REQUIRE(std::fabs(result.mvXY[0] - (-3.0f)) < 1e-5f);
+    REQUIRE(std::fabs(result.mvXY[1] - (-4.0f)) < 1e-5f);
 }
