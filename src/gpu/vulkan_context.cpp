@@ -4,6 +4,8 @@
 
 #include "gpu/vulkan_context.h"
 
+#include "core/logger.h"
+
 #include <GLFW/glfw3.h>
 #include <nvsdk_ngx_defs.h>
 #include <nvsdk_ngx_vk.h>
@@ -41,7 +43,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         severity = "VERBOSE";
     }
 
-    std::fprintf(stderr,
+    Log::error(
                  "[Vulkan %s] %s\n",
                  severity,
                  callbackData != nullptr && callbackData->pMessage != nullptr ? callbackData->pMessage : "(no message)");
@@ -330,12 +332,12 @@ bool VulkanContext::init(std::string& errorMsg) {
         if (hasNamedExtension(availableInstanceExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
             addUniqueExtension(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         } else {
-            std::fprintf(stderr,
+            Log::error(
                          "Warning: Vulkan validation layer available but %s extension is missing; debug messenger disabled.\n",
                          VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
     } else {
-        std::fprintf(stderr, "Warning: Vulkan validation layer %s is not available.\n", kValidationLayerName);
+        Log::error( "Warning: Vulkan validation layer %s is not available.\n", kValidationLayerName);
     }
 #endif
 
@@ -376,7 +378,7 @@ bool VulkanContext::init(std::string& errorMsg) {
         hasNamedExtension(availableInstanceExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
         const VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = makeDebugMessengerCreateInfo();
         if (vkCreateDebugUtilsMessengerEXT(m_instance, &debugCreateInfo, nullptr, &m_debugMessenger) != VK_SUCCESS) {
-            std::fprintf(stderr, "Warning: Failed to create Vulkan debug messenger.\n");
+            Log::error( "Warning: Failed to create Vulkan debug messenger.\n");
         }
     }
 #endif
@@ -454,7 +456,7 @@ bool VulkanContext::init(std::string& errorMsg) {
         if (hasNamedExtension(availableDeviceExtensions, extensionName)) {
             addUniqueExtension(enabledDeviceExtensions, extensionName);
         } else {
-            std::fprintf(stderr, "Warning: Vulkan device extension not available: %s\n", extensionName);
+            Log::error( "Warning: Vulkan device extension not available: %s\n", extensionName);
         }
     }
 

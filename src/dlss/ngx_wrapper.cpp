@@ -6,6 +6,8 @@
 
 #include "dlss/ngx_wrapper.h"
 
+#include "core/logger.h"
+
 #include <nvsdk_ngx_helpers_vk.h>
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
 #include <nvsdk_ngx_params.h>
@@ -27,12 +29,12 @@ namespace {
 
 constexpr wchar_t kNgxWorkDir[] = L".";
 constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
-constexpr char kNgxEngineVersion[] = "0.2.0";
+constexpr char kNgxEngineVersion[] = "0.2.1";
 
 void NVSDK_CONV ngxLogCallback(const char* message,
                                NVSDK_NGX_Logging_Level,
                                NVSDK_NGX_Feature) {
-    std::fprintf(stderr, "[NGX] %s\n", message != nullptr ? message : "(null)");
+    Log::error("[NGX] %s\n", message != nullptr ? message : "(null)");
 }
 
 std::string wideToUtf8(const wchar_t* value) {

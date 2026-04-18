@@ -1,5 +1,7 @@
 #include "pipeline/async_exr_writer.h"
 
+#include "core/logger.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -112,7 +114,7 @@ void AsyncExrWriter::workerLoop() {
             }
             ok = true;
         } catch (const std::exception& ex) {
-            std::fprintf(stderr, "[AsyncEXR] Write failed for %s: %s\n", job.path.c_str(), ex.what());
+            Log::error("[AsyncEXR] Write failed for %s: %s\n", job.path.c_str(), ex.what());
             m_errorCount.fetch_add(1, std::memory_order_relaxed);
         }
 

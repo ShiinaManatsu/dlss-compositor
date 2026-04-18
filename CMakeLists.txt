@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(dlss-compositor VERSION 0.2.0 LANGUAGES CXX)
+project(dlss-compositor VERSION 0.2.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -114,6 +114,7 @@ add_library(dlss_compositor_core STATIC
     src/core/channel_mapper.cpp
     src/core/mv_converter.cpp
     src/core/camera_data_loader.cpp
+    src/core/logger.cpp
     src/dlss/dlss_sr_processor.cpp
     src/dlss/dlss_fg_processor.cpp
     src/dlss/ngx_wrapper.cpp

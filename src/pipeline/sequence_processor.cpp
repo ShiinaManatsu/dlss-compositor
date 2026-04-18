@@ -3,6 +3,7 @@
 #include "cli/config.h"
 #include "core/camera_data_loader.h"
 #include "core/channel_mapper.h"
+#include "core/logger.h"
 #include "core/exr_reader.h"
 #include "core/exr_writer.h"
 #include "core/mv_converter.h"
@@ -438,7 +439,7 @@ bool initLutProcessors(VulkanContext& ctx,
             return false;
         }
         forwardReady = true;
-        std::fprintf(stdout, "Forward tonemapping enabled (%s)\n", forwardPath.c_str());
+        Log::info( "Forward tonemapping enabled (%s)\n", forwardPath.c_str());
         std::fflush(stdout);
     }
 
@@ -447,12 +448,12 @@ bool initLutProcessors(VulkanContext& ctx,
             return false;
         }
         inverseReady = true;
-        std::fprintf(stdout, "Inverse tonemapping enabled (%s)\n", inversePath.c_str());
+        Log::info( "Inverse tonemapping enabled (%s)\n", inversePath.c_str());
         std::fflush(stdout);
     }
 
     if (!config.inverseTonemapEnabled) {
-        std::fprintf(stdout, "Inverse tonemapping disabled; FG output will be display-referred\n");
+        Log::info( "Inverse tonemapping disabled; FG output will be display-referred\n");
         std::fflush(stdout);
     }
 
@@ -483,11 +484,11 @@ bool initPqTransfer(VulkanContext& ctx,
     }
 
     pqReady = true;
-        std::fprintf(stdout, "PQ transport encoding enabled (ST 2084, 10000 nits)\n");
+        Log::info( "PQ transport encoding enabled (ST 2084, 10000 nits)\n");
         std::fflush(stdout);
 
     if (!config.inverseTonemapEnabled) {
-        std::fprintf(stdout, "Inverse PQ decode disabled; FG output will be PQ-encoded\n");
+        Log::info( "Inverse PQ decode disabled; FG output will be PQ-encoded\n");
         std::fflush(stdout);
     }
 
@@ -630,7 +631,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
     if (requestedUnsupportedPasses) {
-        std::fprintf(stderr,
+        Log::error(
                      "Warning: only 'beauty' pass output is currently supported. Other passes will be ignored.\n");
     }
 
@@ -660,16 +661,16 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     CameraDataLoader cameraLoader;
     bool hasCameraData = false;
     if (!config.cameraDataFile.empty()) {
-        std::fprintf(stdout, "Loading camera data: %s\n", config.cameraDataFile.c_str());
+        Log::info( "Loading camera data: %s\n", config.cameraDataFile.c_str());
         std::fflush(stdout);
         std::string cameraError;
         if (cameraLoader.load(config.cameraDataFile, cameraError)) {
             hasCameraData = true;
-            std::fprintf(stdout, "Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+            Log::info( "Camera data loaded (%d frames)\n", cameraLoader.frameCount());
             std::fflush(stdout);
         } else {
-            std::fprintf(stderr, "Warning: Camera data load failed: %s\n", cameraError.c_str());
-            std::fprintf(stderr, "Continuing without jitter values (defaulting to 0.0)\n");
+            Log::error( "Warning: Camera data load failed: %s\n", cameraError.c_str());
+            Log::error( "Continuing without jitter values (defaulting to 0.0)\n");
         }
     }
 
@@ -734,14 +735,14 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     for (size_t index = 0; index < frames.size(); ++index) {
         const SequenceFrameInfo& frameInfo = frames[index];
         const std::string filename = frameInfo.path.filename().string();
-        std::fprintf(stdout, "Processing frame %d/%d: %s\n",
+        Log::info( "Processing frame %d/%d: %s\n",
                      static_cast<int>(index + 1),
                      static_cast<int>(frames.size()),
                      filename.c_str());
         std::fflush(stdout);
 
         if (index > 0 && resetFlags[index]) {
-            std::fprintf(stderr,
+            Log::error(
                          "Warning: frame gap detected between %d and %d; resetting temporal history\n",
                          frames[index - 1].frameNumber,
                          frameInfo.frameNumber);
@@ -752,7 +753,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
         try {
             auto prefetched = prefetcher.getNext();
             if (!prefetched || !prefetched->valid) {
-                std::fprintf(stderr, "Frame %s failed: prefetch error\n", filename.c_str());
+                Log::error( "Frame %s failed: prefetch error\n", filename.c_str());
                 continue;
             }
 
@@ -823,7 +824,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     
                     // Log non-zero jitter values
                     if (std::abs(frame.jitterX) > 1e-6f || std::abs(frame.jitterY) > 1e-6f) {
-                        std::fprintf(stdout, "Frame %d: Jitter offset = (%.4f, %.4f) pixels\n",
+                        Log::info( "Frame %d: Jitter offset = (%.4f, %.4f) pixels\n",
                                      frameInfo.frameNumber, frame.jitterX, frame.jitterY);
                     }
                 } else {
@@ -888,10 +889,10 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 anyFrameSucceeded = true;
             } catch (const std::exception& ex) {
                 frameError = ex.what();
-                std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
+                Log::error( "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
             }
         } catch (const std::exception& ex) {
-            std::fprintf(stderr, "Frame %s failed: %s\n", filename.c_str(), ex.what());
+            Log::error( "Frame %s failed: %s\n", filename.c_str(), ex.what());
         }
     }
 
@@ -916,7 +917,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 << " -c:v libx264 -pix_fmt yuv420p -crf 18 " << quote(videoOutputPath);
         const int ffmpegResult = std::system(command.str().c_str());
         if (ffmpegResult != 0) {
-            std::fprintf(stderr, "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
+            Log::error( "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
         }
     }
 
@@ -928,33 +929,33 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                                              const AppConfig& config,
                                              std::string& errorMsg) {
     errorMsg.clear();
-    std::fprintf(stdout, "[SRFG] Starting combined SR+FG pipeline\n");
+    Log::info( "[SRFG] Starting combined SR+FG pipeline\n");
     std::fflush(stdout);
-    std::fprintf(stdout, "[SRFG]   input:  %s\n", inputDir.c_str());
+    Log::info( "[SRFG]   input:  %s\n", inputDir.c_str());
     std::fflush(stdout);
-    std::fprintf(stdout, "[SRFG]   output: %s\n", outputDir.c_str());
+    Log::info( "[SRFG]   output: %s\n", outputDir.c_str());
     std::fflush(stdout);
-    std::fprintf(stdout, "[SRFG]   scale=%.2f  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
+    Log::info( "[SRFG]   scale=%.2f  interpolate=%dx\n", config.scaleFactor, config.interpolateFactor);
     std::fflush(stdout);
 
     const bool requestedUnsupportedPasses = hasPass(config.outputPasses, OutputPass::Depth) ||
                                             hasPass(config.outputPasses, OutputPass::Normals);
     if (requestedUnsupportedPasses) {
-        std::fprintf(stderr,
+        Log::error(
                      "Warning: only 'beauty' pass output is currently supported. Other passes will be ignored.\n");
     }
 
     std::vector<SequenceFrameInfo> frames;
     if (!scanAndSort(inputDir, frames, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] scanAndSort failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] scanAndSort failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] Found %d EXR frames\n", static_cast<int>(frames.size()));
+    Log::info( "[SRFG] Found %d EXR frames\n", static_cast<int>(frames.size()));
     std::fflush(stdout);
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -962,39 +963,39 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     std::filesystem::create_directories(outputDir, ec);
     if (ec) {
         errorMsg = "Failed to create output directory: " + outputDir;
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (pathsAreEquivalent(inputDir, outputDir)) {
         errorMsg = "Input and output directories must be different for interpolation.";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     CameraDataLoader cameraLoader;
-    std::fprintf(stdout, "[SRFG] Loading camera data: %s\n", config.cameraDataFile.c_str());
+    Log::info( "[SRFG] Loading camera data: %s\n", config.cameraDataFile.c_str());
     std::fflush(stdout);
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] Camera data load failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+    Log::info( "[SRFG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
     std::fflush(stdout);
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
             errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
-            std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] %s\n", errorMsg.c_str());
             return false;
         }
         if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
             errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
-            std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] %s\n", errorMsg.c_str());
             return false;
         }
     }
-    std::fprintf(stdout, "[SRFG] All frames have matching camera data\n");
+    Log::info( "[SRFG] All frames have matching camera data\n");
     std::fflush(stdout);
 
     unsigned int multiFrameCount = 0;
@@ -1005,16 +1006,16 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     } else {
         errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
                    ". Only 2x and 4x are supported.";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (!m_ngx.isDlssFGAvailable()) {
         errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] DLSS-FG available\n");
+    Log::info( "[SRFG] DLSS-FG available\n");
     std::fflush(stdout);
 
     if (!m_ngx.isDlssSRAvailable()) {
@@ -1022,22 +1023,22 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         if (errorMsg.empty()) {
             errorMsg = "DLSS Super Resolution is not supported on this GPU.";
         }
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] DLSS-SR available\n");
+    Log::info( "[SRFG] DLSS-SR available\n");
     std::fflush(stdout);
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
                    std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
 
     ExrReader firstReader;
     if (!firstReader.open(frames.front().path.string(), errorMsg)) {
-        std::fprintf(stderr, "[SRFG] Failed to open first EXR: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -1051,18 +1052,18 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         roundEven(static_cast<double>(expectedInputWidth) * static_cast<double>(config.scaleFactor));
     const int expectedOutputHeight =
         roundEven(static_cast<double>(expectedInputHeight) * static_cast<double>(config.scaleFactor));
-    std::fprintf(stdout, "[SRFG] Input resolution: %dx%d -> Output: %dx%d\n",
+    Log::info( "[SRFG] Input resolution: %dx%d -> Output: %dx%d\n",
                  expectedInputWidth, expectedInputHeight, expectedOutputWidth, expectedOutputHeight);
     std::fflush(stdout);
 
     DlssFeatureGuard featureGuardSR(m_ngx);
     DlssFgFeatureGuard featureGuardFG(m_ngx);
 
-    std::fprintf(stdout, "[SRFG] Creating DLSS-SR feature...\n");
+    Log::info( "[SRFG] Creating DLSS-SR feature...\n");
     std::fflush(stdout);
     VkCommandBuffer createCmdBufSR = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufSR, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] Failed to allocate SR command buffer: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] Failed to allocate SR command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBufSR, errorMsg) ||
@@ -1074,22 +1075,22 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             config.preset,
                             createCmdBufSR,
                             errorMsg)) {
-        std::fprintf(stderr, "[SRFG] DLSS-SR feature creation failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] DLSS-SR feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufSR);
         return false;
     }
     if (!submitAndWait(m_ctx, createCmdBufSR, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] DLSS-SR feature submit failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] DLSS-SR feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] DLSS-SR feature created\n");
+    Log::info( "[SRFG] DLSS-SR feature created\n");
     std::fflush(stdout);
 
-    std::fprintf(stdout, "[SRFG] Creating DLSS-FG feature...\n");
+    Log::info( "[SRFG] Creating DLSS-FG feature...\n");
     std::fflush(stdout);
     VkCommandBuffer createCmdBufFG = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBufFG, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] Failed to allocate FG command buffer: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] Failed to allocate FG command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBufFG, errorMsg) ||
@@ -1098,15 +1099,15 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
                             createCmdBufFG,
                             errorMsg)) {
-        std::fprintf(stderr, "[SRFG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBufFG);
         return false;
     }
     if (!submitAndWait(m_ctx, createCmdBufFG, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] DLSS-FG feature created\n");
+    Log::info( "[SRFG] DLSS-FG feature created\n");
     std::fflush(stdout);
 
     ChannelMapper channelMapper;
@@ -1118,7 +1119,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
 
     // Initialize FG transport encoding (PQ or Custom LUT)
-    std::fprintf(stdout, "[SRFG] Initializing FG transport...\n");
+    Log::info( "[SRFG] Initializing FG transport...\n");
     std::fflush(stdout);
     PqTransferProcessor pqTransfer(m_ctx);
     bool pqReady = false;
@@ -1127,17 +1128,17 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     bool forwardLutReady = false;
     bool inverseLutReady = false;
     if (!initPqTransfer(m_ctx, config, pqTransfer, pqReady, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] PQ transfer init failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] PQ transfer init failed: %s\n", errorMsg.c_str());
         return false;
     }
     if (!initLutProcessors(m_ctx, config, forwardLut, inverseLut,
                            forwardLutReady, inverseLutReady, errorMsg)) {
-        std::fprintf(stderr, "[SRFG] LUT init failed: %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] LUT init failed: %s\n", errorMsg.c_str());
         return false;
     }
     const bool transportReady = pqReady || forwardLutReady;
     const bool inverseReady = pqReady ? config.inverseTonemapEnabled : inverseLutReady;
-    std::fprintf(stdout, "[SRFG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
+    Log::info( "[SRFG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
                  pqReady ? "yes" : "no", forwardLutReady ? "yes" : "no",
                  inverseReady ? "yes" : "no");
     std::fflush(stdout);
@@ -1145,15 +1146,15 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     FramePrefetcher prefetcher(channelMapper, mvConverter, 3, expectedInputWidth, expectedInputHeight);
     prefetcher.start(frames);
 
-    std::fprintf(stdout, "[SRFG] Prefetching first frame...\n");
+    Log::info( "[SRFG] Prefetching first frame...\n");
     std::fflush(stdout);
     auto firstPrefetched = prefetcher.getNext();
     if (!firstPrefetched || !firstPrefetched->valid) {
         errorMsg = "Failed to prefetch first frame";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[SRFG] First frame prefetched OK\n");
+    Log::info( "[SRFG] First frame prefetched OK\n");
     std::fflush(stdout);
 
     auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
@@ -1245,10 +1246,10 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
 
     int outputFrameCounter = 1;
     AsyncExrWriter asyncWriter;
-    std::fprintf(stdout, "[SRFG] Async EXR writer started (%zu threads)\n",
+    Log::info( "[SRFG] Async EXR writer started (%zu threads)\n",
                  static_cast<size_t>(std::thread::hardware_concurrency()));
     std::fflush(stdout);
-    std::fprintf(stdout, "[SRFG] Downloading and submitting first SR output...\n");
+    Log::info( "[SRFG] Downloading and submitting first SR output...\n");
     std::fflush(stdout);
     std::vector<float> firstOutputData = m_texturePipeline.download(firstOutput);
     forceOpaqueAlpha(firstOutputData);
@@ -1261,7 +1262,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         const SequenceFrameInfo& previousFrameInfo = frames[i - 1];
         const SequenceFrameInfo& currentFrameInfo = frames[i];
         const std::string filename = currentFrameInfo.path.filename().string();
-        std::fprintf(stdout,
+        Log::info(
                      "[SRFG] Processing frame pair %d/%d: %s -> %s\n",
                      static_cast<int>(i),
                      static_cast<int>(frames.size() - 1),
@@ -1274,14 +1275,14 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                                             previousFrameInfo.frameNumber,
                                             camParams,
                                             errorMsg)) {
-            std::fprintf(stderr, "[SRFG] Camera pair params failed: %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] Camera pair params failed: %s\n", errorMsg.c_str());
             return false;
         }
 
         auto prefetched = prefetcher.getNext();
         if (!prefetched || !prefetched->valid) {
             errorMsg = "Failed to prefetch frame: " + currentFrameInfo.path.filename().string();
-            std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -1290,7 +1291,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             (currentFrameInfo.frameNumber - previousFrameInfo.frameNumber) > 1;
         const bool resetFlag = (i == 1) || hasGap;
         if (hasGap) {
-            std::fprintf(stderr,
+            Log::error(
                          "Warning: frame gap detected between %d and %d; resetting temporal history\n",
                          previousFrameInfo.frameNumber,
                          currentFrameInfo.frameNumber);
@@ -1332,7 +1333,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
             pool.updateData(srOutput, srOutputInit.data());
         } catch (const std::exception& ex) {
             errorMsg = ex.what();
-            std::fprintf(stderr, "[SRFG] Upload failed: %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] Upload failed: %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -1374,7 +1375,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_GENERAL);
         if (!srProcessor.evaluate(srEvalCmdBuf, srFrame, errorMsg)) {
-            std::fprintf(stderr, "[SRFG] SR evaluate failed: %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] SR evaluate failed: %s\n", errorMsg.c_str());
             vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &srEvalCmdBuf);
             return false;
         }
@@ -1383,7 +1384,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                         VK_IMAGE_LAYOUT_GENERAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         if (!submitAndWait(m_ctx, srEvalCmdBuf, errorMsg)) {
-            std::fprintf(stderr, "[SRFG] SR submit failed: %s\n", errorMsg.c_str());
+            Log::error( "[SRFG] SR submit failed: %s\n", errorMsg.c_str());
             return false;
         }
 
@@ -1475,7 +1476,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                             VK_IMAGE_LAYOUT_GENERAL);
             if (!fgProcessor.evaluate(fgEvalCmdBuf, fgInput, errorMsg)) {
-                std::fprintf(stderr, "[SRFG] FG evaluate failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
+                Log::error( "[SRFG] FG evaluate failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
                 vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &fgEvalCmdBuf);
                 destroyHandle(m_texturePipeline, outputInterp);
                 destroyHandle(m_texturePipeline, tonemappedBuf);
@@ -1516,7 +1517,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             VK_IMAGE_LAYOUT_GENERAL,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             if (!submitAndWait(m_ctx, fgEvalCmdBuf, errorMsg)) {
-                std::fprintf(stderr, "[SRFG] FG submit failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
+                Log::error( "[SRFG] FG submit failed (multiframe %u): %s\n", multiFrameIndex, errorMsg.c_str());
                 destroyHandle(m_texturePipeline, outputInterp);
                 destroyHandle(m_texturePipeline, tonemappedBuf);
                 return false;
@@ -1544,17 +1545,17 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     }
 
     // Wait for all async writes to complete before releasing GPU resources
-    std::fprintf(stdout, "[SRFG] Flushing async writer (%d errors so far)...\n", asyncWriter.errorCount());
+    Log::info( "[SRFG] Flushing async writer (%d errors so far)...\n", asyncWriter.errorCount());
     std::fflush(stdout);
     asyncWriter.flush();
     if (asyncWriter.errorCount() > 0) {
         errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriter.errorCount()) + " write error(s)";
-        std::fprintf(stderr, "[SRFG] %s\n", errorMsg.c_str());
+        Log::error( "[SRFG] %s\n", errorMsg.c_str());
         pool.releaseAll();
         return false;
     }
     pool.releaseAll();
-    std::fprintf(stdout, "[SRFG] Done. %d output frames written.\n", outputFrameCounter - 1);
+    Log::info( "[SRFG] Done. %d output frames written.\n", outputFrameCounter - 1);
     std::fflush(stdout);
 
     if (config.encodeVideo) {
@@ -1569,7 +1570,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                 << " -c:v libx264 -pix_fmt yuv420p -crf 18 " << quote(videoOutputPath);
         const int ffmpegResult = std::system(command.str().c_str());
         if (ffmpegResult != 0) {
-            std::fprintf(stderr, "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
+            Log::error( "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
         }
     }
 
@@ -1581,26 +1582,26 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                                             const AppConfig& config,
                                             std::string& errorMsg) {
     errorMsg.clear();
-    std::fprintf(stdout, "[FG] Starting FG-only pipeline\n");
+    Log::info( "[FG] Starting FG-only pipeline\n");
     std::fflush(stdout);
-    std::fprintf(stdout, "[FG]   input:  %s\n", inputDir.c_str());
+    Log::info( "[FG]   input:  %s\n", inputDir.c_str());
     std::fflush(stdout);
-    std::fprintf(stdout, "[FG]   output: %s\n", outputDir.c_str());
+    Log::info( "[FG]   output: %s\n", outputDir.c_str());
     std::fflush(stdout);
-    std::fprintf(stdout, "[FG]   interpolate=%dx\n", config.interpolateFactor);
+    Log::info( "[FG]   interpolate=%dx\n", config.interpolateFactor);
     std::fflush(stdout);
 
     std::vector<SequenceFrameInfo> frames;
     if (!scanAndSort(inputDir, frames, errorMsg)) {
-        std::fprintf(stderr, "[FG] scanAndSort failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] scanAndSort failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[FG] Found %d EXR frames\n", static_cast<int>(frames.size()));
+    Log::info( "[FG] Found %d EXR frames\n", static_cast<int>(frames.size()));
     std::fflush(stdout);
 
     if (frames.size() < 2) {
         errorMsg = "At least 2 frames required for interpolation";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
@@ -1608,35 +1609,35 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     std::filesystem::create_directories(outputDir, ec);
     if (ec) {
         errorMsg = "Failed to create output directory: " + outputDir;
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (pathsAreEquivalent(inputDir, outputDir)) {
         errorMsg = "Input and output directories must be different for interpolation.";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     CameraDataLoader cameraLoader;
-    std::fprintf(stdout, "[FG] Loading camera data: %s\n", config.cameraDataFile.c_str());
+    Log::info( "[FG] Loading camera data: %s\n", config.cameraDataFile.c_str());
     std::fflush(stdout);
     if (!cameraLoader.load(config.cameraDataFile, errorMsg)) {
-        std::fprintf(stderr, "[FG] Camera data load failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] Camera data load failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[FG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
+    Log::info( "[FG] Camera data loaded (%d frames)\n", cameraLoader.frameCount());
     std::fflush(stdout);
 
     for (const SequenceFrameInfo& frameInfo : frames) {
         if (frameInfo.frameNumber == std::numeric_limits<int>::max()) {
             errorMsg = "Input filename is missing a trailing frame number: " + frameInfo.path.filename().string();
-            std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+            Log::error( "[FG] %s\n", errorMsg.c_str());
             return false;
         }
         if (!cameraLoader.hasFrame(frameInfo.frameNumber)) {
             errorMsg = "Camera data missing for frame " + std::to_string(frameInfo.frameNumber);
-            std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+            Log::error( "[FG] %s\n", errorMsg.c_str());
             return false;
         }
     }
@@ -1649,41 +1650,41 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     } else {
         errorMsg = "Unsupported interpolation factor: " + std::to_string(config.interpolateFactor) +
                    ". Only 2x and 4x are supported.";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     if (!m_ngx.isDlssFGAvailable()) {
         errorMsg = "DLSS Frame Generation is not supported on this GPU. RTX 40+ required.";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[FG] DLSS-FG available\n");
+    Log::info( "[FG] DLSS-FG available\n");
     std::fflush(stdout);
 
     if (config.interpolateFactor == 4 && m_ngx.maxMultiFrameCount() < 3) {
         errorMsg = "4x frame generation requires RTX 50 series or newer. This GPU supports up to " +
                    std::to_string(m_ngx.maxMultiFrameCount() + 1) + "x.";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         return false;
     }
 
     ExrReader firstReader;
     if (!firstReader.open(frames.front().path.string(), errorMsg)) {
-        std::fprintf(stderr, "[FG] Failed to open first EXR: %s\n", errorMsg.c_str());
+        Log::error( "[FG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
 
     const int expectedWidth = firstReader.width();
     const int expectedHeight = firstReader.height();
-    std::fprintf(stdout, "[FG] Resolution: %dx%d\n", expectedWidth, expectedHeight);
+    Log::info( "[FG] Resolution: %dx%d\n", expectedWidth, expectedHeight);
     std::fflush(stdout);
 
-    std::fprintf(stdout, "[FG] Creating DLSS-FG feature...\n");
+    Log::info( "[FG] Creating DLSS-FG feature...\n");
     std::fflush(stdout);
     VkCommandBuffer createCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, createCmdBuf, errorMsg)) {
-        std::fprintf(stderr, "[FG] Failed to allocate command buffer: %s\n", errorMsg.c_str());
+        Log::error( "[FG] Failed to allocate command buffer: %s\n", errorMsg.c_str());
         return false;
     }
     if (!beginCommandBuffer(createCmdBuf, errorMsg) ||
@@ -1692,16 +1693,16 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                             static_cast<unsigned int>(VK_FORMAT_R16G16B16A16_SFLOAT),
                             createCmdBuf,
                             errorMsg)) {
-        std::fprintf(stderr, "[FG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] DLSS-FG feature creation failed: %s\n", errorMsg.c_str());
         vkFreeCommandBuffers(m_ctx.device(), m_ctx.commandPool(), 1, &createCmdBuf);
         return false;
     }
     DlssFgFeatureGuard featureGuard(m_ngx);
     if (!submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
-        std::fprintf(stderr, "[FG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] DLSS-FG feature submit failed: %s\n", errorMsg.c_str());
         return false;
     }
-    std::fprintf(stdout, "[FG] DLSS-FG feature created\n");
+    Log::info( "[FG] DLSS-FG feature created\n");
     std::fflush(stdout);
 
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
@@ -1724,7 +1725,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     DlssFgProcessor fgProcessor(m_ctx, m_ngx);
 
     // Initialize FG transport encoding (PQ or Custom LUT)
-    std::fprintf(stdout, "[FG] Initializing FG transport...\n");
+    Log::info( "[FG] Initializing FG transport...\n");
     std::fflush(stdout);
     PqTransferProcessor pqTransferFG(m_ctx);
     bool pqReadyFG = false;
@@ -1733,17 +1734,17 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     bool forwardLutReadyFG = false;
     bool inverseLutReadyFG = false;
     if (!initPqTransfer(m_ctx, config, pqTransferFG, pqReadyFG, errorMsg)) {
-        std::fprintf(stderr, "[FG] PQ transfer init failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] PQ transfer init failed: %s\n", errorMsg.c_str());
         return false;
     }
     if (!initLutProcessors(m_ctx, config, forwardLutFG, inverseLutFG,
                            forwardLutReadyFG, inverseLutReadyFG, errorMsg)) {
-        std::fprintf(stderr, "[FG] LUT init failed: %s\n", errorMsg.c_str());
+        Log::error( "[FG] LUT init failed: %s\n", errorMsg.c_str());
         return false;
     }
     const bool transportReadyFG = pqReadyFG || forwardLutReadyFG;
     const bool inverseReadyFG = pqReadyFG ? config.inverseTonemapEnabled : inverseLutReadyFG;
-    std::fprintf(stdout, "[FG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
+    Log::info( "[FG] Transport init done (pq=%s, lut_fwd=%s, inverse=%s)\n",
                  pqReadyFG ? "yes" : "no", forwardLutReadyFG ? "yes" : "no",
                  inverseReadyFG ? "yes" : "no");
     std::fflush(stdout);
@@ -1762,7 +1763,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     int outputFrameCounter = 1;
     const std::filesystem::path outputPath(outputDir);
     AsyncExrWriter asyncWriterFG;
-    std::fprintf(stdout, "[FG] Async EXR writer started\n");
+    Log::info( "[FG] Async EXR writer started\n");
     std::fflush(stdout);
     asyncWriterFG.submit(buildWriteJobCopy(outputPath, outputFrameCounter,
                                            expectedWidth, expectedHeight,
@@ -1773,7 +1774,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         const SequenceFrameInfo& previousFrameInfo = frames[i - 1];
         const SequenceFrameInfo& currentFrameInfo = frames[i];
         const std::string filename = currentFrameInfo.path.filename().string();
-        std::fprintf(stdout,
+        Log::info(
                      "[FG] Processing frame pair %d/%d: %s -> %s\n",
                      static_cast<int>(i),
                      static_cast<int>(frames.size() - 1),
@@ -1786,7 +1787,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                             (currentFrameInfo.frameNumber - previousFrameInfo.frameNumber) > 1;
         const bool resetFlag = (i == 1) || hasGap;
         if (hasGap) {
-            std::fprintf(stderr,
+            Log::error(
                          "Warning: frame gap detected between %d and %d; resetting temporal history\n",
                          previousFrameInfo.frameNumber,
                          currentFrameInfo.frameNumber);
@@ -1995,17 +1996,17 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
     }
 
     // Wait for all async writes to complete before releasing GPU resources
-    std::fprintf(stdout, "[FG] Flushing async writer (%d errors so far)...\n", asyncWriterFG.errorCount());
+    Log::info( "[FG] Flushing async writer (%d errors so far)...\n", asyncWriterFG.errorCount());
     std::fflush(stdout);
     asyncWriterFG.flush();
     if (asyncWriterFG.errorCount() > 0) {
         errorMsg = "Async EXR writer encountered " + std::to_string(asyncWriterFG.errorCount()) + " write error(s)";
-        std::fprintf(stderr, "[FG] %s\n", errorMsg.c_str());
+        Log::error( "[FG] %s\n", errorMsg.c_str());
         pool.releaseAll();
         return false;
     }
     pool.releaseAll();
-    std::fprintf(stdout, "[FG] Done. %d output frames written.\n", outputFrameCounter - 1);
+    Log::info( "[FG] Done. %d output frames written.\n", outputFrameCounter - 1);
     std::fflush(stdout);
 
     if (config.encodeVideo) {
@@ -2020,7 +2021,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
                 << " -c:v libx264 -pix_fmt yuv420p -crf 18 " << quote(videoOutputPath);
         const int ffmpegResult = std::system(command.str().c_str());
         if (ffmpegResult != 0) {
-            std::fprintf(stderr, "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
+            Log::error( "Warning: ffmpeg encoding failed with exit code %d\n", ffmpegResult);
         }
     }
 

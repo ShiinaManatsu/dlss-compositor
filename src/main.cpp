@@ -1,8 +1,10 @@
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "cli/cli_parser.h"
 #include "cli/config.h"
+#include "core/logger.h"
 #include "dlss/ngx_wrapper.h"
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
@@ -10,12 +12,15 @@
 #include "ui/app.h"
 
 int main(int argc, char* argv[]) {
+    Log::init();
+    std::atexit(Log::shutdown);
+
     AppConfig config;
     std::string errorMsg;
 
     if (!CliParser::parse(argc, argv, config, errorMsg)) {
-        fprintf(stderr, "Error: %s\n", errorMsg.c_str());
-        fprintf(stderr, "Run with --help for usage.\n");
+        Log::error("Error: %s\n", errorMsg.c_str());
+        Log::error("Run with --help for usage.\n");
         return 1;
     }
 
@@ -30,18 +35,18 @@ int main(int argc, char* argv[]) {
     if (config.testVulkan) {
         VulkanContext context;
         if (!context.init(errorMsg)) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             return 1;
         }
 
-        printf("Vulkan initialized: %s\n", context.gpuName().c_str());
+        Log::info("Vulkan initialized: %s\n", context.gpuName().c_str());
         context.destroy();
         return 0;
     }
     if (config.testNgx) {
         VulkanContext context;
         if (!context.init(errorMsg)) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             return 1;
         }
 
@@ -51,19 +56,19 @@ int main(int argc, char* argv[]) {
                       context.device(),
                       nullptr,
                       errorMsg)) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             context.destroy();
             return 1;
         }
 
         if (ngx.isDlssSRAvailable()) {
-            printf("DLSS-SR available: true\n");
+            Log::info("DLSS-SR available: true\n");
             ngx.shutdown();
             context.destroy();
             return 0;
         }
 
-        fprintf(stderr, "DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
+        Log::error("DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
         ngx.shutdown();
         context.destroy();
         return 1;
@@ -72,14 +77,14 @@ int main(int argc, char* argv[]) {
     if (config.testGui || config.launchGui) {
         VulkanContext computeCtx;
         if (!computeCtx.init(errorMsg)) {
-            fprintf(stderr, "Compute Vulkan Error: %s\n", errorMsg.c_str());
+            Log::error("Compute Vulkan Error: %s\n", errorMsg.c_str());
             return 1;
         }
         TexturePipeline pipeline(computeCtx);
 
         App app;
         if (!app.run(config, &computeCtx, &pipeline, errorMsg)) {
-            fprintf(stderr, "GUI Error: %s\n", errorMsg.c_str());
+            Log::error("GUI Error: %s\n", errorMsg.c_str());
             computeCtx.destroy();
             return 1;
         }
@@ -89,13 +94,13 @@ int main(int argc, char* argv[]) {
 
     if (!config.inputDir.empty() || !config.outputDir.empty()) {
         if (config.inputDir.empty() || config.outputDir.empty()) {
-            fprintf(stderr, "Error: both --input-dir and --output-dir are required for sequence processing.\n");
+            Log::error("Error: both --input-dir and --output-dir are required for sequence processing.\n");
             return 1;
         }
 
         VulkanContext context;
         if (!context.init(errorMsg)) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             return 1;
         }
 
@@ -105,14 +110,14 @@ int main(int argc, char* argv[]) {
                       context.device(),
                       nullptr,
                       errorMsg)) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             context.destroy();
             return 1;
         }
 
         if (config.interpolateFactor == 0 || config.scaleExplicit) {
             if (!ngx.isDlssSRAvailable()) {
-                fprintf(stderr, "DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
+                Log::error("DLSS-SR not available: %s\n", ngx.unavailableReason().c_str());
                 ngx.shutdown();
                 context.destroy();
                 return 1;
@@ -126,13 +131,13 @@ int main(int argc, char* argv[]) {
         context.destroy();
 
         if (!ok) {
-            fprintf(stderr, "%s\n", errorMsg.c_str());
+            Log::error("%s\n", errorMsg.c_str());
             return 1;
         }
 
         return 0;
     }
 
-    printf("dlss-compositor: no action specified. Use --help for usage.\n");
+    Log::info("dlss-compositor: no action specified. Use --help for usage.\n");
     return 0;
 }
