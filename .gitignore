@@ -63,3 +63,5 @@ nvngx_dlssd*.log
 nvsdk_ngx*.log
 imgui.ini
 test_out.txt
+
+.playwright-mcp/

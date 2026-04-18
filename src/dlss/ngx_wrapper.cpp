@@ -27,7 +27,7 @@ namespace {
 
 constexpr wchar_t kNgxWorkDir[] = L".";
 constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
-constexpr char kNgxEngineVersion[] = "0.1.0";
+constexpr char kNgxEngineVersion[] = "0.2.0";
 
 void NVSDK_CONV ngxLogCallback(const char* message,
                                NVSDK_NGX_Logging_Level,

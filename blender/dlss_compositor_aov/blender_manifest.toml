@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "dlss_compositor_aov"
-version = "1.0.0"
+version = "0.2.0"
 name = "DLSS Compositor AOV Export"
 tagline = "Configure render passes and AOVs for DLSS Compositor"
 type = "add-on"
