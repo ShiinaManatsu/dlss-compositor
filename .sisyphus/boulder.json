@@ -1,76 +1,69 @@
 {
-  "active_plan": "F:/Projects/GitRepos/dlss-compositor/.sisyphus/plans/rr-to-sr-refactor.md",
-  "started_at": "2026-04-15T13:24:28.286Z",
+  "active_plan": "F:\\Projects\\GitRepos\\dlss-compositor\\.sisyphus\\plans\\dlss-sr-fix.md",
+  "started_at": "2026-04-16T15:14:02.376Z",
   "session_ids": [
-    "ses_26eaf744cffeWPi53ue6j3Fq8a",
-    "ses_26eade66bffe9gXE1o84sawL9X",
-    "ses_26ead7a80ffeZVAPANPvwDFC1h",
-    "ses_26eadba35ffe4PS2C5IGhdOFcr",
-    "ses_26ea81313ffe0iX2K2VxS6P3Ik",
-    "ses_26ea40395ffeJItMZ0DVxUqVrW",
-    "ses_26ea4c9f5ffeGcio2lN5i3CQFd",
-    "ses_26e8edcc5ffewhkRKhB65bMVbL",
-    "ses_26e8bad2effexqss7mn8vk5p0r",
-    "ses_26e8b5c02ffe7OnP4Dioyv59up",
-    "ses_26e7bfa70ffeafQTCp5D2nHQrU",
-    "ses_26e78b352ffeCwkvgoLeHqLZpg",
-    "ses_26e7904a6ffegUVvsz2QbQy9TN",
-    "ses_26e655c40ffeN0GfBAeVnnYA3Z",
-    "ses_26e612308ffe1O1Kd5GHmGL8I9",
-    "ses_26e549584ffeAwAVlVG8CXnoPI",
-    "ses_26e501cb2ffeNq6mmC4trPwh3s",
-    "ses_26e4e324bffeINxn3TDcmsoFYz",
-    "ses_26e4a5b59ffeR8t3UYzPPjEDWE",
-    "ses_26e42f959ffeCsQZOtYVoduTJ7",
-    "ses_26e28dca0ffe3HOjxoIV7Yb3CZ",
-    "ses_26e28dc9cffecxNVAaaAALhpsM",
-    "ses_26e242ab8ffeywDf4ZvaOS1V7L",
-    "ses_26e160c9effe0wmRzDw7bLbaxS"
+    "ses_26924c830ffe7Icieo5WPKkJYL",
+    "ses_26923ad20ffeO6y4ddmg6xzJ7k",
+    "ses_269231180ffeXq5MB0A6Fu0hqd",
+    "ses_269226f23ffeJbq01nk3j023PW",
+    "ses_268f6cc78ffe0dhGXOGX3imWNW",
+    "ses_268f66f62ffeLM0zvYEdyqoOhm",
+    "ses_268f5e9d0ffe37hDqiHjYuevfC",
+    "ses_268e9ff99ffesnk5vkaXsPxYH4",
+    "ses_268e041d5ffeKH2Yip7s0qLIIx",
+    "ses_268a03988ffej25BhBBBbv1yHh",
+    "ses_2689fdb5affekKp4axyks2nFfC",
+    "ses_2689f9298ffeBXFI0IVVoTRzVO",
+    "ses_268a083cfffeSiwoBXbEA7tGXh",
+    "ses_2642dc9a2ffeABjteGjPmaZxYv"
   ],
-  "plan_name": "rr-to-sr-refactor",
+  "plan_name": "dlss-sr-fix",
+  "agent": "atlas",
   "task_sessions": {
     "todo:1": {
       "task_key": "todo:1",
       "task_label": "1",
-      "task_title": "C++ Types & Config: Add DlssSRPreset enum and --preset CLI option",
-      "session_id": "ses_26e612308ffe1O1Kd5GHmGL8I9",
-      "agent": "oracle",
-      "updated_at": "2026-04-15T15:00:35.023Z"
+      "task_title": "EXR 通道名调查",
+      "session_id": "ses_26923ad20ffeO6y4ddmg6xzJ7k",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-16T15:16:57.850Z"
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "Blender Halton Jitter 实现",
+      "session_id": "ses_268f6cc78ffe0dhGXOGX3imWNW",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-16T16:05:56.770Z"
+    },
+    "todo:7": {
+      "task_key": "todo:7",
+      "task_label": "7",
+      "task_title": "Compositor 读取 Jitter + 管线集成",
+      "session_id": "ses_268e9ff99ffesnk5vkaXsPxYH4",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-04-16T16:23:58.616Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "端到端验证渲染 + 视觉比较",
+      "session_id": "ses_268e041d5ffeKH2Yip7s0qLIIx",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-16T16:35:12.651Z"
     },
     "final-wave:f1": {
       "task_key": "final-wave:f1",
       "task_label": "F1",
-      "task_title": "**Plan Compliance Audit** — `oracle`",
-      "session_id": "ses_26e549584ffeAwAVlVG8CXnoPI",
+      "task_title": "**计划合规审计** — `oracle`",
+      "session_id": "ses_2642b0b9fffe7e11rRQhIVNH3y",
       "agent": "oracle",
-      "updated_at": "2026-04-15T15:07:44.400Z"
-    },
-    "final-wave:f2": {
-      "task_key": "final-wave:f2",
-      "task_label": "F2",
-      "task_title": "**Code Quality Review** — `unspecified-high`",
-      "session_id": "ses_26e501cb2ffeNq6mmC4trPwh3s",
-      "agent": "Sisyphus-Junior",
-      "category": "unspecified-high",
-      "updated_at": "2026-04-15T15:09:38.424Z"
-    },
-    "final-wave:f3": {
-      "task_key": "final-wave:f3",
-      "task_label": "F3",
-      "task_title": "**Real Manual QA** — `unspecified-high` (+ `playwright` skill if UI)",
-      "session_id": "ses_26e4e324bffeINxn3TDcmsoFYz",
-      "agent": "Sisyphus-Junior",
-      "category": "unspecified-high",
-      "updated_at": "2026-04-15T15:13:56.724Z"
-    },
-    "final-wave:f4": {
-      "task_key": "final-wave:f4",
-      "task_label": "F4",
-      "task_title": "**Scope Fidelity Check** — `deep`",
-      "session_id": "ses_26e42f959ffeCsQZOtYVoduTJ7",
-      "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-04-15T15:33:21.207Z"
+      "updated_at": "2026-04-17T14:30:17.525Z"
     }
-  }
+  },
+  "session_origins": {}
 }
