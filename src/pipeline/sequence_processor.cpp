@@ -809,8 +809,10 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frame.inputHeight = static_cast<uint32_t>(expectedInputHeight);
                 frame.outputWidth = static_cast<uint32_t>(expectedOutputWidth);
                 frame.outputHeight = static_cast<uint32_t>(expectedOutputHeight);
-                frame.mvScaleX = mvResult.scaleX;
-                frame.mvScaleY = mvResult.scaleY;
+                // DLSS expects MV in output-pixel units; Blender MV is in render-pixel units.
+                // Scale by output/input ratio so DLSS sees correct displacement magnitude.
+                frame.mvScaleX = mvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
+                frame.mvScaleY = mvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
                 frame.reset = resetFlags[index] || !anyFrameSucceeded;
 
                 // Assign jitter values from camera data if available
@@ -1211,8 +1213,9 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     firstFrame.inputHeight = static_cast<uint32_t>(expectedInputHeight);
     firstFrame.outputWidth = static_cast<uint32_t>(expectedOutputWidth);
     firstFrame.outputHeight = static_cast<uint32_t>(expectedOutputHeight);
-    firstFrame.mvScaleX = firstMvResult.scaleX;
-    firstFrame.mvScaleY = firstMvResult.scaleY;
+    // DLSS expects MV in output-pixel units; Blender MV is in render-pixel units.
+    firstFrame.mvScaleX = firstMvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
+    firstFrame.mvScaleY = firstMvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
     firstFrame.reset = true;
 
     VkCommandBuffer firstEvalCmdBuf = VK_NULL_HANDLE;
@@ -1352,8 +1355,9 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         srFrame.inputHeight = static_cast<uint32_t>(expectedInputHeight);
         srFrame.outputWidth = static_cast<uint32_t>(expectedOutputWidth);
         srFrame.outputHeight = static_cast<uint32_t>(expectedOutputHeight);
-        srFrame.mvScaleX = mvResult.scaleX;
-        srFrame.mvScaleY = mvResult.scaleY;
+        // DLSS expects MV in output-pixel units; Blender MV is in render-pixel units.
+        srFrame.mvScaleX = mvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
+        srFrame.mvScaleY = mvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
         srFrame.reset = resetFlag;
 
         VkCommandBuffer srEvalCmdBuf = VK_NULL_HANDLE;
