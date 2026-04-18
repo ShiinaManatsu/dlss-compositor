@@ -46,6 +46,7 @@ _original_shift_y = 0.0
 _jitter_enabled = False
 
 
+@bpy.app.handlers.persistent
 def save_original_shift(scene):
     """Render init handler: save original camera shift values."""
     global _original_shift_x, _original_shift_y, _jitter_enabled
@@ -56,6 +57,7 @@ def save_original_shift(scene):
         _jitter_enabled = True
 
 
+@bpy.app.handlers.persistent
 def apply_jitter(scene):
     """Frame change handler: apply Halton jitter via camera shift."""
     global _jitter_enabled, _original_shift_x, _original_shift_y
@@ -78,6 +80,7 @@ def apply_jitter(scene):
     camera.data.shift_y = _original_shift_y + jitter_y / render.resolution_y
 
 
+@bpy.app.handlers.persistent
 def restore_shift(scene):
     """Render complete/cancel handler: restore original camera shift."""
     global _original_shift_x, _original_shift_y, _jitter_enabled
@@ -137,7 +140,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
         frame_end = scene.frame_end
 
         if frame_end < frame_start:
-            self.report({"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
+            self.report(
+                {"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
             return {"CANCELLED"}
 
         data = {
@@ -176,7 +180,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 "jitter_y": jitter_y,
             }
 
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        os.makedirs(os.path.dirname(
+            os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
 
@@ -279,10 +284,12 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         scene = context.scene
         tree = scene.compositing_node_group
         if tree is None:
-            tree = bpy.data.node_groups.new("Compositing", "CompositorNodeTree")
+            tree = bpy.data.node_groups.new(
+                "Compositing", "CompositorNodeTree")
             scene.compositing_node_group = tree
         if tree is None:
-            self.report({"ERROR"}, "Could not initialise compositor node tree.")
+            self.report(
+                {"ERROR"}, "Could not initialise compositor node tree.")
             return {"CANCELLED"}
 
         # Find or create Render Layers node
@@ -295,7 +302,7 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
             render_layer_node = tree.nodes.new("CompositorNodeRLayers")
 
         # Find or create File Output node
-        file_output = None
+        file_output: bpy.types.CompositorNodeOutputFile = None
         for node in tree.nodes:
             if node.type == "OUTPUT_FILE":
                 file_output = node
@@ -307,6 +314,7 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         file_output.format.color_depth = "32"
         file_output.format.exr_codec = "DWAA"
         file_output.format.quality = 95
+        file_output.file_name = "aov_"
 
         if scene.dlsscomp_output_dir:
             file_output.directory = scene.dlsscomp_output_dir
@@ -370,7 +378,8 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
         layout = self.layout
         vl = context.view_layer
 
-        layout.prop(context.scene, "dlsscomp_output_dir", text="Output Directory")
+        layout.prop(context.scene, "dlsscomp_output_dir",
+                    text="Output Directory")
 
         layout.operator(
             DLSSCOMP_OT_configure_passes.bl_idname,
@@ -388,7 +397,8 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
             import os
 
             path = os.path.join(
-                bpy.path.abspath(context.scene.dlsscomp_output_dir), "camera.json"
+                bpy.path.abspath(
+                    context.scene.dlsscomp_output_dir), "camera.json"
             )
             layout.label(text=f"→ {path}", icon="FILE_TICK")
 
@@ -471,7 +481,7 @@ if __name__ == "__main__":
     try:
         args = []
         if "--" in sys.argv:
-            args = sys.argv[sys.argv.index("--") + 1 :]
+            args = sys.argv[sys.argv.index("--") + 1:]
 
         register()
 
