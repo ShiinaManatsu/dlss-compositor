@@ -22,6 +22,8 @@ export interface DlssConfig {
   sourceFps: number;
   sharpness: number;
   ngxLogLevel: 'off' | 'error' | 'warn' | 'info' | 'verbose';
+  sourceWidth: number | null;
+  sourceHeight: number | null;
 }
 
 export const DEFAULT_CONFIG: DlssConfig = {
@@ -48,6 +50,8 @@ export const DEFAULT_CONFIG: DlssConfig = {
   sourceFps: 30,
   sharpness: 0.0,
   ngxLogLevel: 'warn',
+  sourceWidth: null,
+  sourceHeight: null,
 }
 
 export interface Settings {

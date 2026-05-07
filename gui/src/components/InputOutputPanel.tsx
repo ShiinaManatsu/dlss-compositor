@@ -7,12 +7,29 @@ export default function InputOutputPanel() {
   const isRunning = useIsRunning();
   const [inputTouched, setInputTouched] = useState(false);
   const [outputTouched, setOutputTouched] = useState(false);
+  const [autoDetectedCamera, setAutoDetectedCamera] = useState(false);
 
   const handleInputBrowse = async () => {
     try {
       const dir = await window.dlssApi.selectDirectory();
       if (dir) {
         dispatch({ type: 'SET_INPUT_DIR', payload: dir });
+        
+        // Auto-detect camera.json
+        try {
+          const result = await window.dlssApi.cameraAutoDetect(dir);
+          if (result.cameraJsonPath) {
+            dispatch({ type: 'SET_CAMERA_DATA_FILE', payload: result.cameraJsonPath });
+            setAutoDetectedCamera(true);
+          } else {
+            setAutoDetectedCamera(false);
+          }
+          if (result.sourceWidth !== null && result.sourceHeight !== null) {
+            dispatch({ type: 'SET_SOURCE_RESOLUTION', payload: { width: result.sourceWidth, height: result.sourceHeight } });
+          }
+        } catch (err) {
+          console.error('Camera auto-detect failed:', err);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -59,6 +76,11 @@ export default function InputOutputPanel() {
         {isInputError && (
           <span data-testid="input-dir-error" className="text-red-500 text-xs mt-1 block">
             Input directory is required
+          </span>
+        )}
+        {autoDetectedCamera && state.cameraDataFile && (
+          <span data-testid="camera-auto-detected-hint" className="text-green-500 text-xs mt-1 block">
+            ✓ Auto-detected camera.json from input directory
           </span>
         )}
       </div>

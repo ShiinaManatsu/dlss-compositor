@@ -28,7 +28,8 @@ type ConfigAction =
   | { type: 'SET_CHANNEL_MAP_FILE'; payload: string }
   | { type: 'SET_SOURCE_FPS'; payload: number }
   | { type: 'SET_SHARPNESS'; payload: number }
-  | { type: 'SET_NGX_LOG_LEVEL'; payload: DlssConfig['ngxLogLevel'] };
+  | { type: 'SET_NGX_LOG_LEVEL'; payload: DlssConfig['ngxLogLevel'] }
+  | { type: 'SET_SOURCE_RESOLUTION'; payload: { width: number | null; height: number | null } };
 
 interface ConfigContextValue {
   state: ConfigState;
@@ -105,6 +106,8 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       return { ...state, sharpness: action.payload };
     case 'SET_NGX_LOG_LEVEL':
       return { ...state, ngxLogLevel: action.payload };
+    case 'SET_SOURCE_RESOLUTION':
+      return { ...state, sourceWidth: action.payload.width, sourceHeight: action.payload.height };
     default:
       return state;
   }

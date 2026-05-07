@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import { getExePath, getSettings, saveSettings, setExePath, validateExePath } from './settings-store'
+import { findCameraJson, readSourceResolution } from './camera-detector'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
 
 type ProcessStartPayload = {
@@ -169,6 +170,16 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.VALIDATE_EXE_PATH, (_event, exePath: string) => {
     return validateExePath(exePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.CAMERA_AUTO_DETECT, async (_event, inputDir: string) => {
+    const cameraJsonPath = findCameraJson(inputDir);
+    const resolution = cameraJsonPath ? readSourceResolution(cameraJsonPath) : null;
+    return {
+      cameraJsonPath,
+      sourceWidth: resolution?.width ?? null,
+      sourceHeight: resolution?.height ?? null,
+    };
   })
 
   ipcMain.handle('frame:latest', (_event, outputDir: string): string => {
