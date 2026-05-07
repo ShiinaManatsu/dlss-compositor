@@ -84,6 +84,23 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x -
 
 # FG with custom LUT files (advanced)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --camera-data camera.json --tonemap-lut my_forward.bin --inverse-tonemap-lut my_inverse.bin
+
+# --- Phase 4 New Flags ---
+
+# Machine-readable NDJSON output (for scripting/automation)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --progress-format json
+
+# Set source animation frame rate (for accurate DLSS temporal analysis)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --source-fps 24
+
+# Post-DLSS sharpening (0.2-0.4 recommended)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --sharpness 0.3
+
+# Camera.json auto-discovery (no --camera-data needed if camera.json is in input dir)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x
+
+# Custom tonemap LUT files
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --interpolate 2x --tonemap custom --tonemap-lut my_forward.bin --inverse-tonemap-lut my_inverse.bin
 ```
 
 See the [Usage Guide](docs/usage_guide.md) for a full list of flags.
@@ -97,14 +114,32 @@ DLSS Frame Generation internally clamps HDR color buffers to approximately 10 ni
 PQ covers 0 to 10,000 cd/m² — more than enough for any physically-based scene.
 
 ## GUI Usage
-The Electron-based desktop app provides a user-friendly interface for configuring and monitoring your DLSS processing.
+
+The Electron-based desktop app provides a streamlined, intelligent interface for DLSS processing.
+
+**Quick Start (5 steps):**
+1. **Configure Exe Path**: Point to `dlss-compositor.exe` (first run only — auto-detected if in the same folder)
+2. **Select Input Directory**: Browse to your EXR sequence folder — `camera.json` is auto-detected and source resolution auto-filled
+3. **Select Output Directory**: Choose where to save processed frames
+4. **Choose Target Resolution**: Pick 4K, 1440p, 1080p preset or Custom — scale factor auto-computed from source resolution
+5. **Click Start**: Monitor real-time progress, ETA, and live frame preview (requires FFmpeg)
+
+**Phase 4 Features:**
+- **NGX Status Bar**: Shows DLSS SDK version and SR/FG availability at app top
+- **Auto Camera Detection**: Input directory selection auto-finds `camera.json` and reads source resolution
+- **Resolution Presets**: 4K/1440p/1080p/Custom target with automatic scale calculation
+- **Live Frame Preview**: FFmpeg converts output EXR frames to PNG thumbnails in real time
+- **ETA Estimation**: Estimated time remaining after 3+ frames processed
+- **New Controls**: Source FPS, Sharpness (post-DLSS), NGX Log Level, Tonemap=custom mode
+- **NDJSON Progress**: Machine-readable event stream for reliable GUI progress parsing
 
 - **Configuration Panel**: Set your executable path, input/output directories, and DLSS parameters (Upscaling factor, Quality mode, Interpolation, etc.).
-- **Progress Monitoring**: Real-time progress bar and frame-by-frame status display.
+- **Progress Monitoring**: Real-time progress bar, ETA, and frame-by-frame live preview.
 - **Auto-save**: Your settings are automatically persisted between sessions.
-- **One-click Processing**: Start and stop the batch process with ease.
 
 Launch by running `dlss-compositor-gui.exe` (found in the release package) or by running `npm run dev` in the `gui/` directory for development.
+
+See [GUI Guide](docs/gui_guide.md) for the full walkthrough.
 
 ## Screenshots
 <!-- TODO: Add screenshots -->

@@ -125,16 +125,46 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 | `--encode-video [file]` | — | Encode the output sequence to an MP4 video. Requires FFmpeg on your PATH. |
 | `--fps <rate>` | 24 | Frame rate for the video encoding. |
 | `--interpolate <2x\|4x>` | — | Enable frame interpolation. `2x` generates 1 intermediate frame per pair (RTX 40+). `4x` generates 3 intermediate frames per pair (RTX 50+). |
-| `--camera-data <file>` | — | Required when `--interpolate` is used. Path to per-frame camera JSON exported from the Blender panel. |
-| `--tonemap <mode>` | pq | FG transport encoding mode: `pq` (PQ ST 2084, default) or `none` (raw scene-linear). |
+| `--camera-data <file>` | — | Path to per-frame camera JSON exported from the Blender panel. **Auto-discovered**: if omitted and `<input-dir>/camera.json` exists, it is used automatically. An info log confirms: `[camera] auto-discovered: <path>`. |
+| `--tonemap <mode>` | pq | FG transport encoding mode: `none` / `pq` (default) / `custom` (requires `--tonemap-lut`). |
 | `--no-inverse-tonemap` | — | Skip inverse PQ decode on FG output (output stays PQ-encoded). |
-| `--tonemap-lut <file>` | — | Custom forward LUT binary file (implies custom LUT mode). |
+| `--tonemap-lut <file>` | — | Custom forward LUT binary file (implies `--tonemap custom`). |
 | `--inverse-tonemap-lut <file>` | — | Custom inverse LUT binary file. |
 | `--memory-budget <GB>` | 8 | GPU memory budget in GB for texture preloading and pooling. Minimum 1. |
 | `--channel-map <file>` | — | Path to a custom JSON file for channel name mapping. |
+| `--sharpness <0.0..1.0>` | 0.0 | Post-DLSS sharpening level. 0.0 = off. Recommended: 0.2–0.4 for most content. |
+| `--source-fps <rate>` | 30 | Source animation frame rate for DLSS temporal frame timing. This is your Blender animation FPS, NOT the video output FPS. |
+| `--progress-format <human\|json>` | human | Progress output format. `human` (default) prints human-readable text. `json` emits NDJSON (newline-delimited JSON) on stdout — each line is a complete JSON event for scripting/automation. Human logs continue on stderr. |
+| `--ngx-log-level <level>` | off | NGX SDK log verbosity: `off` (default) / `error` / `warn` / `info` / `verbose`. Use `warn` or `info` for troubleshooting DLSS initialization issues. |
 | `--test-ngx` | — | Verify DLSS Super Resolution availability on your system and exit. |
 | `--help`, `-h` | — | Show the help message. |
 | `--version` | — | Show the version number. |
+
+> See [`cli_reference.md`](cli_reference.md) for a category-organized flag reference and the full NDJSON event schema.
+
+#### New in Phase 4
+
+```
+--progress-format <human|json>
+    Progress output format. Default: human (human-readable text).
+    Use --progress-format json for NDJSON machine-readable output
+    (each stdout line is a complete JSON object). Useful for scripting.
+
+--source-fps <rate>
+    Source animation frame rate for DLSS temporal frame timing.
+    This is your Blender animation FPS, NOT the video output FPS.
+    Default: 30
+
+--sharpness <0.0..1.0>
+    Post-DLSS sharpening level. 0.0 = off (default).
+    Recommended: 0.2–0.4 for most content.
+
+--ngx-log-level <level>
+    NGX SDK log verbosity: off (default), error, warn, info, verbose.
+    Use warn or info for troubleshooting DLSS initialization issues.
+```
+
+**Camera.json auto-discovery:** If `--camera-data` is omitted and `<input-dir>/camera.json` exists, it is used automatically (auto-discovery). An info log confirms: `[camera] auto-discovered: <path>`.
 
 ### Video Encoding
 If you use `--encode-video`, the tool will call FFmpeg to create a video from the processed EXR frames. Ensure `ffmpeg` is accessible from your command prompt.

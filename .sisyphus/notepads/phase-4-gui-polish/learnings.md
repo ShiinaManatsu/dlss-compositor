@@ -200,3 +200,19 @@ Level\ select to AdvancedSettings.
 - ndjson-parser tests run in <1s (no Electron launch).
 - Each Electron spec spins up its own app instance for isolation.
 
+
+
+## 2026-05-07 Task 12: Documentation Update
+
+### Files Touched
+- README.md: GUI Usage section rewritten (5-step Quick Start + Phase 4 Features list) + 5 new CLI examples appended under "Phase 4 New Flags"
+- docs/usage_guide.md: Added 4 new flag table rows (--sharpness, --source-fps, --progress-format, --ngx-log-level), updated --camera-data (auto-discovery), updated --tonemap (now supports 'custom' mode), added "New in Phase 4" subsection
+- docs/gui_guide.md: NEW file - 5-step workflow walkthrough, NGX status bar table, FAQ, troubleshooting
+- docs/cli_reference.md: NEW file - category-organized flag tables + NDJSON event schema with example
+
+### Lessons
+- Existing README.md "## GUI Usage" section was minimal (8 lines) - replaced wholesale per spec, added cross-link to gui_guide.md
+- Existing docs/usage_guide.md table was the canonical flag reference - augmented in-place rather than replacing, plus added pointer to new cli_reference.md for category view
+- Did NOT touch C++ internals docs (dlss_input_spec.md, lut_guide.md, build_guide.md) per "MUST NOT" constraint
+- README CLI Usage examples added at end of code block, just before "See the Usage Guide" link - preserves existing examples
+- Auto-discovery callout placed in both usage_guide.md (--camera-data row note + dedicated paragraph) and cli_reference.md (dedicated subsection under FG)

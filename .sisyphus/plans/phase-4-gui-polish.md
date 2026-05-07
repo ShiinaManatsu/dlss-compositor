@@ -1008,7 +1008,7 @@ Wave FINAL (审查):
   - Files: `gui/electron/preview-generator.ts (new), gui/electron/main.ts, gui/electron/ipc-channels.ts, gui/electron/preload.ts, gui/src/ipc/channels.ts, gui/src/types/window.d.ts, gui/src/components/ProcessingView.tsx`
   - Pre-commit: `cd gui; npm run build && npx playwright test tests/preview.spec.ts`
 
-- [ ] 10. GUI: ETA 估算 + 表单 UX polish
+- [x] 10. GUI: ETA 估算 + 表单 UX polish
 
   **What to do**:
   - **`gui/src/hooks/useProcessing.ts`**:
@@ -1101,7 +1101,7 @@ Wave FINAL (审查):
   - Files: `gui/src/hooks/useProcessing.ts, gui/src/components/ProcessingView.tsx, gui/src/components/AdvancedSettings.tsx, gui/src/components/InputOutputPanel.tsx, gui/electron/main.ts, gui/electron/ipc-channels.ts`
   - Pre-commit: `cd gui; npm run build && npx playwright test`
 
-- [ ] 11. Playwright e2e 覆盖新流程
+- [x] 11. Playwright e2e 覆盖新流程
 
   **What to do**:
   - **新建 `gui/tests/auto-detect.spec.ts`**:
