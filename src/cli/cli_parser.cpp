@@ -424,14 +424,8 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 errorMsg = "--ngx-log-level requires a value";
                 return false;
             }
-            const char* level = argv[++i];
-            if (std::strcmp(level, "off") == 0)     { config.ngxLogLevel = 0; }
-            else if (std::strcmp(level, "error") == 0) { config.ngxLogLevel = 1; }
-            else if (std::strcmp(level, "warn") == 0)  { config.ngxLogLevel = 2; }
-            else if (std::strcmp(level, "info") == 0)  { config.ngxLogLevel = 3; }
-            else if (std::strcmp(level, "verbose") == 0) { config.ngxLogLevel = 4; }
-            else {
-                errorMsg = std::string("Invalid --ngx-log-level value '") + level + "'. Valid: off, error, warn, info, verbose";
+            if (!parseNgxLogLevel(argv[++i], config.ngxLogLevel)) {
+                errorMsg = "--ngx-log-level must be one of: off, error, warn, info, verbose";
                 return false;
             }
             continue;
@@ -485,6 +479,7 @@ void CliParser::printHelp() {
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
     std::printf("  --ngx-log-level <lvl>  NGX SDK log level (off|error|warn|info|verbose; default: warn)\n");
+    std::printf("  --ngx-log-level <level> NGX log verbosity (off|error|warn|info|verbose; default: off)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --help, -h             Show this help\n");

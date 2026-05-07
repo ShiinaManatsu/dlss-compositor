@@ -832,6 +832,8 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     frame.jitterY = 0.0f;
                 }
 
+                frame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
+
                 VkCommandBuffer evalCmdBuf = VK_NULL_HANDLE;
                 if (!allocateCommandBuffer(m_ctx, evalCmdBuf, frameError) ||
                     !beginCommandBuffer(evalCmdBuf, frameError)) {
@@ -1218,6 +1220,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     firstFrame.mvScaleX = firstMvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
     firstFrame.mvScaleY = firstMvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
     firstFrame.reset = true;
+    firstFrame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
 
     VkCommandBuffer firstEvalCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, firstEvalCmdBuf, errorMsg)) {
@@ -1360,6 +1363,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         srFrame.mvScaleX = mvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
         srFrame.mvScaleY = mvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
         srFrame.reset = resetFlag;
+        srFrame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
 
         VkCommandBuffer srEvalCmdBuf = VK_NULL_HANDLE;
         if (!allocateCommandBuffer(m_ctx, srEvalCmdBuf, errorMsg)) {

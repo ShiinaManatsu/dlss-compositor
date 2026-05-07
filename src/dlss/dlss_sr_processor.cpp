@@ -155,7 +155,7 @@ bool DlssSRProcessor::evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& f
     evalParams.InReset = frame.reset ? 1 : 0;
     evalParams.InMVScaleX = frame.mvScaleX;
     evalParams.InMVScaleY = frame.mvScaleY;
-    evalParams.InFrameTimeDeltaInMsec = 33.3f;
+    evalParams.InFrameTimeDeltaInMsec = frame.frameTimeDeltaMs;
     evalParams.InPreExposure = 1.0f;
     evalParams.InExposureScale = 1.0f;
 

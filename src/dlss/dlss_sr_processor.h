@@ -33,6 +33,7 @@ struct DlssSRFrameInput {
     uint32_t outputHeight = 0;
     float jitterX = 0.0f;
     float jitterY = 0.0f;
+    float frameTimeDeltaMs = 33.3f;  // Derived from --source-fps; default 30 fps
     float mvScaleX = 1.0f;
     float mvScaleY = 1.0f;
     bool reset = false;
