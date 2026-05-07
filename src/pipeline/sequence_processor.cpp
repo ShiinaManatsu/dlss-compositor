@@ -99,19 +99,6 @@ bool extractTrailingFrameNumber(const std::filesystem::path& path, int& frameNum
     }
 }
 
-std::vector<float> expandRgbToRgba(const std::vector<float>& rgb, float alpha) {
-    std::vector<float> rgba;
-    rgba.resize((rgb.size() / 3u) * 4u, alpha);
-    for (size_t i = 0; i + 2 < rgb.size(); i += 3u) {
-        const size_t dstIndex = (i / 3u) * 4u;
-        rgba[dstIndex + 0u] = rgb[i + 0u];
-        rgba[dstIndex + 1u] = rgb[i + 1u];
-        rgba[dstIndex + 2u] = rgb[i + 2u];
-        rgba[dstIndex + 3u] = alpha;
-    }
-    return rgba;
-}
-
 void forceOpaqueAlpha(std::vector<float>& rgba) {
     for (size_t i = 3; i < rgba.size(); i += 4u) {
         rgba[i] = 1.0f;
@@ -727,9 +714,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     TextureHandle color;
     TextureHandle depth;
     TextureHandle motion;
-    TextureHandle diffuse;
-    TextureHandle normals;
-    TextureHandle roughness;
     TextureHandle output;
 
     for (size_t index = 0; index < frames.size(); ++index) {
@@ -760,17 +744,11 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
             auto& mappedBuffers = prefetched->mappedBuffers;
             auto& mvResult = prefetched->mvResult;
 
-            const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
-            const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
-
             try {
                 if (!pooledHandlesAcquired) {
                     color = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
                     depth = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
                     motion = texturePool->acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
-                    diffuse = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-                    normals = texturePool->acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-                    roughness = texturePool->acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
                     output = texturePool->acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
                     pooledHandlesAcquired = true;
                 }
@@ -786,9 +764,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 texturePool->updateData(depth, convertedDepth.data());
                 
                 texturePool->updateData(motion, mvResult.mvXY.data());
-                texturePool->updateData(diffuse, diffuseRgba.data());
-                texturePool->updateData(normals, normalsRgba.data());
-                texturePool->updateData(roughness, mappedBuffers.roughness.data());
                 texturePool->updateData(output, outputInit.data());
 
                 DlssSRFrameInput frame{};
@@ -798,12 +773,6 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frame.depthView = depth.view;
                 frame.motionVectors = motion.image;
                 frame.motionView = motion.view;
-                frame.diffuseAlbedo = diffuse.image;
-                frame.diffuseView = diffuse.view;
-                frame.normals = normals.image;
-                frame.normalsView = normals.view;
-                frame.roughness = roughness.image;
-                frame.roughnessView = roughness.view;
                 frame.output = output.image;
                 frame.outputView = output.view;
                 frame.inputWidth = static_cast<uint32_t>(expectedInputWidth);
@@ -1161,8 +1130,6 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
 
     auto& firstMappedBuffers = firstPrefetched->mappedBuffers;
     const auto& firstMvResult = firstPrefetched->mvResult;
-    const std::vector<float> firstDiffuseRgba = expandRgbToRgba(firstMappedBuffers.diffuseAlbedo, 1.0f);
-    const std::vector<float> firstNormalsRgba = expandRgbToRgba(firstMappedBuffers.normals, 1.0f);
     const std::vector<float> srOutputInit(static_cast<size_t>(expectedOutputWidth) *
                                               static_cast<size_t>(expectedOutputHeight) *
                                               4u,
@@ -1171,26 +1138,17 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     TextureHandle firstColor;
     TextureHandle firstDepth;
     TextureHandle firstMotion;
-    TextureHandle firstDiffuse;
-    TextureHandle firstNormals;
-    TextureHandle firstRoughness;
     TextureHandle firstOutput;
 
     try {
         firstColor = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
         firstDepth = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
         firstMotion = pool.acquire(expectedInputWidth, expectedInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
-        firstDiffuse = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-        firstNormals = pool.acquire(expectedInputWidth, expectedInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-        firstRoughness = pool.acquire(expectedInputWidth, expectedInputHeight, 1, VK_FORMAT_R32_SFLOAT);
         firstOutput = pool.acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
 
         pool.updateData(firstColor, firstMappedBuffers.color.data());
         pool.updateData(firstDepth, firstMappedBuffers.depth.data());
         pool.updateData(firstMotion, firstMvResult.mvXY.data());
-        pool.updateData(firstDiffuse, firstDiffuseRgba.data());
-        pool.updateData(firstNormals, firstNormalsRgba.data());
-        pool.updateData(firstRoughness, firstMappedBuffers.roughness.data());
         pool.updateData(firstOutput, srOutputInit.data());
     } catch (const std::exception& ex) {
         errorMsg = ex.what();
@@ -1204,12 +1162,6 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     firstFrame.depthView = firstDepth.view;
     firstFrame.motionVectors = firstMotion.image;
     firstFrame.motionView = firstMotion.view;
-    firstFrame.diffuseAlbedo = firstDiffuse.image;
-    firstFrame.diffuseView = firstDiffuse.view;
-    firstFrame.normals = firstNormals.image;
-    firstFrame.normalsView = firstNormals.view;
-    firstFrame.roughness = firstRoughness.image;
-    firstFrame.roughnessView = firstRoughness.view;
     firstFrame.output = firstOutput.image;
     firstFrame.outputView = firstOutput.view;
     firstFrame.inputWidth = static_cast<uint32_t>(expectedInputWidth);
@@ -1302,23 +1254,15 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
 
         auto& mappedBuffers = prefetched->mappedBuffers;
         auto& mvResult = prefetched->mvResult;
-        const std::vector<float> diffuseRgba = expandRgbToRgba(mappedBuffers.diffuseAlbedo, 1.0f);
-        const std::vector<float> normalsRgba = expandRgbToRgba(mappedBuffers.normals, 1.0f);
 
         TextureHandle color;
         TextureHandle depth;
         TextureHandle motion;
-        TextureHandle diffuse;
-        TextureHandle normals;
-        TextureHandle roughness;
         TextureHandle srOutput;
 
         color = firstColor;
         depth = firstDepth;
         motion = firstMotion;
-        diffuse = firstDiffuse;
-        normals = firstNormals;
-        roughness = firstRoughness;
         srOutput = firstOutput;
 
         try {
@@ -1330,9 +1274,6 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
             pool.updateData(depth, convertedDepth.data());
             
             pool.updateData(motion, mvResult.mvXY.data());
-            pool.updateData(diffuse, diffuseRgba.data());
-            pool.updateData(normals, normalsRgba.data());
-            pool.updateData(roughness, mappedBuffers.roughness.data());
             pool.updateData(srOutput, srOutputInit.data());
         } catch (const std::exception& ex) {
             errorMsg = ex.what();
@@ -1347,12 +1288,6 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         srFrame.depthView = depth.view;
         srFrame.motionVectors = motion.image;
         srFrame.motionView = motion.view;
-        srFrame.diffuseAlbedo = diffuse.image;
-        srFrame.diffuseView = diffuse.view;
-        srFrame.normals = normals.image;
-        srFrame.normalsView = normals.view;
-        srFrame.roughness = roughness.image;
-        srFrame.roughnessView = roughness.view;
         srFrame.output = srOutput.image;
         srFrame.outputView = srOutput.view;
         srFrame.inputWidth = static_cast<uint32_t>(expectedInputWidth);

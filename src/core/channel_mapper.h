@@ -9,11 +9,7 @@
 enum class DlssBuffer {
     Color,
     Depth,
-    MotionVectors,
-    DiffuseAlbedo,
-    SpecularAlbedo,
-    Normals,
-    Roughness
+    MotionVectors
 };
 
 struct ChannelNames {
@@ -26,26 +22,12 @@ struct ChannelNames {
     std::string mvY = "RenderLayer.Vector.Y";
     std::string mvZ = "RenderLayer.Vector.Z";
     std::string mvW = "RenderLayer.Vector.W";
-    std::string diffR = "RenderLayer.DiffCol.R";
-    std::string diffG = "RenderLayer.DiffCol.G";
-    std::string diffB = "RenderLayer.DiffCol.B";
-    std::string specR = "RenderLayer.GlossCol.R";
-    std::string specG = "RenderLayer.GlossCol.G";
-    std::string specB = "RenderLayer.GlossCol.B";
-    std::string normalX = "RenderLayer.Normal.X";
-    std::string normalY = "RenderLayer.Normal.Y";
-    std::string normalZ = "RenderLayer.Normal.Z";
-    std::string roughness = "RenderLayer.Roughness.X";
 };
 
 struct MappedBuffers {
     std::vector<float> color;
     std::vector<float> depth;
     std::vector<float> motionVectors;
-    std::vector<float> diffuseAlbedo;
-    std::vector<float> specularAlbedo;
-    std::vector<float> normals;
-    std::vector<float> roughness;
 
     struct ChannelStatus {
         bool found = false;
@@ -64,8 +46,4 @@ public:
 
 private:
     ChannelNames m_names;
-
-    std::vector<float> extractOrDefault(const ExrReader& reader, const std::string& channelName,
-                                        float defaultVal, int width, int height,
-                                        MappedBuffers::ChannelStatus& status) const;
 };

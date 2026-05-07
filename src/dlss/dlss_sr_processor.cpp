@@ -118,19 +118,6 @@ bool DlssSRProcessor::evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& f
         return false;
     }
 
-    if (frame.diffuseAlbedo != VK_NULL_HANDLE &&
-        !validateImage("diffuse albedo", frame.diffuseAlbedo, frame.diffuseView, frame.inputWidth, frame.inputHeight, errorMsg)) {
-        return false;
-    }
-    if (frame.normals != VK_NULL_HANDLE &&
-        !validateImage("normals", frame.normals, frame.normalsView, frame.inputWidth, frame.inputHeight, errorMsg)) {
-        return false;
-    }
-    if (frame.roughness != VK_NULL_HANDLE &&
-        !validateImage("roughness", frame.roughness, frame.roughnessView, frame.inputWidth, frame.inputHeight, errorMsg)) {
-        return false;
-    }
-
     NVSDK_NGX_Resource_VK colorResource = makeImageResource(
         frame.color, frame.colorView, VK_FORMAT_R16G16B16A16_SFLOAT, frame.inputWidth, frame.inputHeight, false);
     NVSDK_NGX_Resource_VK depthResource = makeImageResource(
@@ -139,9 +126,6 @@ bool DlssSRProcessor::evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& f
         frame.motionVectors, frame.motionView, VK_FORMAT_R16G16_SFLOAT, frame.inputWidth, frame.inputHeight, false);
     NVSDK_NGX_Resource_VK outputResource = makeImageResource(
         frame.output, frame.outputView, VK_FORMAT_R16G16B16A16_SFLOAT, frame.outputWidth, frame.outputHeight, true);
-    NVSDK_NGX_Resource_VK albedoResource{};
-    NVSDK_NGX_Resource_VK normalsResource{};
-    NVSDK_NGX_Resource_VK roughnessResource{};
 
     NVSDK_NGX_VK_DLSS_Eval_Params evalParams{};
     evalParams.Feature.pInColor = &colorResource;
@@ -158,25 +142,6 @@ bool DlssSRProcessor::evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& f
     evalParams.InFrameTimeDeltaInMsec = frame.frameTimeDeltaMs;
     evalParams.InPreExposure = 1.0f;
     evalParams.InExposureScale = 1.0f;
-
-    if (frame.diffuseAlbedo != VK_NULL_HANDLE) {
-        albedoResource = makeImageResource(
-            frame.diffuseAlbedo, frame.diffuseView, VK_FORMAT_R16G16B16A16_SFLOAT,
-            frame.inputWidth, frame.inputHeight, false);
-        evalParams.GBufferSurface.pInAttrib[NVSDK_NGX_GBUFFER_ALBEDO] = &albedoResource;
-    }
-    if (frame.normals != VK_NULL_HANDLE) {
-        normalsResource = makeImageResource(
-            frame.normals, frame.normalsView, VK_FORMAT_R16G16B16A16_SFLOAT,
-            frame.inputWidth, frame.inputHeight, false);
-        evalParams.GBufferSurface.pInAttrib[NVSDK_NGX_GBUFFER_NORMALS] = &normalsResource;
-    }
-    if (frame.roughness != VK_NULL_HANDLE) {
-        roughnessResource = makeImageResource(
-            frame.roughness, frame.roughnessView, VK_FORMAT_R32_SFLOAT,
-            frame.inputWidth, frame.inputHeight, false);
-        evalParams.GBufferSurface.pInAttrib[NVSDK_NGX_GBUFFER_ROUGHNESS] = &roughnessResource;
-    }
 
     const NVSDK_NGX_Result result = NGX_VULKAN_EVALUATE_DLSS_EXT(
         cmdBuf,

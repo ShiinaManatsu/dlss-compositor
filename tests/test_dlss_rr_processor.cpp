@@ -170,9 +170,6 @@ TEST_CASE("dlss_sr_single_evaluation", "[gpu][dlss]") {
     const std::vector<float> colorData = makeData(kInputWidth, kInputHeight, 4, 0.1f);
     const std::vector<float> depthData = makeData(kInputWidth, kInputHeight, 1, 0.2f);
     const std::vector<float> motionData = makeData(kInputWidth, kInputHeight, 2, 0.01f);
-    const std::vector<float> diffuseData = makeData(kInputWidth, kInputHeight, 4, 0.3f);
-    const std::vector<float> normalsData = makeData(kInputWidth, kInputHeight, 4, 0.4f);
-    const std::vector<float> roughnessData = makeData(kInputWidth, kInputHeight, 1, 0.5f);
     const std::vector<float> outputInit(static_cast<size_t>(kOutputWidth) * static_cast<size_t>(kOutputHeight) * 4u, 0.0f);
 
     auto color = pipeline.upload(colorData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -181,12 +178,6 @@ TEST_CASE("dlss_sr_single_evaluation", "[gpu][dlss]") {
     textureGuard.track(depth);
     auto motion = pipeline.upload(motionData.data(), kInputWidth, kInputHeight, 2, VK_FORMAT_R16G16_SFLOAT);
     textureGuard.track(motion);
-    auto diffuse = pipeline.upload(diffuseData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-    textureGuard.track(diffuse);
-    auto normals = pipeline.upload(normalsData.data(), kInputWidth, kInputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
-    textureGuard.track(normals);
-    auto roughness = pipeline.upload(roughnessData.data(), kInputWidth, kInputHeight, 1, VK_FORMAT_R32_SFLOAT);
-    textureGuard.track(roughness);
     auto output = pipeline.upload(outputInit.data(), kOutputWidth, kOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
     textureGuard.track(output);
 
@@ -199,12 +190,6 @@ TEST_CASE("dlss_sr_single_evaluation", "[gpu][dlss]") {
     frame.depthView = depth.view;
     frame.motionVectors = motion.image;
     frame.motionView = motion.view;
-    frame.diffuseAlbedo = diffuse.image;
-    frame.diffuseView = diffuse.view;
-    frame.normals = normals.image;
-    frame.normalsView = normals.view;
-    frame.roughness = roughness.image;
-    frame.roughnessView = roughness.view;
     frame.output = output.image;
     frame.outputView = output.view;
     frame.inputWidth = kInputWidth;

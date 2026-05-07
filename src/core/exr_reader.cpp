@@ -41,23 +41,11 @@ std::string makeLegacyAlias(const std::string& channelName) {
     if (const std::string alias = remap("Image.", "RenderLayer.Combined."); !alias.empty()) {
         return alias;
     }
-    if (const std::string alias = remap("Normal.", "RenderLayer.Normal."); !alias.empty()) {
-        return alias;
-    }
     if (const std::string alias = remap("Vector.", "RenderLayer.Vector."); !alias.empty()) {
-        return alias;
-    }
-    if (const std::string alias = remap("Diffuse Color.", "RenderLayer.DiffCol."); !alias.empty()) {
-        return alias;
-    }
-    if (const std::string alias = remap("Glossy Color.", "RenderLayer.GlossCol."); !alias.empty()) {
         return alias;
     }
     if (channelName == "Depth.V") {
         return "RenderLayer.Depth.Z";
-    }
-    if (channelName == "Roughness.V") {
-        return "RenderLayer.Roughness.X";
     }
     return {};
 }

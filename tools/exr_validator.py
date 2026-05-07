@@ -18,20 +18,10 @@ REQUIRED_CHANNELS = {
     "Vector.Y",
     "Vector.Z",
     "Vector.W",
-    "Normal.X",
-    "Normal.Y",
-    "Normal.Z",
 }
 
-OPTIONAL_CHANNELS = {
-    "DiffCol.R",
-    "DiffCol.G",
-    "DiffCol.B",
-    "GlossCol.R",
-    "GlossCol.G",
-    "GlossCol.B",
-    "Roughness.X",
-}
+# Removed: DiffCol, GlossCol, Normal, Roughness (GBuffer - confirmed unused by DLSS-SR)
+OPTIONAL_CHANNELS: set[str] = set()
 
 OUTPUT_CHANNELS = {"R", "G", "B", "A"}
 

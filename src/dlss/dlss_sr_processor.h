@@ -18,13 +18,6 @@ struct DlssSRFrameInput {
     VkImageView depthView = VK_NULL_HANDLE;
     VkImage motionVectors = VK_NULL_HANDLE;
     VkImageView motionView = VK_NULL_HANDLE;
-    // Optional GBuffer hints — VK_NULL_HANDLE to skip
-    VkImage diffuseAlbedo = VK_NULL_HANDLE;
-    VkImageView diffuseView = VK_NULL_HANDLE;
-    VkImage normals = VK_NULL_HANDLE;
-    VkImageView normalsView = VK_NULL_HANDLE;
-    VkImage roughness = VK_NULL_HANDLE;
-    VkImageView roughnessView = VK_NULL_HANDLE;
     VkImage output = VK_NULL_HANDLE;
     VkImageView outputView = VK_NULL_HANDLE;
     uint32_t inputWidth = 0;

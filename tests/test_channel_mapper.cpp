@@ -1,4 +1,3 @@
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "../src/core/channel_mapper.h"
@@ -35,13 +34,9 @@ TEST_CASE("ChannelMapper - reads from fixture", "[mapper][requires_fixture]") {
     REQUIRE(out.color.size() == static_cast<size_t>(pixelCount * 4));
     REQUIRE(out.depth.size() == static_cast<size_t>(pixelCount));
     REQUIRE(out.motionVectors.size() == static_cast<size_t>(pixelCount * 4));
-    REQUIRE(out.diffuseAlbedo.size() == static_cast<size_t>(pixelCount * 3));
-    REQUIRE(out.specularAlbedo.size() == static_cast<size_t>(pixelCount * 3));
-    REQUIRE(out.normals.size() == static_cast<size_t>(pixelCount * 3));
-    REQUIRE(out.roughness.size() == static_cast<size_t>(pixelCount));
 }
 
-TEST_CASE("ChannelMapper - missing optional channels get defaults", "[mapper][requires_fixture]") {
+TEST_CASE("ChannelMapper - missing optional channels still maps required", "[mapper][requires_fixture]") {
     if (!std::filesystem::exists(MISSING_EXR)) {
         SKIP("Missing-channels fixture not yet generated - run tests/generate_fixtures.py first");
     }
@@ -55,12 +50,8 @@ TEST_CASE("ChannelMapper - missing optional channels get defaults", "[mapper][re
     REQUIRE(mapper.mapFromExr(reader, out, err));
 
     const int pixelCount = reader.width() * reader.height();
-    REQUIRE(out.diffuseAlbedo.size() == static_cast<size_t>(pixelCount * 3));
-    REQUIRE(out.diffuseAlbedo[0] == Catch::Approx(1.0f).epsilon(0.01f));
-    REQUIRE(out.diffuseAlbedo[1] == Catch::Approx(1.0f).epsilon(0.01f));
-    REQUIRE(out.diffuseAlbedo[2] == Catch::Approx(1.0f).epsilon(0.01f));
-    REQUIRE(out.roughness.size() == static_cast<size_t>(pixelCount));
-    REQUIRE(out.roughness[0] == Catch::Approx(0.5f).epsilon(0.01f));
+    REQUIRE(out.color.size() == static_cast<size_t>(pixelCount * 4));
+    REQUIRE(out.depth.size() == static_cast<size_t>(pixelCount));
 }
 
 TEST_CASE("ChannelMapper - custom name mapping override", "[mapper]") {
