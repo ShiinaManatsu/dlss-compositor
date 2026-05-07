@@ -14,6 +14,7 @@ add_executable(dlss-compositor-tests
     test_sequence_processor.cpp
     test_sharpen_processor.cpp
     test_integration.cpp
+    test_matrix_layout.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
@@ -35,6 +36,8 @@ add_test(NAME test_sequence_processor COMMAND dlss-compositor-tests "[sequence]"
 set_tests_properties(test_sequence_processor PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME integration COMMAND dlss-compositor-tests "[integration]")
 set_tests_properties(integration PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME test_matrix_layout COMMAND dlss-compositor-tests "[matrix]")
+set_tests_properties(test_matrix_layout PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 if(MSVC)
     file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
