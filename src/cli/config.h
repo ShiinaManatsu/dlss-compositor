@@ -78,6 +78,8 @@ struct AppConfig {
     float exrDwaQuality = 95.0f;
     OutputPass outputPasses = OutputPass::Beauty;
 
+    float sharpness = 0.0f;  // Post-DLSS sharpness [0.0, 1.0]; 0.0 = bypass
+
     TonemapMode tonemapMode = TonemapMode::PQ;
     bool inverseTonemapEnabled = true;
     std::string forwardLutFile;

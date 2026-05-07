@@ -12,6 +12,7 @@
 #include "dlss/ngx_wrapper.h"
 #include "gpu/lut_processor.h"
 #include "gpu/pq_transfer_processor.h"
+#include "gpu/sharpen_processor.h"
 #include "gpu/texture_pool.h"
 #include "gpu/texture_pipeline.h"
 #include "pipeline/async_exr_writer.h"
@@ -643,6 +644,14 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     ChannelMapper channelMapper;
     DlssSRProcessor processor(m_ctx, m_ngx);
     DlssFeatureGuard featureGuard(m_ngx);
+    SharpenProcessor sharpenProcessor(m_ctx);
+    if (config.sharpness > 0.0f) {
+        std::string spvPath = "shaders/cas_sharpen.comp.spv";
+        std::string sharpenErr;
+        if (!sharpenProcessor.createPipeline(spvPath, sharpenErr)) {
+            Log::error("Failed to create sharpen pipeline: %s\n", sharpenErr.c_str());
+        }
+    }
 
     // Optionally load camera data for jitter values
     CameraDataLoader cameraLoader;
@@ -828,6 +837,43 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
 
                 if (!submitAndWait(m_ctx, evalCmdBuf, frameError)) {
                     throw std::runtime_error(frameError);
+                }
+
+                TextureHandle sharpenedOutput{};
+                const bool doSharpen = config.sharpness > 0.0f && sharpenProcessor.isReady();
+                if (doSharpen) {
+                    sharpenedOutput = texturePool->acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    VkCommandBuffer sharpenCmdBuf = VK_NULL_HANDLE;
+                    if (allocateCommandBuffer(m_ctx, sharpenCmdBuf, frameError) &&
+                        beginCommandBuffer(sharpenCmdBuf, frameError)) {
+                        transitionImage(sharpenCmdBuf, output.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+                        transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+                        sharpenProcessor.cmdSharpen(sharpenCmdBuf,
+                                                    output.image, output.view,
+                                                    sharpenedOutput.image, sharpenedOutput.view,
+                                                    expectedOutputWidth, expectedOutputHeight,
+                                                    config.sharpness);
+                        transitionImage(sharpenCmdBuf, output.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                        transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                        
+                        VkImageCopy copyRegion{};
+                        copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                        copyRegion.srcSubresource.layerCount = 1;
+                        copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                        copyRegion.dstSubresource.layerCount = 1;
+                        copyRegion.extent.width = expectedOutputWidth;
+                        copyRegion.extent.height = expectedOutputHeight;
+                        copyRegion.extent.depth = 1;
+                        vkCmdCopyImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, output.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+                        
+                        transitionImage(sharpenCmdBuf, output.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        
+                        if (!submitAndWait(m_ctx, sharpenCmdBuf, frameError)) {
+                            Log::error("Sharpen submit failed: %s\n", frameError.c_str());
+                        }
+                    }
+                    texturePool->release(sharpenedOutput);
                 }
 
                 std::vector<float> outputData = m_texturePipeline.download(output);
@@ -1085,6 +1131,13 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     MvConverter mvConverter;
     DlssSRProcessor srProcessor(m_ctx, m_ngx);
     DlssFgProcessor fgProcessor(m_ctx, m_ngx);
+    SharpenProcessor sharpenProcessor(m_ctx);
+    if (config.sharpness > 0.0f) {
+        std::string spvPath = "shaders/cas_sharpen.comp.spv";
+        if (!sharpenProcessor.createPipeline(spvPath, errorMsg)) {
+            Log::error("[SRFG] Failed to create sharpen pipeline: %s\n", errorMsg.c_str());
+        }
+    }
     const std::filesystem::path outputPath(outputDir);
     const int64_t maxMemory = static_cast<int64_t>(config.memoryBudgetGB) * 1024LL * 1024LL * 1024LL;
     TexturePool pool(m_ctx, m_texturePipeline, maxMemory);
@@ -1197,6 +1250,33 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     if (!submitAndWait(m_ctx, firstEvalCmdBuf, errorMsg)) {
         return false;
+    }
+
+    if (config.sharpness > 0.0f && sharpenProcessor.isReady()) {
+        TextureHandle sharpenedOutput = pool.acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+        VkCommandBuffer sharpenCmdBuf = VK_NULL_HANDLE;
+        if (allocateCommandBuffer(m_ctx, sharpenCmdBuf, errorMsg) && beginCommandBuffer(sharpenCmdBuf, errorMsg)) {
+            transitionImage(sharpenCmdBuf, firstOutput.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+            transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            sharpenProcessor.cmdSharpen(sharpenCmdBuf, firstOutput.image, firstOutput.view, sharpenedOutput.image, sharpenedOutput.view, expectedOutputWidth, expectedOutputHeight, config.sharpness);
+            transitionImage(sharpenCmdBuf, firstOutput.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VkImageCopy copyRegion{};
+            copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.srcSubresource.layerCount = 1;
+            copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.dstSubresource.layerCount = 1;
+            copyRegion.extent.width = expectedOutputWidth;
+            copyRegion.extent.height = expectedOutputHeight;
+            copyRegion.extent.depth = 1;
+            vkCmdCopyImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, firstOutput.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+            transitionImage(sharpenCmdBuf, firstOutput.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (!submitAndWait(m_ctx, sharpenCmdBuf, errorMsg)) {
+                Log::error("[SRFG] Sharpen submit failed: %s\n", errorMsg.c_str());
+            }
+        }
+        pool.release(sharpenedOutput);
     }
 
     int outputFrameCounter = 1;
@@ -1325,6 +1405,34 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         if (!submitAndWait(m_ctx, srEvalCmdBuf, errorMsg)) {
             Log::error( "[SRFG] SR submit failed: %s\n", errorMsg.c_str());
             return false;
+        }
+
+        if (config.sharpness > 0.0f && sharpenProcessor.isReady()) {
+            TextureHandle sharpenedOutput = pool.acquire(expectedOutputWidth, expectedOutputHeight, 4, VK_FORMAT_R16G16B16A16_SFLOAT);
+            VkCommandBuffer sharpenCmdBuf = VK_NULL_HANDLE;
+            std::string sharpenErr;
+            if (allocateCommandBuffer(m_ctx, sharpenCmdBuf, sharpenErr) && beginCommandBuffer(sharpenCmdBuf, sharpenErr)) {
+                transitionImage(sharpenCmdBuf, srOutput.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+                transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+                sharpenProcessor.cmdSharpen(sharpenCmdBuf, srOutput.image, srOutput.view, sharpenedOutput.image, sharpenedOutput.view, expectedOutputWidth, expectedOutputHeight, config.sharpness);
+                transitionImage(sharpenCmdBuf, srOutput.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                VkImageCopy copyRegion{};
+                copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copyRegion.srcSubresource.layerCount = 1;
+                copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copyRegion.dstSubresource.layerCount = 1;
+                copyRegion.extent.width = expectedOutputWidth;
+                copyRegion.extent.height = expectedOutputHeight;
+                copyRegion.extent.depth = 1;
+                vkCmdCopyImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, srOutput.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+                transitionImage(sharpenCmdBuf, srOutput.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                transitionImage(sharpenCmdBuf, sharpenedOutput.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (!submitAndWait(m_ctx, sharpenCmdBuf, sharpenErr)) {
+                    Log::error("[SRFG] Sharpen submit failed: %s\n", sharpenErr.c_str());
+                }
+            }
+            pool.release(sharpenedOutput);
         }
 
         for (unsigned int multiFrameIndex = 1; multiFrameIndex <= multiFrameCount; ++multiFrameIndex) {

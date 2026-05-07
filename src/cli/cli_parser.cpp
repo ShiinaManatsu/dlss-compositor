@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <cctype>
 #include <string>
 
@@ -379,6 +380,19 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--sharpness") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--sharpness requires a value";
+                return false;
+            }
+            float sharpness = 0.0f;
+            if (!parseFloat(argv[++i], sharpness)) {
+                errorMsg = "--sharpness must be a float";
+                return false;
+            }
+            config.sharpness = std::clamp(sharpness, 0.0f, 1.0f);
+            continue;
+        }
         if (std::strcmp(arg, "--output-passes") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--output-passes requires a value";
@@ -477,6 +491,7 @@ void CliParser::printHelp() {
     std::printf("  --source-fps <rate>    Source footage frame rate for DLSS frame timing (default: 30)\n");
     std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
     std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
+    std::printf("  --sharpness <0.0..1.0> Post-DLSS sharpening (default 0.0 = off, recommended 0.2-0.4)\n");
     std::printf("  --output-passes <list> Output passes (comma-separated: beauty,depth,normals; default: beauty)\n");
     std::printf("  --tonemap <mode>       FG transport encoding (none|pq|custom; default: pq)\n");
     std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");

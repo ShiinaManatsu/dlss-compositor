@@ -12,6 +12,7 @@ add_executable(dlss-compositor-tests
     test_camera_data_loader.cpp
     test_dlss_fg_processor.cpp
     test_sequence_processor.cpp
+    test_sharpen_processor.cpp
     test_integration.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
