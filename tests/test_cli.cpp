@@ -326,3 +326,53 @@ TEST_CASE("CliParser - --source-fps zero fallback", "[cli]") {
     REQUIRE(ok);
     REQUIRE(cfg.sourceFps == 30);  // fallback to default
 }
+
+TEST_CASE("CliParser - --preset auto", "[cli]") {
+    FakeArgs fa{"--preset", "auto"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.preset == DlssSRPreset::Auto);
+}
+
+TEST_CASE("CliParser - --preset Auto (capitalized)", "[cli]") {
+    FakeArgs fa{"--preset", "Auto"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.preset == DlssSRPreset::Auto);
+}
+
+TEST_CASE("CliParser - default preset is Auto", "[cli]") {
+    FakeArgs fa{"--input-dir", "test/"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.preset == DlssSRPreset::Auto);
+}
+
+TEST_CASE("CliParser - --preset K vs Auto give different values", "[cli]") {
+    AppConfig cfgAuto;
+    {
+        FakeArgs fa{"--preset", "auto"};
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfgAuto, err);
+        REQUIRE(ok);
+    }
+
+    AppConfig cfgK;
+    {
+        FakeArgs fa{"--preset", "K"};
+        std::string err;
+        bool ok = CliParser::parse(fa.argc(), fa.argv(), cfgK, err);
+        REQUIRE(ok);
+    }
+
+    REQUIRE(cfgAuto.preset == DlssSRPreset::Auto);
+    REQUIRE(cfgK.preset == DlssSRPreset::K);
+    // Auto and K are different enum values
+    REQUIRE(static_cast<int>(cfgAuto.preset) != static_cast<int>(cfgK.preset));
+}

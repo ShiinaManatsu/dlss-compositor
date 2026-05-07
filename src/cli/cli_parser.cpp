@@ -67,6 +67,10 @@ bool parseQuality(const char* value, DlssQualityMode& out) {
 }
 
 bool parsePreset(const char* value, DlssSRPreset& out) {
+    if (std::strcmp(value, "auto") == 0 || std::strcmp(value, "Auto") == 0) {
+        out = DlssSRPreset::Auto;
+        return true;
+    }
     if (std::strcmp(value, "J") == 0) {
         out = DlssSRPreset::J;
         return true;
@@ -307,7 +311,7 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             if (!parsePreset(argv[++i], config.preset)) {
-                errorMsg = "--preset must be one of: J, K, L, M";
+                errorMsg = "--preset must be one of: auto, J, K, L, M";
                 return false;
             }
             continue;
@@ -466,7 +470,7 @@ void CliParser::printHelp() {
     std::printf("  --camera-data <file>   Camera metadata JSON file\n");
     std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
     std::printf("  --quality <mode>       DLSS quality mode (DLAA|MaxQuality|Balanced|Performance|UltraPerformance)\n");
-    std::printf("  --preset <mode>        SR preset hint (J|K|L|M; default: L)\n");
+    std::printf("  --preset <mode>        SR preset hint (auto|J|K|L|M; default: auto, NVIDIA-recommended per quality)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Video encoding frame rate (default: 24)\n");

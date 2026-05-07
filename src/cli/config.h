@@ -16,6 +16,7 @@ enum class DlssQualityMode {
 };
 
 enum class DlssSRPreset {
+    Auto = 0,
     J = 10,
     K = 11,
     L = 12,
@@ -53,7 +54,7 @@ struct AppConfig {
     float scaleFactor = 0.0f;
     bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::MaxQuality;
-    DlssSRPreset preset = DlssSRPreset::L;
+    DlssSRPreset preset = DlssSRPreset::Auto;
 
     int interpolateFactor = 0;
     std::string cameraDataFile;
