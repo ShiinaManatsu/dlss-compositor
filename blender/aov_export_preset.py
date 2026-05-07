@@ -226,84 +226,8 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         vl.use_pass_combined = True
         vl.use_pass_z = True
         vl.use_pass_vector = True
-        vl.use_pass_normal = True
-        vl.use_pass_diffuse_color = True
-        vl.use_pass_glossy_color = True
 
-        # 2 — Custom AOV: Roughness -------------------------------------------
-        existing_aov_names = {aov.name for aov in vl.aovs}
-        if "Roughness" not in existing_aov_names:
-            aov = vl.aovs.add()
-            aov.name = "Roughness"
-            aov.type = "VALUE"
-
-        # 3 — Wire Principled BSDF → AOV Output per material ------------------
-        #
-        # Strategy: read what drives the Principled BSDF's *Roughness INPUT*,
-        # then route the same signal into the AOV Output's Value input.
-        # Principled BSDF has no "Roughness" output socket — only an input.
-        #
-        fixed_mats = 0
-        for mat in bpy.data.materials:
-            if mat.node_tree is None:
-                continue
-            nodes = mat.node_tree.nodes
-            links = mat.node_tree.links
-
-            # Find the Principled BSDF node
-            principled = None
-            for node in nodes:
-                if node.type == "BSDF_PRINCIPLED":
-                    principled = node
-                    break
-            if principled is None:
-                continue
-
-            # Find or create the AOV Output node named "Roughness"
-            aov_node = None
-            for node in nodes:
-                if node.type == "OUTPUT_AOV" and node.name == "Roughness":
-                    aov_node = node
-                    break
-            if aov_node is None:
-                aov_node = nodes.new("ShaderNodeOutputAOV")
-                aov_node.name = "Roughness"
-                aov_node.aov_name = "Roughness"
-
-            # Get the Value input on the AOV Output node
-            value_in = aov_node.inputs.get("Value")
-            if value_in is None:
-                continue
-
-            # If already wired, leave it alone
-            if value_in.is_linked:
-                continue
-
-            # Read the Roughness *input* of Principled BSDF
-            rough_input = principled.inputs.get("Roughness")
-            if rough_input is None:
-                continue
-
-            if rough_input.is_linked:
-                # Forward whatever upstream socket drives the roughness input
-                src_socket = rough_input.links[0].from_socket
-                links.new(src_socket, value_in)
-            else:
-                # Roughness is a plain constant — bake it into a Value node so
-                # the AOV always emits the correct scalar even if the BSDF
-                # default changes later.
-                val_node = nodes.new("ShaderNodeValue")
-                val_node.outputs[0].default_value = rough_input.default_value
-                val_node.label = f"Roughness ({rough_input.default_value:.3f})"
-                val_node.location = (
-                    aov_node.location.x - 220,
-                    aov_node.location.y,
-                )
-                links.new(val_node.outputs[0], value_in)
-
-            fixed_mats += 1
-
-        # 4 — Compositor: multilayer EXR file output ---------------------------
+        # 2 — Compositor: multilayer EXR file output ---------------------------
         scene = context.scene
         if bpy.app.version >= (5, 0, 0):
             # Blender 5.x: compositor uses compositing_node_group
@@ -350,25 +274,17 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         # Connect render layer passes to file output inputs
         # Blender 5.x renamed some render pass outputs
         if bpy.app.version >= (5, 0, 0):
-            # Blender 5.x: VALUE→FLOAT, DiffCol→"Diffuse Color", GlossCol→"Glossy Color"
+            # Blender 5.x: VALUE→FLOAT
             pass_names = [
                 ("Image", "RGBA"),  # Combined
                 ("Depth", "FLOAT"),  # Z
-                ("Normal", "VECTOR"),
                 ("Vector", "VECTOR"),
-                ("Diffuse Color", "RGBA"),
-                ("Glossy Color", "RGBA"),
-                ("Roughness", "FLOAT"),
             ]
         else:
             pass_names = [
                 ("Image", "RGBA"),
                 ("Depth", "VALUE"),
-                ("Normal", "VECTOR"),
                 ("Vector", "VECTOR"),
-                ("DiffCol", "RGBA"),
-                ("GlossCol", "RGBA"),
-                ("Roughness", "VALUE"),
             ]
 
         # Get existing slots collection (API changed in Blender 5.x)
@@ -398,12 +314,35 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
                     tree.links.new(rl_out, fo_in)
 
         # 5 — Report -----------------------------------------------------------
-        configured = "Combined, Z, Vector, Normal, DiffCol, GlossCol, Roughness(AOV)"
+        configured = "Combined, Z, Vector"
         self.report(
             {"INFO"},
-            f"Passes configured: {configured} — wired {fixed_mats} material(s)",
+            f"Passes configured: {configured}",
         )
 
+        return {"FINISHED"}
+
+
+class DLSSCOMP_OT_cleanup_legacy_aov_nodes(bpy.types.Operator):
+    """Remove legacy DLSS AOV Output nodes from all materials in the scene."""
+
+    bl_idname = "dlsscomp.cleanup_legacy_aov_nodes"
+    bl_label = "Remove DLSS AOV Output Nodes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        removed = 0
+        for mat in bpy.data.materials:
+            if mat.node_tree is None:
+                continue
+            nodes_to_remove = [
+                node for node in mat.node_tree.nodes
+                if node.type == "OUTPUT_AOV" and node.name in ("Roughness",)
+            ]
+            for node in nodes_to_remove:
+                mat.node_tree.nodes.remove(node)
+                removed += 1
+        self.report({"INFO"}, f"Removed {removed} legacy AOV Output node(s)")
         return {"FINISHED"}
 
 
@@ -433,6 +372,12 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
             DLSSCOMP_OT_configure_passes.bl_idname,
             text="Configure All Passes",
             icon="RENDERLAYERS",
+        )
+
+        layout.operator(
+            DLSSCOMP_OT_cleanup_legacy_aov_nodes.bl_idname,
+            text="Remove Legacy AOV Nodes",
+            icon="TRASH",
         )
 
         layout.separator()
@@ -465,25 +410,6 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
             text=f"Vector: {'ON' if vl.use_pass_vector else 'OFF'}",
             icon="CHECKMARK" if vl.use_pass_vector else "X",
         )
-        col.label(
-            text=f"Normal: {'ON' if vl.use_pass_normal else 'OFF'}",
-            icon="CHECKMARK" if vl.use_pass_normal else "X",
-        )
-        col.label(
-            text=f"Diffuse Color: {'ON' if vl.use_pass_diffuse_color else 'OFF'}",
-            icon="CHECKMARK" if vl.use_pass_diffuse_color else "X",
-        )
-        col.label(
-            text=f"Glossy Color: {'ON' if vl.use_pass_glossy_color else 'OFF'}",
-            icon="CHECKMARK" if vl.use_pass_glossy_color else "X",
-        )
-
-        # Roughness AOV status
-        aov_names = {aov.name for aov in vl.aovs}
-        col.label(
-            text=f"Roughness AOV: {'ON' if 'Roughness' in aov_names else 'OFF'}",
-            icon="CHECKMARK" if "Roughness" in aov_names else "X",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +430,7 @@ def register():
     )
     bpy.utils.register_class(DLSSCOMP_OT_export_camera)
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
+    bpy.utils.register_class(DLSSCOMP_OT_cleanup_legacy_aov_nodes)
     bpy.utils.register_class(DLSSCOMP_PT_export_panel)
 
     # Register jitter handlers
@@ -525,6 +452,7 @@ def unregister():
         bpy.app.handlers.render_cancel.remove(restore_shift)
 
     bpy.utils.unregister_class(DLSSCOMP_PT_export_panel)
+    bpy.utils.unregister_class(DLSSCOMP_OT_cleanup_legacy_aov_nodes)
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.unregister_class(DLSSCOMP_OT_export_camera)
     del bpy.types.Scene.dlsscomp_output_dir
@@ -547,10 +475,7 @@ if __name__ == "__main__":
 
         if "--test" in args:
             bpy.ops.dlsscomp.configure_passes()
-            print(
-                "Passes configured: Combined, Z, Vector, Normal, "
-                "DiffCol, GlossCol, Roughness(AOV)"
-            )
+            print("Passes configured: Combined, Z, Vector")
             sys.exit(0)
     except Exception as e:
         import sys as _sys
