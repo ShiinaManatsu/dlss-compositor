@@ -151,7 +151,7 @@ Wave FINAL (审查):
 
 ## TODOs
 
-- [ ] 1. Electron 兼容性审计（前置 gate）
+- [x] 1. Electron 兼容性审计（前置 gate）
 
   **What to do**:
   - 在 `gui/electron/` 和 `gui/src/` 中 grep 是否有调用 `--gui`, `--test-gui`, `--test-load`, `--test-process` 的代码
@@ -197,7 +197,7 @@ Wave FINAL (审查):
 
   **Commit**: NO（仅审计）
 
-- [ ] 2. 删除 src/ui/ 文件
+- [x] 2. 删除 src/ui/ 文件
 
   **What to do**:
   - 删除以下文件：
@@ -246,7 +246,7 @@ Wave FINAL (审查):
 
   **Commit**: NO（最终在 Task 7 通过测试后一起 commit）
 
-- [ ] 3. CLI parser 和 config 收缩
+- [x] 3. CLI parser 和 config 收缩
 
   **What to do**:
   - **`src/cli/cli_parser.cpp`**:
@@ -297,7 +297,7 @@ Wave FINAL (审查):
 
   **Commit**: NO（与其他 Wave 1 任务一起 commit）
 
-- [ ] 4. main.cpp 简化
+- [x] 4. main.cpp 简化
 
   **What to do**:
   - **`src/main.cpp`**:
@@ -341,7 +341,7 @@ Wave FINAL (审查):
 
   **Commit**: NO
 
-- [ ] 5. CMakeLists 移除 ImGui / GLFW
+- [x] 5. CMakeLists 移除 ImGui / GLFW
 
   **What to do**:
   - **`CMakeLists.txt`**:
@@ -393,7 +393,7 @@ Wave FINAL (审查):
 
   **Commit**: NO
 
-- [ ] 6. Vulkan context 简化（去 swapchain / surface）
+- [x] 6. Vulkan context 简化（去 swapchain / surface）
 
   **What to do**:
   - **`src/gpu/vulkan_context.cpp`**:
@@ -450,7 +450,7 @@ Wave FINAL (审查):
 
   **Commit**: NO
 
-- [ ] 7. 全套测试与回归
+- [x] 7. 全套测试与回归
 
   **What to do**:
   - **C++ 测试**:
@@ -532,7 +532,7 @@ Wave FINAL (审查):
   - Files: `src/ui/* (deleted), src/cli/*, src/main.cpp, src/gpu/vulkan_context.*, CMakeLists.txt, tests/test_cli.cpp`
   - Pre-commit: `cmake --build build --config Release && ctest --test-dir build --output-on-failure`
 
-- [ ] 8. 文档更新 + Electron e2e 验证
+- [x] 8. 文档更新 + Electron e2e 验证
 
   **What to do**:
   - **README.md** 更新：
@@ -604,7 +604,7 @@ Wave FINAL (审查):
 
 > 4 个审查 agent 并行运行。全部通过后向用户展示并获明确 okay。
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle`
   对每个 "Must Have"：验证已删除（grep 验证）。对每个 "Must NOT Have"：搜索代码确认未误删 SR/FG/EXR 等核心。检查 evidence 文件齐全。
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT`
 
@@ -631,7 +631,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase0/F1-must-not.txt
   ```
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high`
   Build + ctest + pytest。检查无遗留 dead code（include "ui/app.h" 等）。
   Output: `Build [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean] | VERDICT`
 
@@ -648,7 +648,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase0/F2-quality.txt
   ```
 
-- [ ] F3. **真实 QA** — `unspecified-high`
+- [x] F3. **真实 QA** — `unspecified-high`
   执行所有 task 的 QA 场景。集成测试：完整 SR-only + SR+FG 处理 fixture 序列。
   Output: `Scenarios [N/N pass] | Integration [N/N] | VERDICT`
 
@@ -664,7 +664,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase0/F3-e2e.txt
   ```
 
-- [ ] F4. **范围保真度检查** — `deep`
+- [x] F4. **范围保真度检查** — `deep`
   对每个 task 读 spec 和 diff，验证 1:1。检查 Must NOT 合规。
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N] | VERDICT`
 
