@@ -159,4 +159,5 @@ Level\ select to AdvancedSettings.
 - start() in useProcessing must reset latestFramePath to null so the previous run's path doesn't leak into the new run.
 
  -   A d d e d   a u t o - d i s c o v e r y   f o r   c a m e r a . j s o n   i n   G U I   v i a   I P C   h a n d l e   ' c a m e r a : a u t o - d e t e c t '   w h i c h   r e t u r n s   b o t h   p a t h   a n d   r e s o l u t i o n .  
+ T a s k   6 :   T h e   f r o n t e n d   r e c e i v e s   t h e   b a n n e r   p a y l o a d   v i a   t h e   P R O C E S S _ B A N N E R   I P C   o n   s t a r t u p   ( p r o b e   p r o c e s s   r u n   s i l e n t l y )   a n d   s t o r e s   i t   i n   B a n n e r P r o v i d e r .   S t a t u s B a r   c o m p o n e n t   a t   t o p   o f   t h e   a p p   d i s p l a y s   t h e   D L S S   S D K   v e r s i o n   a n d   f e a t u r e   s u p p o r t .  
  

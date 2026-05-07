@@ -24,6 +24,9 @@ export interface DlssConfig {
   ngxLogLevel: 'off' | 'error' | 'warn' | 'info' | 'verbose';
   sourceWidth: number | null;
   sourceHeight: number | null;
+  targetPreset: '4K' | '1440p' | '1080p' | 'Custom' | 'DLAA';
+  customTargetWidth: number | null;
+  customTargetHeight: number | null;
 }
 
 export const DEFAULT_CONFIG: DlssConfig = {
@@ -52,6 +55,9 @@ export const DEFAULT_CONFIG: DlssConfig = {
   ngxLogLevel: 'warn',
   sourceWidth: null,
   sourceHeight: null,
+  targetPreset: '4K',
+  customTargetWidth: null,
+  customTargetHeight: null,
 }
 
 export interface Settings {

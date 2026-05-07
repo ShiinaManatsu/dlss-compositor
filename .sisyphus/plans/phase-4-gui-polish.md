@@ -618,7 +618,7 @@ Wave FINAL (审查):
   - Files: `gui/electron/progress-parser.ts, gui/electron/main.ts, gui/electron/cli-args.ts, gui/electron/ipc-channels.ts, gui/src/ipc/channels.ts, gui/electron/preload.ts, gui/src/types/window.d.ts, gui/src/hooks/useProcessing.ts, gui/tests/ndjson-parser.spec.ts`
   - Pre-commit: `cd gui; npm run build && npx playwright test`
 
-- [ ] 6. GUI: NGX banner 头部状态栏
+- [x] 6. GUI: NGX banner 头部状态栏
 
   **What to do**:
   - **新建 `gui/src/components/StatusBar.tsx`**:

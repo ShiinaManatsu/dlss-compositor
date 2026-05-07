@@ -3,6 +3,7 @@ import { useConfig } from '../state/config-store';
 import { DlssConfig } from '../types/dlss-config';
 import { useIsRunning } from '../state/processing-store';
 import { handleNumberInputKeyDown, flashInput } from './utils';
+import ResolutionPanel from './ResolutionPanel';
 
 export default function BasicSettings() {
   const { state, dispatch } = useConfig();
@@ -103,6 +104,8 @@ export default function BasicSettings() {
           </div>
         </div>
       </div>
+
+      <ResolutionPanel />
 
       {/* Source FPS Section */}
       <div className="space-y-2 pt-4 border-t border-gray-700">

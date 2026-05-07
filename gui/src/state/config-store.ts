@@ -29,7 +29,9 @@ type ConfigAction =
   | { type: 'SET_SOURCE_FPS'; payload: number }
   | { type: 'SET_SHARPNESS'; payload: number }
   | { type: 'SET_NGX_LOG_LEVEL'; payload: DlssConfig['ngxLogLevel'] }
-  | { type: 'SET_SOURCE_RESOLUTION'; payload: { width: number | null; height: number | null } };
+  | { type: 'SET_SOURCE_RESOLUTION'; payload: { width: number | null; height: number | null } }
+  | { type: 'SET_TARGET_PRESET'; payload: '4K' | '1440p' | '1080p' | 'Custom' | 'DLAA' }
+  | { type: 'SET_CUSTOM_TARGET_RESOLUTION'; payload: { width: number | null; height: number | null } };
 
 interface ConfigContextValue {
   state: ConfigState;
@@ -37,6 +39,21 @@ interface ConfigContextValue {
 }
 
 const ConfigContext = createContext<ConfigContextValue | undefined>(undefined);
+
+const PRESET_WIDTHS: Record<string, number> = {
+  '4K': 3840,
+  '1440p': 2560,
+  '1080p': 1920,
+};
+
+function computeScale(sourceWidth: number | null, targetPreset: string, customTargetWidth: number | null): number {
+  if (targetPreset === 'DLAA') return 1.0;
+  const targetW = targetPreset === 'Custom' ? customTargetWidth : (PRESET_WIDTHS[targetPreset] ?? null);
+  if (targetW && sourceWidth && sourceWidth > 0) {
+    return Math.round((targetW / sourceWidth) * 100) / 100; // Round to 2 decimal places
+  }
+  return 2.0; // fallback
+}
 
 function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
   switch (action.type) {
@@ -106,8 +123,21 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       return { ...state, sharpness: action.payload };
     case 'SET_NGX_LOG_LEVEL':
       return { ...state, ngxLogLevel: action.payload };
-    case 'SET_SOURCE_RESOLUTION':
-      return { ...state, sourceWidth: action.payload.width, sourceHeight: action.payload.height };
+    case 'SET_SOURCE_RESOLUTION': {
+      const { width, height } = action.payload;
+      const newScale = computeScale(width, state.targetPreset, state.customTargetWidth);
+      return { ...state, sourceWidth: width, sourceHeight: height, scaleFactor: newScale };
+    }
+    case 'SET_TARGET_PRESET': {
+      const newPreset = action.payload;
+      const newScale = computeScale(state.sourceWidth, newPreset, state.customTargetWidth);
+      return { ...state, targetPreset: newPreset, scaleFactor: newScale };
+    }
+    case 'SET_CUSTOM_TARGET_RESOLUTION': {
+      const { width, height } = action.payload;
+      const newScale = computeScale(state.sourceWidth, 'Custom', width);
+      return { ...state, customTargetWidth: width, customTargetHeight: height, scaleFactor: newScale };
+    }
     default:
       return state;
   }
