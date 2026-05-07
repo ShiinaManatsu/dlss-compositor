@@ -6,7 +6,6 @@
 
 #include "core/logger.h"
 
-#include <GLFW/glfw3.h>
 #include <nvsdk_ngx_defs.h>
 #include <nvsdk_ngx_vk.h>
 #include <vk_mem_alloc.h>
@@ -244,21 +243,6 @@ bool VulkanContext::init(std::string& errorMsg) {
         return false;
     }
 
-    if (glfwInit() != GLFW_TRUE) {
-        const char* glfwError = nullptr;
-        glfwGetError(&glfwError);
-        errorMsg = std::string("Failed to initialize GLFW") +
-                   (glfwError != nullptr ? std::string(": ") + glfwError : std::string("."));
-        return false;
-    }
-    m_glfwInitialized = true;
-
-    if (glfwVulkanSupported() != GLFW_TRUE) {
-        errorMsg = "GLFW reports that Vulkan is not supported on this system.";
-        destroy();
-        return false;
-    }
-
     uint32_t layerCount = 0;
     if (vkEnumerateInstanceLayerProperties(&layerCount, nullptr) != VK_SUCCESS) {
         errorMsg = "Failed to enumerate Vulkan instance layers.";
@@ -288,22 +272,7 @@ bool VulkanContext::init(std::string& errorMsg) {
         return false;
     }
 
-    uint32_t glfwExtensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    if (glfwExtensions == nullptr || glfwExtensionCount == 0) {
-        errorMsg = "Failed to query required Vulkan instance extensions from GLFW.";
-        destroy();
-        return false;
-    }
-
     std::vector<const char*> enabledExtensions;
-    enabledExtensions.reserve(glfwExtensionCount + 3);
-    for (uint32_t i = 0; i < glfwExtensionCount; ++i) {
-        addUniqueExtension(enabledExtensions, glfwExtensions[i]);
-    }
-
-    addUniqueExtension(enabledExtensions, VK_KHR_SURFACE_EXTENSION_NAME);
-    addUniqueExtension(enabledExtensions, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 
     uint32_t instanceApiVersion = VK_API_VERSION_1_0;
     if (vkEnumerateInstanceVersion != nullptr) {
@@ -452,12 +421,10 @@ bool VulkanContext::init(std::string& errorMsg) {
     }
 
     std::vector<const char*> enabledDeviceExtensions;
-    for (const char* extensionName : std::array<const char*, 2>{VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_MAINTENANCE1_EXTENSION_NAME}) {
-        if (hasNamedExtension(availableDeviceExtensions, extensionName)) {
-            addUniqueExtension(enabledDeviceExtensions, extensionName);
-        } else {
-            Log::error( "Warning: Vulkan device extension not available: %s\n", extensionName);
-        }
+    if (hasNamedExtension(availableDeviceExtensions, VK_KHR_MAINTENANCE1_EXTENSION_NAME)) {
+        addUniqueExtension(enabledDeviceExtensions, VK_KHR_MAINTENANCE1_EXTENSION_NAME);
+    } else {
+        Log::error("Warning: Vulkan device extension not available: %s\n", VK_KHR_MAINTENANCE1_EXTENSION_NAME);
     }
 
     if (!addNgxRequiredDeviceExtensions(m_instance,
@@ -583,11 +550,6 @@ void VulkanContext::destroy() {
     if (m_instance != VK_NULL_HANDLE) {
         vkDestroyInstance(m_instance, nullptr);
         m_instance = VK_NULL_HANDLE;
-    }
-
-    if (m_glfwInitialized) {
-        glfwTerminate();
-        m_glfwInitialized = false;
     }
 
     m_physicalDevice = VK_NULL_HANDLE;

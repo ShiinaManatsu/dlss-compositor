@@ -65,10 +65,6 @@ struct AppConfig {
 
     bool testNgx = false;
     bool testVulkan = false;
-    bool testGui = false;
-    std::string testGuiLoad;
-    bool testGuiProcess = false;
-    bool launchGui = false;
     bool showHelp = false;
     bool showVersion = false;
 

@@ -9,7 +9,6 @@
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
 #include "pipeline/sequence_processor.h"
-#include "ui/app.h"
 
 int main(int argc, char* argv[]) {
     Log::init();
@@ -72,24 +71,6 @@ int main(int argc, char* argv[]) {
         ngx.shutdown();
         context.destroy();
         return 1;
-    }
-
-    if (config.testGui || config.launchGui) {
-        VulkanContext computeCtx;
-        if (!computeCtx.init(errorMsg)) {
-            Log::error("Compute Vulkan Error: %s\n", errorMsg.c_str());
-            return 1;
-        }
-        TexturePipeline pipeline(computeCtx);
-
-        App app;
-        if (!app.run(config, &computeCtx, &pipeline, errorMsg)) {
-            Log::error("GUI Error: %s\n", errorMsg.c_str());
-            computeCtx.destroy();
-            return 1;
-        }
-        computeCtx.destroy();
-        return 0;
     }
 
     if (!config.inputDir.empty() || !config.outputDir.empty()) {

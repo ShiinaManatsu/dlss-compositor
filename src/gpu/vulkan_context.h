@@ -45,7 +45,6 @@ private:
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
     VmaAllocator m_allocator = nullptr;
     std::string m_gpuName;
-    bool m_glfwInitialized = false;
     bool m_validationEnabled = false;
     bool m_initialized = false;
 };

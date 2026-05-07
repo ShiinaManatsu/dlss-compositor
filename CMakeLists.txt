@@ -11,9 +11,6 @@ if(DLSS_SDK_ROOT STREQUAL "")
     message(FATAL_ERROR "DLSS_SDK_ROOT must be set to the DLSS SDK directory")
 endif()
 
-# Find Vulkan
-find_package(Vulkan REQUIRED)
-
 # FetchContent for third-party deps
 include(FetchContent)
 
@@ -40,6 +37,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 
+# Vulkan-Headers (provides Vulkan::Headers for volk; no Vulkan SDK installation needed)
+FetchContent_Declare(
+    vulkan-headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+    GIT_TAG        vulkan-sdk-1.3.296.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(vulkan-headers)
+
+# Tell volk where the Vulkan headers live (avoids requiring an installed Vulkan SDK)
+set(VULKAN_HEADERS_INSTALL_DIR "${vulkan-headers_SOURCE_DIR}" CACHE PATH "" FORCE)
+
 # volk (Vulkan loader)
 FetchContent_Declare(
     volk
@@ -58,27 +67,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(VulkanMemoryAllocator)
 
-# Dear ImGui
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.91.9
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(imgui)
-
-# GLFW (for ImGui window)
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(glfw)
-
 # nlohmann/json (header-only JSON library)
 FetchContent_Declare(
     nlohmann_json
@@ -89,23 +77,6 @@ FetchContent_Declare(
 set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 set(JSON_Install OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nlohmann_json)
-
-# ImGui as a library (Vulkan + GLFW backend)
-add_library(imgui_lib STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-)
-target_include_directories(imgui_lib PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-    ${Vulkan_INCLUDE_DIRS}
-)
-target_link_libraries(imgui_lib PUBLIC volk glfw)
-target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 
 # Core CPU image IO helpers
 add_library(dlss_compositor_core STATIC
@@ -137,7 +108,6 @@ target_include_directories(dlss_compositor_core PUBLIC
 target_link_libraries(dlss_compositor_core PUBLIC
     OpenEXR::OpenEXR
     volk
-    glfw
     nlohmann_json::nlohmann_json
     $<$<CONFIG:Debug>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib>
     $<$<NOT:$<CONFIG:Debug>>:${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib>
@@ -151,9 +121,6 @@ target_compile_definitions(dlss_compositor_core PRIVATE
 add_executable(dlss-compositor src/main.cpp)
 target_sources(dlss-compositor PRIVATE
     src/cli/cli_parser.cpp
-    src/ui/app.cpp
-    src/ui/image_viewer.cpp
-    src/ui/settings_panel.cpp
 )
 target_include_directories(dlss-compositor PRIVATE
     src/
@@ -163,8 +130,6 @@ target_include_directories(dlss-compositor PRIVATE
 )
 target_link_libraries(dlss-compositor PRIVATE
     volk
-    imgui_lib
-    glfw
     dlss_compositor_core
 )
 target_compile_definitions(dlss-compositor PRIVATE
@@ -189,7 +154,11 @@ if(MSVC)
 endif()
 
 # Compile GLSL compute shaders to SPIR-V
-find_program(GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin")
+find_program(GLSLC glslc HINTS 
+    "$ENV{VULKAN_SDK}/Bin"
+    "D:/H72/ShaderLib/Debug_tools/VLK"
+    "D:/H72/ShaderLib/Debug_tools/ES"
+)
 if(NOT GLSLC)
     message(FATAL_ERROR "glslc not found. Install the Vulkan SDK or set VULKAN_SDK.")
 endif()

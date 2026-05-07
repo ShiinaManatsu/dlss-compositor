@@ -211,18 +211,6 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.testVulkan = true;
             continue;
         }
-        if (std::strcmp(arg, "--gui") == 0) {
-            config.launchGui = true;
-            continue;
-        }
-        if (std::strcmp(arg, "--test-gui") == 0) {
-            config.testGui = true;
-            continue;
-        }
-        if (std::strcmp(arg, "--test-process") == 0) {
-            config.testGuiProcess = true;
-            continue;
-        }
         if (std::strcmp(arg, "--input-dir") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--input-dir requires a value";
@@ -315,14 +303,6 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             config.channelMapFile = argv[++i];
-            continue;
-        }
-        if (std::strcmp(arg, "--test-load") == 0) {
-            if (i + 1 >= argc) {
-                errorMsg = "--test-load requires a value";
-                return false;
-            }
-            config.testGuiLoad = argv[++i];
             continue;
         }
         if (std::strcmp(arg, "--fps") == 0) {
@@ -460,10 +440,6 @@ void CliParser::printHelp() {
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
-    std::printf("  --gui                  Launch ImGui viewer\n");
-    std::printf("  --test-gui             Non-interactive GUI smoke test\n");
-    std::printf("  --test-load <exr>      Load an EXR file for GUI smoke test\n");
-    std::printf("  --test-process         Process via GUI test path\n");
     std::printf("  --help, -h             Show this help\n");
     std::printf("  --version              Show version\n");
 }
