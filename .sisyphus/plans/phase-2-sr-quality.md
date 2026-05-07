@@ -143,7 +143,7 @@ Wave FINAL (审查):
 
 ## TODOs
 
-- [ ] 1. 删除 GBuffer 路径（Blender 端）
+- [x] 1. 删除 GBuffer 路径（Blender 端）
 
   **What to do**:
   - **`blender/dlss_compositor_aov/__init__.py`**:
@@ -208,7 +208,7 @@ Wave FINAL (审查):
   - Files: `blender/dlss_compositor_aov/__init__.py, blender/aov_export_preset.py, blender/dlss_compositor_aov/blender_manifest.toml (version bump)`
   - Pre-commit: 手动 Blender 测试
 
-- [ ] 2. 删除 GBuffer 路径（C++ 端）
+- [x] 2. 删除 GBuffer 路径（C++ 端）
 
   **What to do**:
   - **`src/core/exr_reader.cpp:33-62`**:
@@ -285,7 +285,7 @@ Wave FINAL (审查):
   - Files: `src/core/exr_reader.cpp, src/core/channel_mapper.*, src/dlss/dlss_sr_processor.*, src/pipeline/sequence_processor.cpp, tests/*, tools/exr_validator.py`
   - Pre-commit: `ctest --test-dir build`
 
-- [ ] 3. Per-Quality Preset Auto 默认值
+- [x] 3. Per-Quality Preset Auto 默认值
 
   **What to do**:
   - **`src/cli/config.h`**:
@@ -354,7 +354,7 @@ Wave FINAL (审查):
   - Files: `src/cli/*, src/dlss/ngx_wrapper.cpp, tests/test_cli.cpp`
   - Pre-commit: `ctest`
 
-- [ ] 4. 启动 Banner（GUI 可正则解析）
+- [x] 4. 启动 Banner（GUI 可正则解析）
 
   **What to do**:
   - **`src/dlss/ngx_wrapper.cpp NgxContext::init`** 成功后输出结构化 banner：
@@ -445,7 +445,7 @@ Wave FINAL (审查):
   - Files: `src/dlss/ngx_wrapper.cpp, src/core/version.h (引用), src/core/logger.h (如需新方法)`
   - Pre-commit: `ctest && build\Release\dlss-compositor.exe --test-ngx | findstr /c:"[NGX]"`
 
-- [ ] 5. CAS Sharpen Shader + Processor + CLI flag
+- [x] 5. CAS Sharpen Shader + Processor + CLI flag
 
   **What to do**:
   - **新建 `src/shaders/cas_sharpen.comp`**:
@@ -528,7 +528,7 @@ Wave FINAL (审查):
   - Files: `src/shaders/cas_sharpen.comp, src/gpu/sharpen_processor.*, src/cli/*, src/pipeline/sequence_processor.cpp, CMakeLists.txt, tests/test_sharpen_processor.cpp`
   - Pre-commit: `cmake --build build && ctest -R sharpen`
 
-- [ ] 6. A/B 视觉验证（GBuffer 删除前 vs 后）
+- [x] 6. A/B 视觉验证（GBuffer 删除前 vs 后）
 
   **What to do**:
   - 选取一段代表性 Blender 序列（如 SnowMix 已有的 4k_aov 16 帧）
@@ -597,7 +597,7 @@ Wave FINAL (审查):
 
   **Commit**: NO（仅验证）
 
-- [ ] 7. 完整 e2e 验证
+- [x] 7. 完整 e2e 验证
 
   **What to do**:
   - 跑全套测试（C++ ctest + Python pytest）
@@ -643,16 +643,16 @@ Wave FINAL (审查):
 
 ## Final Verification Wave
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle`
   Must Have / Must NOT Have grep 验证。Evidence 文件齐全。
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high`
   Build + 测试 + 无 stale GBuffer 引用。
 
-- [ ] F3. **真实 QA** — `unspecified-high`
+- [x] F3. **真实 QA** — `unspecified-high`
   完整 e2e + A/B 对比报告 + 用户确认。
 
-- [ ] F4. **范围保真度检查** — `deep`
+- [x] F4. **范围保真度检查** — `deep`
   Diff 范围与 Concrete Deliverables 一致，FG 路径未被误改。
 
 ---
