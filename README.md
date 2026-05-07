@@ -71,9 +71,6 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --memory
 # Process and encode to video (requires FFmpeg)
 dlss-compositor.exe --input-dir renders/ --output-dir output/ --encode-video result.mp4 --fps 24
 
-# Launch the visual comparison tool
-dlss-compositor.exe --gui
-
 # --- HDR Transport Encoding for Frame Generation ---
 
 # FG with PQ transport encoding (default — preserves full HDR range)
