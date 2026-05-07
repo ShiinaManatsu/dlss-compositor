@@ -195,6 +195,15 @@ bool parseOutputPasses(const char* value, OutputPass& out) {
     return static_cast<uint32_t>(parsed) != 0u;
 }
 
+bool parseNgxLogLevel(const char* value, NVSDK_NGX_Logging_Level& out) {
+    if (std::strcmp(value, "off") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_OFF; return true; }
+    if (std::strcmp(value, "verbose") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_VERBOSE; return true; }
+    if (std::strcmp(value, "warn") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
+    if (std::strcmp(value, "error") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
+    if (std::strcmp(value, "info") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
+    return false;
+}
+
 } // namespace
 
 bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& errorMsg) {
@@ -324,6 +333,19 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.fps = fps;
             continue;
         }
+        if (std::strcmp(arg, "--source-fps") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--source-fps requires a value";
+                return false;
+            }
+            int sfps = 0;
+            if (!parseInt(argv[++i], sfps) || sfps < 0) {
+                errorMsg = "--source-fps must be a non-negative integer";
+                return false;
+            }
+            config.sourceFps = sfps > 0 ? sfps : 30;  // zero protection: fallback to 30
+            continue;
+        }
         if (std::strcmp(arg, "--encode-video") == 0) {
             config.encodeVideo = true;
             if (i + 1 < argc && !isFlag(argv[i + 1])) {
@@ -397,6 +419,23 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.tonemapMode = TonemapMode::Custom;
             continue;
         }
+        if (std::strcmp(arg, "--ngx-log-level") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--ngx-log-level requires a value";
+                return false;
+            }
+            const char* level = argv[++i];
+            if (std::strcmp(level, "off") == 0)     { config.ngxLogLevel = 0; }
+            else if (std::strcmp(level, "error") == 0) { config.ngxLogLevel = 1; }
+            else if (std::strcmp(level, "warn") == 0)  { config.ngxLogLevel = 2; }
+            else if (std::strcmp(level, "info") == 0)  { config.ngxLogLevel = 3; }
+            else if (std::strcmp(level, "verbose") == 0) { config.ngxLogLevel = 4; }
+            else {
+                errorMsg = std::string("Invalid --ngx-log-level value '") + level + "'. Valid: off, error, warn, info, verbose";
+                return false;
+            }
+            continue;
+        }
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
@@ -436,7 +475,8 @@ void CliParser::printHelp() {
     std::printf("  --preset <mode>        SR preset hint (J|K|L|M; default: L)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
-    std::printf("  --fps <rate>           Frame rate for video encoding (default: 24)\n");
+    std::printf("  --fps <rate>           Video encoding frame rate (default: 24)\n");
+    std::printf("  --source-fps <rate>    Source footage frame rate for DLSS frame timing (default: 30)\n");
     std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
     std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
     std::printf("  --output-passes <list> Output passes (comma-separated: beauty,depth,normals; default: beauty)\n");
@@ -444,6 +484,7 @@ void CliParser::printHelp() {
     std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
+    std::printf("  --ngx-log-level <lvl>  NGX SDK log level (off|error|warn|info|verbose; default: warn)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --help, -h             Show this help\n");

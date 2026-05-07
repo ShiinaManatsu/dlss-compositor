@@ -25,7 +25,8 @@ public:
               VkPhysicalDevice physicalDevice,
               VkDevice device,
               VkCommandBuffer cmdBuf,
-              std::string& errorMsg);
+              std::string& errorMsg,
+              NVSDK_NGX_Logging_Level logLevel = NVSDK_NGX_LOGGING_LEVEL_OFF);
 
     bool isDlssSRAvailable() const;
     std::string unavailableReason() const;

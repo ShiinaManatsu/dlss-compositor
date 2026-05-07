@@ -2,6 +2,8 @@
 
 #include "core/exr_writer.h"
 
+#include <nvsdk_ngx_defs.h>
+
 #include <cstdint>
 
 #include <string>
@@ -62,9 +64,12 @@ struct AppConfig {
     bool encodeVideo = false;
     std::string videoOutputFile = "output.mp4";
     int fps = 24;
+    int sourceFps = 30;  // Source footage frame rate (for DLSS frame time delta)
 
     bool testNgx = false;
     bool testVulkan = false;
+
+    NVSDK_NGX_Logging_Level ngxLogLevel = NVSDK_NGX_LOGGING_LEVEL_OFF;
     bool showHelp = false;
     bool showVersion = false;
 

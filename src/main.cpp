@@ -54,7 +54,8 @@ int main(int argc, char* argv[]) {
                       context.physicalDevice(),
                       context.device(),
                       nullptr,
-                      errorMsg)) {
+                      errorMsg,
+                      config.ngxLogLevel)) {
             Log::error("%s\n", errorMsg.c_str());
             context.destroy();
             return 1;
@@ -90,7 +91,8 @@ int main(int argc, char* argv[]) {
                       context.physicalDevice(),
                       context.device(),
                       nullptr,
-                      errorMsg)) {
+                      errorMsg,
+                      config.ngxLogLevel)) {
             Log::error("%s\n", errorMsg.c_str());
             context.destroy();
             return 1;

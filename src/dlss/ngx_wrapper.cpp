@@ -82,7 +82,8 @@ bool NgxContext::init(VkInstance instance,
                       VkPhysicalDevice physicalDevice,
                       VkDevice device,
                       VkCommandBuffer cmdBuf,
-                      std::string& errorMsg) {
+                      std::string& errorMsg,
+                      int ngxLogLevel) {
     (void)cmdBuf;
 
     if (m_initialized) {
@@ -97,9 +98,22 @@ bool NgxContext::init(VkInstance instance,
     m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
 
+    // Map int log level to NVSDK_NGX_Logging_Level
+    // NGX SDK only defines: OFF=0, ON=1, VERBOSE=2
+    auto mapLogLevel = [](int level) -> NVSDK_NGX_Logging_Level {
+        switch (level) {
+        case 0: return NVSDK_NGX_LOGGING_LEVEL_OFF;
+        case 1: return NVSDK_NGX_LOGGING_LEVEL_ON;      // error → ON (no ERROR-only level exists)
+        case 2: return NVSDK_NGX_LOGGING_LEVEL_ON;      // warn (default) → ON
+        case 3: return NVSDK_NGX_LOGGING_LEVEL_ON;      // info → ON (no INFO level exists)
+        case 4: return NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
+        default: return NVSDK_NGX_LOGGING_LEVEL_ON;
+        }
+    };
+
     NVSDK_NGX_FeatureCommonInfo featureInfo{};
     featureInfo.LoggingInfo.LoggingCallback = ngxLogCallback;
-    featureInfo.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
+    featureInfo.LoggingInfo.MinimumLoggingLevel = mapLogLevel(ngxLogLevel);
     featureInfo.LoggingInfo.DisableOtherLoggingSinks = false;
 
     const NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(appver::kNgxProjectId,
