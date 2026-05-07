@@ -7,6 +7,7 @@
 #include "dlss/ngx_wrapper.h"
 
 #include "core/logger.h"
+#include "core/version.h"
 
 #include <nvsdk_ngx_helpers_vk.h>
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
@@ -28,8 +29,6 @@
 namespace {
 
 constexpr wchar_t kNgxWorkDir[] = L".";
-constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
-constexpr char kNgxEngineVersion[] = "0.2.1";
 
 void NVSDK_CONV ngxLogCallback(const char* message,
                                NVSDK_NGX_Logging_Level,
@@ -103,9 +102,9 @@ bool NgxContext::init(VkInstance instance,
     featureInfo.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
     featureInfo.LoggingInfo.DisableOtherLoggingSinks = false;
 
-    const NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(kNgxProjectId,
-                                                                              NVSDK_NGX_ENGINE_TYPE_CUSTOM,
-                                                                              kNgxEngineVersion,
+    const NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(appver::kNgxProjectId,
+                                                                               NVSDK_NGX_ENGINE_TYPE_CUSTOM,
+                                                                               appver::kEngineVersion,
                                                                               kNgxWorkDir,
                                                                               instance,
                                                                               physicalDevice,

@@ -5,6 +5,7 @@
 #include "gpu/vulkan_context.h"
 
 #include "core/logger.h"
+#include "core/version.h"
 
 #include <nvsdk_ngx_defs.h>
 #include <nvsdk_ngx_vk.h>
@@ -25,8 +26,6 @@ constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
     constexpr const char* kNoCompatibleGpuMessage =
     "Error: No compatible NVIDIA RTX GPU found. DLSS Super Resolution requires an NVIDIA RTX GPU.";
 constexpr wchar_t kNgxWorkDir[] = L".";
-constexpr char kNgxProjectId[] = "6c6f53ec-6f25-4f9f-8d71-2f0f3c5e7a11";
-constexpr char kNgxEngineVersion[] = "0.1.0";
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -104,9 +103,9 @@ bool populateNgxFeatureDiscoveryInfo(NVSDK_NGX_FeatureDiscoveryInfo& featureInfo
     featureInfo.SDKVersion = NVSDK_NGX_Version_API;
     featureInfo.FeatureID = NVSDK_NGX_Feature_SuperSampling;
     featureInfo.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
-    featureInfo.Identifier.v.ProjectDesc.ProjectId = kNgxProjectId;
+    featureInfo.Identifier.v.ProjectDesc.ProjectId = appver::kNgxProjectId;
     featureInfo.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
-    featureInfo.Identifier.v.ProjectDesc.EngineVersion = kNgxEngineVersion;
+    featureInfo.Identifier.v.ProjectDesc.EngineVersion = appver::kEngineVersion;
     featureInfo.ApplicationDataPath = kNgxWorkDir;
     featureInfo.FeatureInfo = nullptr;
     return true;

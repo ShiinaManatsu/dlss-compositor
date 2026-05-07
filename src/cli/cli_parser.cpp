@@ -1,5 +1,7 @@
 #include "cli/cli_parser.h"
 
+#include "core/version.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -114,6 +116,10 @@ bool parseTonemapMode(const char* value, TonemapMode& out) {
     }
     if (std::strcmp(value, "pq") == 0) {
         out = TonemapMode::PQ;
+        return true;
+    }
+    if (std::strcmp(value, "custom") == 0) {
+        out = TonemapMode::Custom;
         return true;
     }
     return false;
@@ -364,7 +370,7 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
                 return false;
             }
             if (!parseTonemapMode(argv[++i], config.tonemapMode)) {
-                errorMsg = "--tonemap must be one of: none, pq";
+                errorMsg = "--tonemap must be one of: none, pq, custom";
                 return false;
             }
             continue;
@@ -417,7 +423,7 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
 }
 
 void CliParser::printHelp() {
-    std::printf("dlss-compositor v0.1.0\n");
+    std::printf("dlss-compositor v%s\n", appver::kEngineVersion);
     std::printf("Usage: dlss-compositor [options]\n");
     std::printf("Options:\n");
     std::printf("  --input-dir <dir>      Input EXR sequence directory\n");
@@ -434,7 +440,7 @@ void CliParser::printHelp() {
     std::printf("  --exr-compression <m>  EXR compression (none|zip|zips|piz|dwaa|dwab)\n");
     std::printf("  --exr-dwa-quality <f>  DWA compression quality (default: 95)\n");
     std::printf("  --output-passes <list> Output passes (comma-separated: beauty,depth,normals; default: beauty)\n");
-    std::printf("  --tonemap <mode>       FG transport encoding (none|pq; default: pq)\n");
+    std::printf("  --tonemap <mode>       FG transport encoding (none|pq|custom; default: pq)\n");
     std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
@@ -445,5 +451,5 @@ void CliParser::printHelp() {
 }
 
 void CliParser::printVersion() {
-    std::printf("dlss-compositor 0.1.0\n");
+    std::printf("dlss-compositor %s\n", appver::kEngineVersion);
 }
