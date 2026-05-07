@@ -198,9 +198,9 @@ bool parseOutputPasses(const char* value, OutputPass& out) {
 bool parseNgxLogLevel(const char* value, NVSDK_NGX_Logging_Level& out) {
     if (std::strcmp(value, "off") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_OFF; return true; }
     if (std::strcmp(value, "verbose") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_VERBOSE; return true; }
-    if (std::strcmp(value, "warn") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
-    if (std::strcmp(value, "error") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
-    if (std::strcmp(value, "info") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON_OR_DEFAULT; return true; }
+    if (std::strcmp(value, "warn") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON; return true; }
+    if (std::strcmp(value, "error") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON; return true; }
+    if (std::strcmp(value, "info") == 0) { out = NVSDK_NGX_LOGGING_LEVEL_ON; return true; }
     return false;
 }
 
@@ -478,7 +478,6 @@ void CliParser::printHelp() {
     std::printf("  --no-inverse-tonemap   Skip inverse PQ decode on FG output (output stays PQ-encoded)\n");
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
-    std::printf("  --ngx-log-level <lvl>  NGX SDK log level (off|error|warn|info|verbose; default: warn)\n");
     std::printf("  --ngx-log-level <level> NGX log verbosity (off|error|warn|info|verbose; default: off)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");

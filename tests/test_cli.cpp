@@ -299,3 +299,30 @@ TEST_CASE("CliParser - --tonemap custom without lut files fails", "[cli]") {
     REQUIRE(!ok);
     REQUIRE(!err.empty());
 }
+
+TEST_CASE("CliParser - --source-fps valid", "[cli]") {
+    FakeArgs fa{"--source-fps", "24"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.sourceFps == 24);
+}
+
+TEST_CASE("CliParser - --source-fps default", "[cli]") {
+    FakeArgs fa{"--input-dir", "test/"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.sourceFps == 30);
+}
+
+TEST_CASE("CliParser - --source-fps zero fallback", "[cli]") {
+    FakeArgs fa{"--source-fps", "0"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.sourceFps == 30);  // fallback to default
+}

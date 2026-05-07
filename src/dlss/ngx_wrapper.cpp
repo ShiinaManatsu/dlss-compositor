@@ -83,7 +83,7 @@ bool NgxContext::init(VkInstance instance,
                       VkDevice device,
                       VkCommandBuffer cmdBuf,
                       std::string& errorMsg,
-                      int ngxLogLevel) {
+                      NVSDK_NGX_Logging_Level logLevel) {
     (void)cmdBuf;
 
     if (m_initialized) {
@@ -98,22 +98,9 @@ bool NgxContext::init(VkInstance instance,
     m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
 
-    // Map int log level to NVSDK_NGX_Logging_Level
-    // NGX SDK only defines: OFF=0, ON=1, VERBOSE=2
-    auto mapLogLevel = [](int level) -> NVSDK_NGX_Logging_Level {
-        switch (level) {
-        case 0: return NVSDK_NGX_LOGGING_LEVEL_OFF;
-        case 1: return NVSDK_NGX_LOGGING_LEVEL_ON;      // error → ON (no ERROR-only level exists)
-        case 2: return NVSDK_NGX_LOGGING_LEVEL_ON;      // warn (default) → ON
-        case 3: return NVSDK_NGX_LOGGING_LEVEL_ON;      // info → ON (no INFO level exists)
-        case 4: return NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
-        default: return NVSDK_NGX_LOGGING_LEVEL_ON;
-        }
-    };
-
     NVSDK_NGX_FeatureCommonInfo featureInfo{};
     featureInfo.LoggingInfo.LoggingCallback = ngxLogCallback;
-    featureInfo.LoggingInfo.MinimumLoggingLevel = mapLogLevel(ngxLogLevel);
+    featureInfo.LoggingInfo.MinimumLoggingLevel = logLevel;
     featureInfo.LoggingInfo.DisableOtherLoggingSinks = false;
 
     const NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(appver::kNgxProjectId,
@@ -144,18 +131,6 @@ bool NgxContext::init(VkInstance instance,
     queryDlssSRAvailability();
     queryDlssFGAvailability();
     return true;
-}
-
-bool NgxContext::isDlssSRAvailable() const {
-    return m_initialized && m_dlssSRAvailable;
-}
-
-bool NgxContext::isDlssFGAvailable() const {
-    return m_initialized && m_dlssFGAvailable;
-}
-
-std::string NgxContext::unavailableReason() const {
-    return m_unavailableReason;
 }
 
 bool NgxContext::createDlssSR(int inputWidth,
@@ -200,12 +175,12 @@ bool NgxContext::createDlssSR(int inputWidth,
     NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, presetValue);
 
     const NVSDK_NGX_Result createResult = NGX_VULKAN_CREATE_DLSS_EXT1(m_device,
-                                                                       cmdBuf,
-                                                                       1,
-                                                                       1,
-                                                                       &m_featureHandle,
-                                                                       m_parameters,
-                                                                       &createParams);
+                                                                        cmdBuf,
+                                                                        1,
+                                                                        1,
+                                                                        &m_featureHandle,
+                                                                        m_parameters,
+                                                                        &createParams);
     if (NVSDK_NGX_FAILED(createResult)) {
         errorMsg = "Failed to create DLSS-SR feature: " + ngxResultToString(createResult);
         m_featureHandle = nullptr;
@@ -323,6 +298,18 @@ int NgxContext::maxMultiFrameCount() const {
 
 bool NgxContext::isInitialized() const {
     return m_initialized;
+}
+
+bool NgxContext::isDlssSRAvailable() const {
+    return m_dlssSRAvailable;
+}
+
+bool NgxContext::isDlssFGAvailable() const {
+    return m_dlssFGAvailable;
+}
+
+std::string NgxContext::unavailableReason() const {
+    return m_unavailableReason;
 }
 
 NVSDK_NGX_PerfQuality_Value NgxContext::mapQuality(DlssQualityMode quality) const {
