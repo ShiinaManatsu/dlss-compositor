@@ -133,7 +133,7 @@ Wave FINAL (审查):
 
 ## TODOs
 
-- [ ] 1. 合并 kNgxEngineVersion 双份常量
+- [x] 1. 合并 kNgxEngineVersion 双份常量
 
   **What to do**:
   - 新建 `src/core/version.h`:
@@ -187,7 +187,7 @@ Wave FINAL (审查):
   - Files: `src/core/version.h, src/dlss/ngx_wrapper.cpp, src/gpu/vulkan_context.cpp`
   - Pre-commit: `cmake --build build --config Release`
 
-- [ ] 2. CLI 支持 --tonemap custom
+- [x] 2. CLI 支持 --tonemap custom
 
   **What to do**:
   - 修改 `src/cli/cli_parser.cpp` 中的 `parseTonemapMode` 函数，新增分支：
@@ -232,7 +232,7 @@ Wave FINAL (审查):
   - Files: `src/cli/cli_parser.cpp, tests/test_cli.cpp`
   - Pre-commit: `ctest --test-dir build -R cli`
 
-- [ ] 3. NGX log 级别可配
+- [x] 3. NGX log 级别可配
 
   **What to do**:
   - **`src/cli/cli_parser.cpp`** + **`src/cli/config.h`**:
@@ -281,7 +281,7 @@ Wave FINAL (审查):
   - Files: `src/cli/cli_parser.cpp, src/cli/config.h, src/dlss/ngx_wrapper.cpp, src/main.cpp`
   - Pre-commit: `ctest --test-dir build`
 
-- [ ] 4. --source-fps + Frame Time Delta 派生
+- [x] 4. --source-fps + Frame Time Delta 派生
 
   **What to do**:
   - **`src/cli/cli_parser.cpp`** + **`src/cli/config.h`**:
@@ -343,7 +343,7 @@ Wave FINAL (审查):
   - Files: `src/cli/*, src/dlss/dlss_sr_processor.*, src/pipeline/sequence_processor.cpp`
   - Pre-commit: `ctest --test-dir build`
 
-- [ ] 5. Jitter 算法统一（回调写 camera.json）
+- [x] 5. Jitter 算法统一（回调写 camera.json）
 
   **What to do**:
   - **`blender/dlss_compositor_aov/__init__.py`**:
@@ -401,7 +401,7 @@ Wave FINAL (审查):
   - Files: `blender/dlss_compositor_aov/__init__.py, blender/aov_export_preset.py`
   - Pre-commit: 手动 Blender 测试 + （如有）pytest
 
-- [ ] 6. Jitter 相位按 scaleRatio² 计算
+- [x] 6. Jitter 相位按 scaleRatio² 计算
 
   **What to do**:
   - **Blender 端 UI**:
@@ -487,7 +487,7 @@ Wave FINAL (审查):
 
 ## Final Verification Wave
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle`
   对每个 Must Have 验证。grep 确认 kNgxEngineVersion 单一来源、--source-fps 已加、tonemap custom 可解析、NGX log 级别可配、jitter 算法统一、相位数动态。
 
   **QA Scenarios**:
@@ -504,13 +504,13 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase1/F1-must-have.txt
   ```
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high`
   Build + 全套测试。检查无 dead code、无重复常量、新增 flag 在 --help 中正确显示。
 
-- [ ] F3. **真实 QA** — `unspecified-high`
+- [x] F3. **真实 QA** — `unspecified-high`
   从 Blender 渲染一段 16 帧序列（scale=2，所以 32 相位）。前 16 帧 jitter 值无重复。跑 compositor 处理，verbose log 显示正确 frame_time 和 jitter_phases。
 
-- [ ] F4. **范围保真度检查** — `deep`
+- [x] F4. **范围保真度检查** — `deep`
   验证未误改 SR/FG 核心逻辑。git diff 范围与 Concrete Deliverables 一致。
 
 ---
