@@ -11,6 +11,10 @@ interface DlssApi {
   onError(callback: (message: string) => void): DlssApiUnlisten
   onComplete(callback: () => void): DlssApiUnlisten
   onLog(callback: (line: string) => void): DlssApiUnlisten
+  onFrameWritten(callback: (data: { path: string; n: number }) => void): DlssApiUnlisten
+  onBanner(
+    callback: (data: { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number }) => void
+  ): DlssApiUnlisten
   getSettings(): Promise<unknown>
   saveSettings(settings: unknown): Promise<void>
   validateExePath(path: string): Promise<boolean>

@@ -11,45 +11,13 @@ function formatElapsed(seconds: number): string {
 
 export default function ProcessingView() {
   const { state } = useConfig();
-  const { status, progress, currentFrame, totalFrames, errors, start, stop } = useProcessing();
+  const { status, progress, currentFrame, totalFrames, errors, latestFramePath, start, stop } = useProcessing();
   const [exePath, setExePath] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [completionMsg, setCompletionMsg] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(0);
-
-  const [latestFramePath, setLatestFramePath] = useState<string>('')
-  const previewTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Poll for latest frame every 3 seconds while running
-  useEffect(() => {
-    if (status === 'running' && state.outputDir) {
-      previewTimerRef.current = setInterval(async () => {
-        const p = await window.dlssApi.getLatestFrame(state.outputDir)
-        if (p) {
-          setLatestFramePath(p)
-        }
-      }, 3000)
-    } else {
-      if (previewTimerRef.current) {
-        clearInterval(previewTimerRef.current)
-        previewTimerRef.current = null
-      }
-      // On done/idle, do one final fetch
-      if ((status === 'done') && state.outputDir) {
-        window.dlssApi.getLatestFrame(state.outputDir).then(p => {
-          if (p) { setLatestFramePath(p) }
-        })
-      }
-    }
-    return () => {
-      if (previewTimerRef.current) {
-        clearInterval(previewTimerRef.current)
-        previewTimerRef.current = null
-      }
-    }
-  }, [status, state.outputDir])
 
   useEffect(() => {
     window.dlssApi.getSettings().then((raw: unknown) => {
@@ -98,7 +66,6 @@ export default function ProcessingView() {
 
   const handleStart = useCallback(() => {
     setCompletionMsg('');
-    setLatestFramePath('');
     start(state, exePath);
   }, [start, state, exePath]);
 
@@ -252,7 +219,7 @@ export default function ProcessingView() {
                 frameCounterLabel
               )}
             </div>
-            <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath}>
+            <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath ?? undefined}>
               {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : 'Waiting for first frame…'}
             </div>
           </div>

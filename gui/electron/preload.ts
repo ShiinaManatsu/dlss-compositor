@@ -29,6 +29,19 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.on('process:log', handler)
     return () => ipcRenderer.removeListener('process:log', handler)
   },
+  onFrameWritten: (callback: (data: { path: string; n: number }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { path: string; n: number }) => callback(data)
+    ipcRenderer.on('process:frame-written', handler)
+    return () => ipcRenderer.removeListener('process:frame-written', handler)
+  },
+  onBanner: (
+    callback: (data: { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number }) => void
+  ): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
+      callback(data as { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number })
+    ipcRenderer.on('process:banner', handler)
+    return () => ipcRenderer.removeListener('process:banner', handler)
+  },
   getSettings: (): Promise<unknown> =>
     ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown): Promise<void> =>

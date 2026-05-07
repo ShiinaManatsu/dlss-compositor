@@ -4,12 +4,22 @@ import { setGlobalIsRunning } from '../state/processing-store'
 
 export type ProcessingStatus = 'idle' | 'running' | 'done' | 'error'
 
+export interface BannerInfo {
+  sdk: string
+  engine: string
+  sr_available: boolean
+  fg_available: boolean
+  max_multi_frame: number
+}
+
 export interface ProcessingState {
   status: ProcessingStatus
   progress: number
   currentFrame: number
   totalFrames: number
   errors: string[]
+  latestFramePath: string | null
+  banner: BannerInfo | null
   start: (config: DlssConfig, exePath?: string) => void
   stop: () => void
 }
@@ -19,6 +29,8 @@ export function useProcessing(): ProcessingState {
   const [currentFrame, setCurrentFrame] = useState(0)
   const [totalFrames, setTotalFrames] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
+  const [latestFramePath, setLatestFramePath] = useState<string | null>(null)
+  const [banner, setBanner] = useState<BannerInfo | null>(null)
 
   useEffect(() => {
     setGlobalIsRunning(status === 'running');
@@ -39,10 +51,20 @@ export function useProcessing(): ProcessingState {
       setStatus('done')
     })
 
+    const unlistenFrameWritten = window.dlssApi.onFrameWritten((data) => {
+      setLatestFramePath(data.path)
+    })
+
+    const unlistenBanner = window.dlssApi.onBanner((data) => {
+      setBanner(data)
+    })
+
     return () => {
       unlistenProgress()
       unlistenError()
       unlistenComplete()
+      unlistenFrameWritten()
+      unlistenBanner()
     }
   }, [])
 
@@ -53,6 +75,7 @@ export function useProcessing(): ProcessingState {
     setCurrentFrame(0)
     setTotalFrames(0)
     setErrors([])
+    setLatestFramePath(null)
     window.dlssApi.startProcessing(config, exePath)
   }, [])
 
@@ -61,5 +84,5 @@ export function useProcessing(): ProcessingState {
     setStatus('idle')
   }, [])
 
-  return { status, progress, currentFrame, totalFrames, errors, start, stop }
+  return { status, progress, currentFrame, totalFrames, errors, latestFramePath, banner, start, stop }
 }

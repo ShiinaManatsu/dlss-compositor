@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   PROCESS_ERROR: 'process:error',
   PROCESS_COMPLETE: 'process:complete',
   PROCESS_LOG: 'process:log',
+  PROCESS_FRAME_WRITTEN: 'process:frame-written',
+  PROCESS_BANNER: 'process:banner',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
   VALIDATE_EXE_PATH: 'settings:validate-exe-path',

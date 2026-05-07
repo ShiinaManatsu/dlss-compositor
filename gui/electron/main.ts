@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { IPC_CHANNELS } from './ipc-channels'
-import { parseProgressLine, ProgressLineBuffer } from './progress-parser'
+import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import { getExePath, getSettings, saveSettings, setExePath, validateExePath } from './settings-store'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
@@ -93,12 +93,36 @@ function registerIpcHandlers(): void {
     const lineBuffer = new ProgressLineBuffer()
     lineBuffer.onLine = (line: string) => {
       console.log('[main] stdout line:', JSON.stringify(line))
-      const progress = parseProgressLine(line)
-      if (progress) {
-        console.log('[main] parsed progress:', progress)
-        win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, progress)
+
+      const event = parseNdjsonLine(line)
+      if (event) {
+        switch (event.event) {
+          case 'started':
+            // Initial total announcement — surface as a 0/total progress tick
+            win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: 0, total: event.total })
+            break
+          case 'frame_started':
+            win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: event.n, total: event.total })
+            break
+          case 'frame_written':
+            win.webContents.send(IPC_CHANNELS.PROCESS_FRAME_WRITTEN, { path: event.path, n: event.n })
+            break
+          case 'banner':
+            win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, event)
+            break
+          case 'complete':
+            // PROCESS_COMPLETE is sent by the 'exit' handler below; just bump
+            // the progress to 100% here so the UI lands on total/total.
+            win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: event.total, total: event.total })
+            break
+          case 'error':
+            win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, event.message)
+            break
+        }
+      } else {
+        // Non-JSON line — treat as plain log
+        win.webContents.send(IPC_CHANNELS.PROCESS_LOG, line)
       }
-      win.webContents.send(IPC_CHANNELS.PROCESS_LOG, line)
     }
 
     proc.stdout?.on('data', (chunk: Buffer) => {

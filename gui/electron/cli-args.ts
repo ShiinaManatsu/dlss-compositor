@@ -80,5 +80,8 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
     args.push('--ngx-log-level', config.ngxLogLevel)
   }
 
+  // GUI always uses NDJSON for reliable event parsing
+  args.push('--progress-format', 'json')
+
   return args
 }
