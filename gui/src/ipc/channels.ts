@@ -14,4 +14,5 @@ export const IPC_CHANNELS = {
   VALIDATE_EXE_PATH: 'settings:validate-exe-path',
   CAMERA_AUTO_DETECT: 'camera:auto-detect',
   FRAME_PREVIEW_PNG: 'frame:preview-png',
+  COUNT_EXR_FILES: 'count:exr-files',
 } as const;

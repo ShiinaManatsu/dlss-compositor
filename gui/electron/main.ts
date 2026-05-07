@@ -206,6 +206,16 @@ function registerIpcHandlers(): void {
     };
   })
 
+  ipcMain.handle(IPC_CHANNELS.COUNT_EXR_FILES, async (_event, dir: string) => {
+    try {
+      if (!dir || !fs.existsSync(dir)) return 0;
+      const files = fs.readdirSync(dir);
+      return files.filter(f => f.toLowerCase().endsWith('.exr')).length;
+    } catch {
+      return 0;
+    }
+  });
+
   ipcMain.handle('frame:latest', (_event, outputDir: string): string => {
     try {
       if (!outputDir || !fs.existsSync(outputDir)) return ''

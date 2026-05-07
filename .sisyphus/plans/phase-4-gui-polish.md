@@ -877,7 +877,7 @@ Wave FINAL (审查):
   - Files: `gui/src/components/ResolutionPanel.tsx (new), gui/src/components/BasicSettings.tsx, gui/src/state/config-store.ts, gui/src/App.tsx`
   - Pre-commit: `cd gui; npm run build && npx playwright test tests/resolution.spec.ts`
 
-- [ ] 9. GUI: Live frame preview (FFmpeg PNG)
+- [x] 9. GUI: Live frame preview (FFmpeg PNG)
 
   **What to do**:
   - **新建 `gui/electron/preview-generator.ts`**:

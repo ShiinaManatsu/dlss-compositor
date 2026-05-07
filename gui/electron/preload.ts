@@ -54,4 +54,6 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('frame:preview-png', exrPath),
   cameraAutoDetect: (inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }> =>
     ipcRenderer.invoke('camera:auto-detect', inputDir),
+  countExrFiles: (dir: string): Promise<number> =>
+    ipcRenderer.invoke('count:exr-files', dir),
 })

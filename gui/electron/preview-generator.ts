@@ -33,9 +33,11 @@ export async function exrToPng(exrPath: string, maxDim: number = 480): Promise<s
         // Keep cache small (max 10 entries)
         if (previewCache.size > 10) {
           const firstKey = previewCache.keys().next().value;
-          const oldPng = previewCache.get(firstKey);
-          previewCache.delete(firstKey);
-          try { if (oldPng) fs.unlinkSync(oldPng); } catch {}
+          if (firstKey) {
+            const oldPng = previewCache.get(firstKey);
+            previewCache.delete(firstKey);
+            try { if (oldPng) fs.unlinkSync(oldPng); } catch {}
+          }
         }
         resolve(tmpPng);
       } else {

@@ -163,3 +163,5 @@ Level\ select to AdvancedSettings.
  
  -   A d d i n g   d y n a m i c   d e r i v e d   s t a t e   ( l i k e   c o m p u t i n g   s c a l e F a c t o r   f r o m   s o u r c e   a n d   t a r g e t )   i n   t h e   r e d u c e r   k e e p s   t h e   c o m p o n e n t   l o g i c   s i m p l e   a n d   U I   s t a t e   c o n s i s t e n t .  
  
+ -   U I   f r a m e   p r e v i e w   i m p l e m e n t e d   u s i n g   F F m p e g   c o n v e r s i o n   o f   E X R   t o   P N G   d i r e c t l y   t o   o s . t m p d i r ( ) ,   c o m p l e t e l y   s i d e - s t e p p i n g   w a s m - e x r   a n d   m a s s i v e   d e c o d i n g   l a t e n c y .   F i l e   U R L   s c h e m e   u s e d   w i t h   a   s t r i c t   c a c h e   l i m i t a t i o n   o f   1 0   i t e m s .  
+ 

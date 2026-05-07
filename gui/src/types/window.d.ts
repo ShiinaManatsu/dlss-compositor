@@ -21,6 +21,7 @@ interface DlssApi {
   getLatestFrame(outputDir: string): Promise<string>
   getFramePreview(exrPath: string): Promise<string | null>
   cameraAutoDetect(inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }>
+  countExrFiles(dir: string): Promise<number>
 }
 
 declare global {

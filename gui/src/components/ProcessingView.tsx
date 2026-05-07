@@ -11,7 +11,7 @@ function formatElapsed(seconds: number): string {
 
 export default function ProcessingView() {
   const { state } = useConfig();
-  const { status, progress, currentFrame, totalFrames, errors, latestFramePath, start, stop } = useProcessing();
+  const { status, progress, currentFrame, totalFrames, etaSeconds, errors, latestFramePath, start, stop } = useProcessing();
   const [exePath, setExePath] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -131,12 +131,12 @@ export default function ProcessingView() {
   return (
     <div className="flex flex-col h-full p-4 gap-4">
       {/* Top controls */}
-      <div className="flex items-center gap-3 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
         <button
           data-testid="start-btn"
           disabled={!canStart}
           onClick={handleStart}
-          className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded font-medium text-sm transition-colors"
+          className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed rounded font-medium text-sm transition-colors flex-shrink-0"
         >
           Start Processing
         </button>
@@ -145,17 +145,31 @@ export default function ProcessingView() {
           <button
             data-testid="stop-btn"
             onClick={handleStopClick}
-            className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded font-medium text-sm transition-colors"
+            className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded font-medium text-sm transition-colors flex-shrink-0"
           >
             Stop
           </button>
         )}
 
-        {isCustomTonemapMissingLut && (
-          <span className="text-yellow-500 text-xs">⚠ Custom tonemap requires a forward LUT file</span>
-        )}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {isCustomTonemapMissingLut && (
+            <span className="text-yellow-500 text-xs truncate" title="Custom tonemap requires a forward LUT file">
+              ⚠ Custom tonemap requires a forward LUT file
+            </span>
+          )}
 
-        <div className="flex items-center gap-2 ml-auto">
+          {status === 'error' && errors.length > 0 && (
+            <div
+              data-testid="error-banner"
+              className="text-red-400 text-sm truncate bg-red-900/30 px-2 py-1 rounded border border-red-800/50"
+              title={errors[errors.length - 1]}
+            >
+              ⚠ {errors[errors.length - 1]}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto flex-shrink-0">
           <div
             data-testid="status-indicator"
             data-status={status}
@@ -181,11 +195,20 @@ export default function ProcessingView() {
                   ? `Processing frame ${currentFrame}/${totalFrames} (${progress}%)`
                   : `Processing frame ${currentFrame}/${totalFrames}`}
             </span>
+            {status === 'running' && (
+              <span data-testid="eta-text" className="text-gray-500 font-mono">
+                {etaSeconds !== null 
+                  ? `ETA: ${formatElapsed(etaSeconds)}` 
+                  : currentFrame > 0 && currentFrame < 3 
+                    ? 'Estimating ETA...' 
+                    : ''}
+              </span>
+            )}
           </div>
           <div className="w-full h-2 bg-gray-700 rounded overflow-hidden">
             <div
               data-testid="progress-bar"
-              className={`h-full transition-all duration-300 ${status === 'done' ? 'bg-green-500' : 'bg-blue-500'} ${isIndeterminateProgress ? 'animate-pulse' : ''}`}
+              className={`h-full transition-all duration-300 ${status === 'done' ? 'bg-green-500' : 'bg-gradient-to-r from-blue-600 to-blue-400'} ${isIndeterminateProgress ? 'animate-pulse' : ''}`}
               style={{ width: isIndeterminateProgress ? '100%' : `${progress}%` }}
             />
           </div>
@@ -196,23 +219,6 @@ export default function ProcessingView() {
       {completionMsg && status === 'done' && (
         <div className="flex-shrink-0 px-3 py-2 bg-green-900/30 border border-green-600 text-green-400 rounded text-sm">
           {completionMsg}
-        </div>
-      )}
-
-      {/* Error banner */}
-      {status === 'error' && errors.length > 0 && (
-        <div
-          data-testid="error-banner"
-          className="flex-shrink-0 px-3 py-2 bg-red-900/30 border border-red-600 text-red-400 rounded text-sm flex items-start justify-between"
-        >
-          <span className="break-all">{errors[errors.length - 1]}</span>
-          <button
-            data-testid="error-dismiss"
-            onClick={() => setCompletionMsg('')}
-            className="ml-2 text-red-400 hover:text-red-300 flex-shrink-0"
-          >
-            ✕
-          </button>
         </div>
       )}
 

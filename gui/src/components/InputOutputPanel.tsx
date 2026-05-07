@@ -8,13 +8,22 @@ export default function InputOutputPanel() {
   const [inputTouched, setInputTouched] = useState(false);
   const [outputTouched, setOutputTouched] = useState(false);
   const [autoDetectedCamera, setAutoDetectedCamera] = useState(false);
+  const [exrCount, setExrCount] = useState<number | null>(null);
 
   const handleInputBrowse = async () => {
     try {
       const dir = await window.dlssApi.selectDirectory();
       if (dir) {
         dispatch({ type: 'SET_INPUT_DIR', payload: dir });
+        setExrCount(null);
         
+        try {
+          const count = await window.dlssApi.countExrFiles(dir);
+          setExrCount(count);
+        } catch (err) {
+          console.error('EXR file count failed:', err);
+        }
+
         // Auto-detect camera.json
         try {
           const result = await window.dlssApi.cameraAutoDetect(dir);
@@ -76,6 +85,13 @@ export default function InputOutputPanel() {
         {isInputError && (
           <span data-testid="input-dir-error" className="text-red-500 text-xs mt-1 block">
             Input directory is required
+          </span>
+        )}
+        {exrCount !== null && (
+          <span data-testid="exr-count-hint" className="text-xs text-gray-400 mt-1 block">
+            {exrCount > 0 
+              ? `✓ Found ${exrCount} EXR file${exrCount !== 1 ? 's' : ''}` 
+              : '⚠ No EXR files found in this directory'}
           </span>
         )}
         {autoDetectedCamera && state.cameraDataFile && (
