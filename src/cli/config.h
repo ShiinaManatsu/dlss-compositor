@@ -29,6 +29,11 @@ enum class TonemapMode {
     Custom       // User-provided forward/inverse LUT files
 };
 
+enum class ProgressFormat {
+    Human,       // Default human-readable progress logging to stdout
+    Json         // NDJSON (newline-delimited JSON) progress events to stdout
+};
+
 enum class OutputPass : uint32_t {
     Beauty = 1u << 0,
     Depth = 1u << 1,
@@ -84,4 +89,6 @@ struct AppConfig {
     bool inverseTonemapEnabled = true;
     std::string forwardLutFile;
     std::string inverseLutFile;
+
+    ProgressFormat progressFormat = ProgressFormat::Human;
 };

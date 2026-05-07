@@ -219,7 +219,7 @@ Wave FINAL (审查):
 
 ## TODOs
 
-- [ ] 1. CLI camera.json auto-discovery
+- [x] 1. CLI camera.json auto-discovery
 
   **What to do**:
   - **`src/cli/cli_parser.cpp`** 或 **`src/main.cpp`**:

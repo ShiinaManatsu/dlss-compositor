@@ -15,6 +15,7 @@ add_executable(dlss-compositor-tests
     test_sharpen_processor.cpp
     test_integration.cpp
     test_matrix_layout.cpp
+    test_ndjson_emitter.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE

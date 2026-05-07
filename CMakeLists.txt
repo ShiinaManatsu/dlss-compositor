@@ -86,6 +86,7 @@ add_library(dlss_compositor_core STATIC
     src/core/mv_converter.cpp
     src/core/camera_data_loader.cpp
     src/core/logger.cpp
+    src/core/ndjson_emitter.cpp
     src/dlss/dlss_sr_processor.cpp
     src/dlss/dlss_fg_processor.cpp
     src/dlss/ngx_wrapper.cpp

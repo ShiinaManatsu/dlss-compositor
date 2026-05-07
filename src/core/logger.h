@@ -21,6 +21,12 @@ bool init();
 /// Flush and close the log file.
 void shutdown();
 
+/// When set to true, `Log::info()` routes its console output to stderr instead
+/// of stdout. The log file mirror is unaffected. This is used by the
+/// `--progress-format json` CLI mode to keep stdout reserved for NDJSON
+/// progress events. Default: false (stdout).
+void setQuietStdout(bool quiet);
+
 /// printf-style helpers that write to both a console stream and the log file.
 void error(const char* fmt, ...);
 void info(const char* fmt, ...);

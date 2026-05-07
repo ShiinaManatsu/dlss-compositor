@@ -23,6 +23,7 @@ namespace {
 std::mutex g_mutex;
 FILE* g_logFile = nullptr;
 std::string g_logPath;
+bool g_quietStdout = false;
 
 std::filesystem::path getExeDir() {
     namespace fs = std::filesystem;
@@ -102,6 +103,11 @@ void Log::shutdown() {
     }
 }
 
+void Log::setQuietStdout(bool quiet) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_quietStdout = quiet;
+}
+
 void Log::error(const char* fmt, ...) {
     va_list args;
 
@@ -124,11 +130,17 @@ void Log::error(const char* fmt, ...) {
 void Log::info(const char* fmt, ...) {
     va_list args;
 
-    // stdout
+    // stdout (or stderr when quiet-stdout mode is active, e.g. NDJSON progress)
+    bool quiet;
+    {
+        std::lock_guard<std::mutex> lk(g_mutex);
+        quiet = g_quietStdout;
+    }
+    FILE* consoleStream = quiet ? stderr : stdout;
     va_start(args, fmt);
-    std::vfprintf(stdout, fmt, args);
+    std::vfprintf(consoleStream, fmt, args);
     va_end(args);
-    std::fflush(stdout);
+    std::fflush(consoleStream);
 
     // log file
     std::lock_guard<std::mutex> lock(g_mutex);

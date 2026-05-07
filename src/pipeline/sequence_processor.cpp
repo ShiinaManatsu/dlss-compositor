@@ -4,6 +4,7 @@
 #include "core/camera_data_loader.h"
 #include "core/channel_mapper.h"
 #include "core/logger.h"
+#include "core/ndjson_emitter.h"
 #include "core/exr_reader.h"
 #include "core/exr_writer.h"
 #include "core/mv_converter.h"
@@ -19,9 +20,13 @@
 #include "pipeline/frame_prefetcher.h"
 #include "gpu/vulkan_context.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -53,6 +58,78 @@ std::filesystem::path getExeDir() {
 #endif
     // Fallback: current working directory
     return fs::current_path();
+}
+
+// --- NDJSON progress event helpers ---------------------------------------
+// All emit functions below short-circuit when the global emitter is disabled.
+
+/// Monotonic milliseconds since process start (zero-based).
+int64_t ndjsonNowMs() {
+    using clock = std::chrono::steady_clock;
+    static const clock::time_point kStart = clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - kStart).count();
+}
+
+void ndjsonEmitStarted(int total, const std::string& inputDir, const std::string& outputDir) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"event", "started"},
+        {"total", total},
+        {"input_dir", inputDir},
+        {"output_dir", outputDir},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
+}
+
+void ndjsonEmitFrameStarted(int n, int total) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"event", "frame_started"},
+        {"n", n},
+        {"total", total},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
+}
+
+void ndjsonEmitFrameWritten(int n, const std::string& path) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"event", "frame_written"},
+        {"n", n},
+        {"path", path},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
+}
+
+void ndjsonEmitError(int frame, const std::string& message) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"event", "error"},
+        {"frame", frame},
+        {"message", message},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
+}
+
+void ndjsonEmitComplete(int total, int64_t durationMs, int errors) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"event", "complete"},
+        {"total", total},
+        {"duration_ms", durationMs},
+        {"errors", errors},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
 }
 
 struct DlssFeatureGuard {
@@ -653,6 +730,11 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
         }
     }
 
+    // NDJSON: emit "started" once we know the frame count and output dir is ready.
+    const int64_t ndjsonStartMs = ndjsonNowMs();
+    int ndjsonErrorCount = 0;
+    ndjsonEmitStarted(static_cast<int>(frames.size()), inputDir, outputDir);
+
     // Optionally load camera data for jitter values
     CameraDataLoader cameraLoader;
     bool hasCameraData = false;
@@ -728,11 +810,14 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
     for (size_t index = 0; index < frames.size(); ++index) {
         const SequenceFrameInfo& frameInfo = frames[index];
         const std::string filename = frameInfo.path.filename().string();
-        Log::info( "Processing frame %d/%d: %s\n",
-                     static_cast<int>(index + 1),
-                     static_cast<int>(frames.size()),
-                     filename.c_str());
+        const int frameNumber1Based = static_cast<int>(index + 1);
+        const int totalFrames = static_cast<int>(frames.size());
+        Log::info("Processing frame %d/%d: %s\n",
+                  frameNumber1Based,
+                  totalFrames,
+                  filename.c_str());
         std::fflush(stdout);
+        ndjsonEmitFrameStarted(frameNumber1Based, totalFrames);
 
         if (index > 0 && resetFlags[index]) {
             Log::error(
@@ -747,6 +832,8 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
             auto prefetched = prefetcher.getNext();
             if (!prefetched || !prefetched->valid) {
                 Log::error( "Frame %s failed: prefetch error\n", filename.c_str());
+                ++ndjsonErrorCount;
+                ndjsonEmitError(frameNumber1Based, "prefetch error");
                 continue;
             }
 
@@ -911,13 +998,18 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                     throw std::runtime_error(frameError);
                 }
 
+                ndjsonEmitFrameWritten(frameNumber1Based, outputPath.string());
                 anyFrameSucceeded = true;
             } catch (const std::exception& ex) {
                 frameError = ex.what();
                 Log::error( "Frame %s failed: %s\n", filename.c_str(), frameError.c_str());
+                ++ndjsonErrorCount;
+                ndjsonEmitError(frameNumber1Based, frameError);
             }
         } catch (const std::exception& ex) {
             Log::error( "Frame %s failed: %s\n", filename.c_str(), ex.what());
+            ++ndjsonErrorCount;
+            ndjsonEmitError(frameNumber1Based, ex.what());
         }
     }
 
@@ -927,6 +1019,9 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
 
     if (!anyFrameSucceeded) {
         errorMsg = "No frames were processed successfully.";
+        ndjsonEmitComplete(static_cast<int>(frames.size()),
+                           ndjsonNowMs() - ndjsonStartMs,
+                           ndjsonErrorCount);
         return false;
     }
 
@@ -946,6 +1041,9 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
         }
     }
 
+    ndjsonEmitComplete(static_cast<int>(frames.size()),
+                       ndjsonNowMs() - ndjsonStartMs,
+                       ndjsonErrorCount);
     return true;
 }
 

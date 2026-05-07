@@ -5,6 +5,7 @@
 #include "cli/cli_parser.h"
 #include "cli/config.h"
 #include "core/logger.h"
+#include "core/ndjson_emitter.h"
 #include "dlss/ngx_wrapper.h"
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
@@ -21,6 +22,14 @@ int main(int argc, char* argv[]) {
         Log::error("Error: %s\n", errorMsg.c_str());
         Log::error("Run with --help for usage.\n");
         return 1;
+    }
+
+    if (config.progressFormat == ProgressFormat::Json) {
+        // In NDJSON mode stdout is reserved exclusively for progress events,
+        // so route Log::info() console mirrors to stderr alongside the
+        // existing Log::error() stream. The on-disk log file is unaffected.
+        Log::setQuietStdout(true);
+        globalNdjsonEmitter().setEnabled(true);
     }
 
     if (config.showHelp) {

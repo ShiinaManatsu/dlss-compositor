@@ -449,6 +449,22 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             }
             continue;
         }
+        if (std::strcmp(arg, "--progress-format") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--progress-format requires a value";
+                return false;
+            }
+            const char* fmt = argv[++i];
+            if (std::strcmp(fmt, "human") == 0) {
+                config.progressFormat = ProgressFormat::Human;
+            } else if (std::strcmp(fmt, "json") == 0) {
+                config.progressFormat = ProgressFormat::Json;
+            } else {
+                errorMsg = "--progress-format must be 'human' or 'json'";
+                return false;
+            }
+            continue;
+        }
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
@@ -508,6 +524,8 @@ void CliParser::printHelp() {
     std::printf("  --tonemap-lut <file>   Custom forward LUT binary (implies --tonemap custom)\n");
     std::printf("  --inverse-tonemap-lut <file>  Custom inverse LUT binary\n");
     std::printf("  --ngx-log-level <level> NGX log verbosity (off|error|warn|info|verbose; default: off)\n");
+    std::printf("  --progress-format <fmt> Progress reporting format (human|json; default: human)\n"
+                "                          'json' emits NDJSON events to stdout (one JSON object per line)\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --help, -h             Show this help\n");
