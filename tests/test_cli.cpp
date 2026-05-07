@@ -273,6 +273,15 @@ TEST_CASE("CliParser - --memory-budget missing value", "[cli]") {
     REQUIRE(!err.empty());
 }
 
+TEST_CASE("CliParser - --tonemap custom with LUT files", "[cli]") {
+    FakeArgs fa{"--tonemap", "custom", "--tonemap-lut", "fwd.bin", "--inverse-tonemap-lut", "inv.bin"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(ok);
+    REQUIRE(cfg.tonemapMode == TonemapMode::Custom);
+}
+
 TEST_CASE("CliParser - --memory-budget default", "[cli]") {
     FakeArgs fa{"--input-dir", "test/"};
     AppConfig cfg;
@@ -280,4 +289,13 @@ TEST_CASE("CliParser - --memory-budget default", "[cli]") {
     bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
     REQUIRE(ok);
     REQUIRE(cfg.memoryBudgetGB == 8);
+}
+
+TEST_CASE("CliParser - --tonemap custom without lut files fails", "[cli]") {
+    FakeArgs fa{"--tonemap", "custom"};
+    AppConfig cfg;
+    std::string err;
+    bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+    REQUIRE(!ok);
+    REQUIRE(!err.empty());
 }
