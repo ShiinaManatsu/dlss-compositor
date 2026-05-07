@@ -793,7 +793,7 @@ Wave FINAL (审查):
   - Files: `gui/electron/camera-detector.ts (new), gui/electron/main.ts, gui/electron/ipc-channels.ts, gui/electron/preload.ts, gui/src/ipc/channels.ts, gui/src/types/window.d.ts, gui/src/state/config-store.ts, gui/src/types/dlss-config.ts, gui/src/components/InputOutputPanel.tsx`
   - Pre-commit: `cd gui; npm run build && npx playwright test tests/auto-detect.spec.ts`
 
-- [ ] 8. GUI: Target resolution + scale 双向联动
+- [x] 8. GUI: Target resolution + scale 双向联动
 
   **What to do**:
   - **新建 `gui/src/components/ResolutionPanel.tsx`**:

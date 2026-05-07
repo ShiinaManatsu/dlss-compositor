@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('settings:validate-exe-path', exePath),
   getLatestFrame: (outputDir: string): Promise<string> =>
     ipcRenderer.invoke('frame:latest', outputDir),
+  getFramePreview: (exrPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('frame:preview-png', exrPath),
   cameraAutoDetect: (inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }> =>
     ipcRenderer.invoke('camera:auto-detect', inputDir),
 })

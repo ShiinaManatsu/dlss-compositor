@@ -16,6 +16,7 @@ export default function ProcessingView() {
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [completionMsg, setCompletionMsg] = useState('');
+  const [previewPng, setPreviewPng] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(0);
 
@@ -52,6 +53,21 @@ export default function ProcessingView() {
       setCompletionMsg(`Processing complete — ${totalFrames} frames in ${formatElapsed(elapsed)}`);
     }
   }, [status, elapsed, totalFrames]);
+
+  useEffect(() => {
+    if (!latestFramePath) return;
+    
+    let isCancelled = false;
+    window.dlssApi.getFramePreview(latestFramePath).then((pngPath) => {
+      if (!isCancelled && pngPath) {
+        setPreviewPng(pngPath);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [latestFramePath]);
 
   const isCustomTonemapMissingLut = state.tonemapMode === 'custom' && !state.forwardLutFile;
 
@@ -203,25 +219,49 @@ export default function ProcessingView() {
       {/* Frame preview */}
       <div
         data-testid="frame-preview"
-        className="flex-1 bg-gray-950 border border-gray-700 rounded overflow-hidden min-h-0 flex items-center justify-center"
+        className="flex-1 bg-gray-950 border border-gray-700 rounded overflow-hidden min-h-0 flex items-center justify-center p-4"
       >
         {status === 'idle' && (
-          <div className="text-gray-600 text-sm">Ready to process. Configure settings and click Start.</div>
+          <div className="text-gray-600 text-sm text-center">Ready to process. Configure settings and click Start.</div>
         )}
         {(status === 'running' || status === 'done') && (
-          <div className="text-center">
-            <div className="text-5xl font-mono font-bold text-blue-400 mb-3">
-              {frameCounterLabel.includes('/') ? (
-                <>
-                  {currentFrame}<span className="text-gray-600 text-3xl">/{totalFrames}</span>
-                </>
-              ) : (
-                frameCounterLabel
-              )}
-            </div>
-            <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath ?? undefined}>
-              {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : 'Waiting for first frame…'}
-            </div>
+          <div className="w-full h-full flex flex-col items-center justify-center">
+            {previewPng ? (
+              <div className="flex flex-col items-center justify-center h-full max-h-full">
+                <img 
+                  data-testid="frame-preview-img"
+                  src={`file://${previewPng}`} 
+                  className="max-w-full max-h-[85%] object-contain rounded shadow-lg" 
+                  alt={`Frame ${currentFrame}`}
+                  onError={() => setPreviewPng(null)}
+                />
+                <div className="text-xs text-gray-500 mt-3 font-mono text-center">
+                  Frame {currentFrame}/{totalFrames}
+                </div>
+                <div className="text-xs text-gray-600 font-mono px-4 truncate max-w-sm mt-1" title={latestFramePath ?? undefined}>
+                  {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : ''}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center w-full max-w-lg">
+                <div data-testid="frame-preview-placeholder" className="text-gray-500 text-sm text-center py-16 w-full border border-dashed border-gray-700 bg-gray-900/50 rounded flex flex-col items-center justify-center">
+                  <div className="mb-2">{status === 'running' && !latestFramePath ? 'Waiting for first frame...' : 'No preview available'}</div>
+                  <div className="text-xs text-gray-600">Live preview via FFmpeg (install FFmpeg if not shown)</div>
+                </div>
+                <div className="text-5xl font-mono font-bold text-blue-400 mt-6 mb-3">
+                  {frameCounterLabel.includes('/') ? (
+                    <>
+                      {currentFrame}<span className="text-gray-600 text-3xl">/{totalFrames}</span>
+                    </>
+                  ) : (
+                    frameCounterLabel
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 font-mono px-4 truncate max-w-sm" title={latestFramePath ?? undefined}>
+                  {latestFramePath ? latestFramePath.split(/[\\/]/).pop() : 'Waiting for first frame…'}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {status === 'error' && (

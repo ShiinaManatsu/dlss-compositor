@@ -19,6 +19,7 @@ interface DlssApi {
   saveSettings(settings: unknown): Promise<void>
   validateExePath(path: string): Promise<boolean>
   getLatestFrame(outputDir: string): Promise<string>
+  getFramePreview(exrPath: string): Promise<string | null>
   cameraAutoDetect(inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }>
 }
 

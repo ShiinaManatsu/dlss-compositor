@@ -7,6 +7,7 @@ import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import { getExePath, getSettings, saveSettings, setExePath, validateExePath } from './settings-store'
 import { findCameraJson, readSourceResolution } from './camera-detector'
+import { exrToPng, cleanupPreviewCache } from './preview-generator'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
 
 type ProcessStartPayload = {
@@ -217,6 +218,14 @@ function registerIpcHandlers(): void {
       return ''
     }
   })
+
+  ipcMain.handle(IPC_CHANNELS.FRAME_PREVIEW_PNG, async (_event, exrPath: string) => {
+    try {
+      return await exrToPng(exrPath)
+    } catch {
+      return null
+    }
+  })
 }
 
 app.whenReady().then(() => {
@@ -242,6 +251,7 @@ app.on('before-quit', () => {
   if (activeProcess) {
     killProcess(activeProcess)
   }
+  cleanupPreviewCache()
 })
 
 app.on('window-all-closed', () => {
