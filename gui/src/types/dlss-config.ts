@@ -14,7 +14,7 @@ export interface DlssConfig {
   exrCompression: 'none' | 'zip' | 'zips' | 'piz' | 'dwaa' | 'dwab';
   exrDwaQuality: number;
   outputPasses: ('beauty' | 'depth' | 'normals')[];
-  tonemapMode: 'none' | 'pq';
+  tonemapMode: 'none' | 'pq' | 'custom';
   inverseTonemapEnabled: boolean;
   forwardLutFile: string;
   inverseLutFile: string;

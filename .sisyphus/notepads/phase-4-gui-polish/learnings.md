@@ -118,3 +118,36 @@ lohmann::json::dump() for event construction instead of hand-rolled string build
 - Default --progress-format human (or no flag) → stdout output unchanged (verified against same input/output)
 - --progress-format json on 5-frame fixture → 12 NDJSON lines on stdout (started + 5*(frame_started+frame_written) + complete), all NGX/human logs on stderr
 - Pre-existing test failures (frame_prefetcher_*, dlss_fg_e2e_interpolation) confirmed unrelated to this change by running ctest on stashed working tree (same 4 failures both before and after)
+
+## 2026-05-07 Task 3: GUI Controls for sourceFps, sharpness, ngxLogLevel
+
+### Implementation
+- Added fields to DlssConfig and DEFAULT_CONFIG.
+- Updated config-store reducer with 3 new actions.
+- Added \
+Source
+FPS\ numeric input to BasicSettings below Upscaling.
+- Added \Sharpness\ slider and \NGX
+Log
+Level\ select to AdvancedSettings.
+- Updated cli-args to conditionally emit --source-fps, --sharpness, --ngx-log-level.
+- Updated settings-store schema, defaults, and save/load logic.
+
+### Build/Verification
+- cd gui && npm run build passed with 0 errors.
+- Git committed.
+
+## 2026-05-07 Task 4: Custom tonemap mode
+
+### Implementation
+- Extended tonemapMode type to 'none' | 'pq' | 'custom' in dlss-config.ts
+- Added 'custom (LUT files)' option to tonemap select in AdvancedSettings.tsx
+- LUT pickers now enable only when tonemapMode === 'custom' (was: tonemapMode !== 'none')
+- Updated no-inverse-tonemap checkbox to enable only when tonemapMode === 'custom'
+- Added validation hint text below forward LUT input when custom+LUT missing
+- cli-args.ts: custom mode pushes '--tonemap custom' flag
+- ProcessingView.tsx: Start button disabled when custom+no forward LUT + shows warning
+
+### Build/Verification
+- cd gui && npm run build passed with 0 errors.
+- Git committed.

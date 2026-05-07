@@ -253,8 +253,9 @@ export default function AdvancedSettings() {
               onChange={(e) => dispatch({ type: 'SET_TONEMAP_MODE', payload: e.target.value as DlssConfig['tonemapMode'] })}
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
             >
-              <option value="pq">pq</option>
+              <option value="pq">pq (default)</option>
               <option value="none">none</option>
+              <option value="custom">custom (LUT files)</option>
             </select>
           </div>
 
@@ -262,16 +263,16 @@ export default function AdvancedSettings() {
             <input
               data-testid="no-inverse-tonemap"
               type="checkbox"
-              disabled={state.tonemapMode === 'none' || isRunning}
+              disabled={state.tonemapMode !== 'custom' || isRunning}
               checked={!state.inverseTonemapEnabled}
               onChange={(e) => dispatch({ type: 'SET_INVERSE_TONEMAP', payload: !e.target.checked })}
               className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <span className={`text-sm ${state.tonemapMode === 'none' ? 'opacity-50' : ''}`}>No Inverse Tonemap</span>
+            <span className={`text-sm ${state.tonemapMode !== 'custom' ? 'opacity-50' : ''}`}>No Inverse Tonemap</span>
           </label>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1" title="Custom 3D LUT file for forward mapping (.bin)">
+            <label className="block text-sm text-gray-400 mb-1" title="Custom 3D LUT file for forward mapping (required when tonemap=custom)">
               Forward LUT File
             </label>
             <div className="flex space-x-2">
@@ -279,18 +280,21 @@ export default function AdvancedSettings() {
                 type="text"
                 readOnly
                 value={state.forwardLutFile}
-                disabled={state.tonemapMode === 'none' || isRunning}
+                disabled={state.tonemapMode !== 'custom' || isRunning}
                 className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
               />
               <button
                 data-testid="forward-lut-picker"
                 onClick={handleForwardLutBrowse}
-                disabled={state.tonemapMode === 'none' || isRunning}
+                disabled={state.tonemapMode !== 'custom' || isRunning}
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Browse
               </button>
             </div>
+            {state.tonemapMode === 'custom' && !state.forwardLutFile && (
+              <span className="text-yellow-500 text-xs mt-1 block">⚠ Custom tonemap requires forward LUT file</span>
+            )}
           </div>
 
           <div>
@@ -302,13 +306,13 @@ export default function AdvancedSettings() {
                 type="text"
                 readOnly
                 value={state.inverseLutFile}
-                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled || isRunning}
+                disabled={state.tonemapMode !== 'custom' || !state.inverseTonemapEnabled || isRunning}
                 className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
               />
               <button
                 data-testid="inverse-lut-picker"
                 onClick={handleInverseLutBrowse}
-                disabled={state.tonemapMode === 'none' || !state.inverseTonemapEnabled || isRunning}
+                disabled={state.tonemapMode !== 'custom' || !state.inverseTonemapEnabled || isRunning}
                 className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Browse

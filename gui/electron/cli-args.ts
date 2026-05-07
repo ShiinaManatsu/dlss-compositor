@@ -46,7 +46,10 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
 
   if (config.tonemapMode === 'none') {
     args.push('--tonemap', 'none')
+  } else if (config.tonemapMode === 'custom') {
+    args.push('--tonemap', 'custom')
   }
+  // 'pq' is CLI default — no need to pass explicitly
 
   if (!config.inverseTonemapEnabled) {
     args.push('--no-inverse-tonemap')

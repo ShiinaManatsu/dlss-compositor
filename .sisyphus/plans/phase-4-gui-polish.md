@@ -381,7 +381,7 @@ Wave FINAL (审查):
   - Files: `src/cli/*, src/core/ndjson_emitter.*, src/pipeline/sequence_processor.cpp, src/pipeline/async_exr_writer.cpp, src/dlss/ngx_wrapper.cpp, tests/test_ndjson_emitter.cpp`
   - Pre-commit: `ctest`
 
-- [ ] 3. GUI: source-fps / sharpness / ngx-log-level 控件
+- [x] 3. GUI: source-fps / sharpness / ngx-log-level 控件
 
   **What to do**:
   - **`gui/src/types/dlss-config.ts`**:

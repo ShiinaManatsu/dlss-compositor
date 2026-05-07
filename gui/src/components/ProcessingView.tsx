@@ -85,13 +85,16 @@ export default function ProcessingView() {
     }
   }, [status, elapsed, totalFrames]);
 
+  const isCustomTonemapMissingLut = state.tonemapMode === 'custom' && !state.forwardLutFile;
+
   const canStart =
     !!exePath &&
     !!state.inputDir &&
     !!state.outputDir &&
     status !== 'running' &&
     (state.scaleEnabled || state.interpolateFactor > 0) &&
-    (state.interpolateFactor === 0 || !!state.cameraDataFile);
+    (state.interpolateFactor === 0 || !!state.cameraDataFile) &&
+    !isCustomTonemapMissingLut;
 
   const handleStart = useCallback(() => {
     setCompletionMsg('');
@@ -163,6 +166,10 @@ export default function ProcessingView() {
           >
             Stop
           </button>
+        )}
+
+        {isCustomTonemapMissingLut && (
+          <span className="text-yellow-500 text-xs">⚠ Custom tonemap requires a forward LUT file</span>
         )}
 
         <div className="flex items-center gap-2 ml-auto">
