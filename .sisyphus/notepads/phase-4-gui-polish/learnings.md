@@ -165,3 +165,38 @@ Level\ select to AdvancedSettings.
  
  -   U I   f r a m e   p r e v i e w   i m p l e m e n t e d   u s i n g   F F m p e g   c o n v e r s i o n   o f   E X R   t o   P N G   d i r e c t l y   t o   o s . t m p d i r ( ) ,   c o m p l e t e l y   s i d e - s t e p p i n g   w a s m - e x r   a n d   m a s s i v e   d e c o d i n g   l a t e n c y .   F i l e   U R L   s c h e m e   u s e d   w i t h   a   s t r i c t   c a c h e   l i m i t a t i o n   o f   1 0   i t e m s .  
  
+ # #   2 0 2 6 - 0 5 - 0 7   T a s k   1 0 :   E T A   +   F o r m   U X   P o l i s h 
+ -   I m p l e m e n t e d   E T A   c a l c u l a t i o n   i n   t h e   \ u s e P r o c e s s i n g \   h o o k   b y   r e t a i n i n g   s t a r t   t i m e   a n d   c a l c u l a t i n g   a v e r a g e   M s   p e r   f r a m e .   
+ -   R e s t r u c t u r e d   t h e   P r o c e s s i n g V i e w   c o m p o n e n t   t o p   b a r ,   p l a c i n g   t h e   e r r o r   b a n n e r   i n l i n e   t o   a v o i d   d i s r u p t i n g   t h e   U I   f l o w .   
+ -   I n t e g r a t e d   E X R   f i l e   c o u n t i n g   i n s i d e   t h e   b a c k e n d   v i a   \  s . r e a d d i r S y n c \ ,   p a s s e d   t h r o u g h   t o   t h e   I P C   l a y e r .  
+ 
+
+## 2026-05-07 Task 11: Playwright Test Coverage
+
+### What was added
+- 6 new spec files in gui/tests/:
+  - ndjson-parser.spec.ts (9 unit tests, no Electron) — direct import of parseNdjsonLine from electron/progress-parser.ts works fine under Playwright's TS loader, even though gui/ uses ESM. No .js extension needed (moduleResolution=bundler).
+  - new-controls.spec.ts (7 tests) — source-fps default + clamp, sharpness slider, ngx-log-level enum, tonemap select w/ custom, custom-tonemap+missing-LUT keeps Start disabled.
+  - statusbar.spec.ts (3 tests) — status-bar present, configure-exe-path hint on fresh launch, vertical ordering above settings panel.
+  - resolution.spec.ts (5 tests) — preset enum, source-resolution-display 'Unknown' default, Custom reveals width/height inputs, DLAA shows computed-scale-display.
+  - preview.spec.ts (6 tests) — frame-preview container present, idle 'Ready to process' hint, start-btn disabled, status-indicator data-status='idle', no progress-bar in idle, preview takes flex-1 height.
+  - auto-detect.spec.ts (3 tests) — mocks dialog:openDirectory IPC handler with handleOnce, exercises real cameraAutoDetect + countExrFiles via preload bridge, verifies hints + source-resolution sync.
+
+### Fixture layout
+- gui/tests/fixtures/with_camera_json/ → camera.json + 3 empty .exr files
+- gui/tests/fixtures/without_camera_json/ → 2 empty .exr files
+
+### Existing test compatibility
+- screenshot-evidence.spec.ts referenced log-output testid that no longer exists (Phase 4 replaced log panel with frame-preview). Updated to use frame-preview testid. Test now passes.
+- validation.spec.ts, settings-flow.spec.ts, app-launch.spec.ts unchanged — still pass.
+
+### Gotchas
+- The actual Start button testid is start-btn, not start-button as the task description suggested.
+- frame-preview-placeholder only renders in running/done state, not idle. Tests that need it must mock processing state.
+- Mocking dialog IPC requires removeHandler before handleOnce — Electron forbids re-registering an existing handler.
+
+### Test counts
+- 44 total tests pass (excluding 3 GPU-required real-processing tests).
+- ndjson-parser tests run in <1s (no Electron launch).
+- Each Electron spec spins up its own app instance for isolation.
+

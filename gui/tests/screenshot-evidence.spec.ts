@@ -25,8 +25,9 @@ test.describe('Task 17 Evidence', () => {
   test('take evidence screenshots', async () => {
     const rootDir = path.join(__dirname, '../../');
     
-    // 1. empty state
-    await window.getByTestId('log-output').screenshot({
+    // 1. empty state — Phase 4 replaced the legacy log-output panel with the
+    // frame-preview area, so screenshot that instead.
+    await window.getByTestId('frame-preview').screenshot({
       path: path.join(rootDir, '.sisyphus/evidence/task-17-empty-state.png')
     });
 
