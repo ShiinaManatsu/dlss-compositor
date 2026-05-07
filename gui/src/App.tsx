@@ -1,17 +1,20 @@
 import React, { useEffect } from 'react';
 import { ConfigProvider, useConfig } from './state/config-store';
+import { BannerProvider } from './state/banner-store';
 import Layout from './components/Layout';
 import InputOutputPanel from './components/InputOutputPanel';
 import BasicSettings from './components/BasicSettings';
 import AdvancedSettings from './components/AdvancedSettings';
 import ExePathConfig from './components/ExePathConfig';
 import ProcessingView from './components/ProcessingView';
+import StatusBar from './components/StatusBar';
 import type { Settings } from './types/dlss-config';
 
 function AppContent() {
   const { state, dispatch } = useConfig();
   const [loaded, setLoaded] = React.useState(false);
   const [toastError, setToastError] = React.useState<string | null>(null);
+  const [exePath, setExePath] = React.useState<string | undefined>();
 
   useEffect(() => {
     // Listen for IPC errors for toast
@@ -26,6 +29,9 @@ function AppContent() {
         setLoaded(true);
         return;
       }
+      
+      if (settings.exePath) setExePath(settings.exePath);
+
       // Load dirs from top-level Settings fields
       if (settings.lastInputDir) dispatch({ type: 'SET_INPUT_DIR', payload: settings.lastInputDir });
       if (settings.lastOutputDir) dispatch({ type: 'SET_OUTPUT_DIR', payload: settings.lastOutputDir });
@@ -72,6 +78,7 @@ function AppContent() {
           DLSS Compositor <span className="text-gray-400 text-sm ml-2 font-normal">v0.1.0</span>
         </h1>
       </div>
+      <StatusBar exePath={exePath} />
       
       {!loaded ? (
         <div className="flex-1 flex items-center justify-center">
@@ -105,7 +112,9 @@ function AppContent() {
 function App() {
   return (
     <ConfigProvider>
-      <AppContent />
+      <BannerProvider>
+        <AppContent />
+      </BannerProvider>
     </ConfigProvider>
   );
 }

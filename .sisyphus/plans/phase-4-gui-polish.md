@@ -468,7 +468,7 @@ Wave FINAL (审查):
   - Files: `gui/src/types/dlss-config.ts, gui/src/state/config-store.ts, gui/src/components/BasicSettings.tsx, gui/src/components/AdvancedSettings.tsx, gui/electron/cli-args.ts, gui/electron/settings-store.ts, gui/src/App.tsx`
   - Pre-commit: `cd gui; npm run build && npx playwright test tests/new-controls.spec.ts`
 
-- [ ] 4. GUI: tonemap select 加 'custom' 选项
+- [x] 4. GUI: tonemap select 加 'custom' 选项
 
   **What to do**:
   - **`gui/src/types/dlss-config.ts`**:
@@ -528,7 +528,7 @@ Wave FINAL (审查):
   - Files: `gui/src/types/dlss-config.ts, gui/src/components/AdvancedSettings.tsx, gui/electron/cli-args.ts, gui/src/components/ProcessingView.tsx (validation)`
   - Pre-commit: `cd gui; npm run build`
 
-- [ ] 5. GUI: NDJSON parser 替代 regex
+- [x] 5. GUI: NDJSON parser 替代 regex
 
   **What to do**:
   - **`gui/electron/cli-args.ts`**:
@@ -692,7 +692,7 @@ Wave FINAL (审查):
   - Files: `gui/src/components/StatusBar.tsx (new), gui/src/state/banner-store.ts (new), gui/electron/main.ts (test-ngx spawn), gui/src/App.tsx`
   - Pre-commit: `cd gui; npm run build && npx playwright test tests/statusbar.spec.ts`
 
-- [ ] 7. GUI: camera.json 自动检测 + source resolution 解析
+- [x] 7. GUI: camera.json 自动检测 + source resolution 解析
 
   **What to do**:
   - **新建 `gui/electron/camera-detector.ts`**:

@@ -151,3 +151,12 @@ Level\ select to AdvancedSettings.
 ### Build/Verification
 - cd gui && npm run build passed with 0 errors.
 - Git committed.
+
+## Task 5 — NDJSON parser
+- Renderer-side hook now owns latestFramePath; frame:latest IPC kept as fallback only.
+- ProgressEvent discriminated union ensures TypeScript narrows on switch(event.event).
+- Non-JSON stdout still routes to PROCESS_LOG so legacy binaries (no --progress-format) keep showing logs (progress just won't update).
+- start() in useProcessing must reset latestFramePath to null so the previous run's path doesn't leak into the new run.
+
+ -   A d d e d   a u t o - d i s c o v e r y   f o r   c a m e r a . j s o n   i n   G U I   v i a   I P C   h a n d l e   ' c a m e r a : a u t o - d e t e c t '   w h i c h   r e t u r n s   b o t h   p a t h   a n d   r e s o l u t i o n .  
+ 

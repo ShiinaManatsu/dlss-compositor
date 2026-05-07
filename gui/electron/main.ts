@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
@@ -14,6 +15,21 @@ type ProcessStartPayload = {
 }
 
 let mainWindow: BrowserWindow | null = null
+
+function probeNgxBanner(exePath: string, win: BrowserWindow): void {
+  if (!exePath || !fs.existsSync(exePath)) return;
+  
+  const proc = spawn(exePath, ['--test-ngx', '--progress-format', 'json'], { stdio: 'pipe' });
+  const lineBuffer = new ProgressLineBuffer();
+  lineBuffer.onLine = (line: string) => {
+    const event = parseNdjsonLine(line);
+    if (event?.event === 'banner') {
+      win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, event);
+    }
+  };
+  proc.stdout?.on('data', (chunk: Buffer) => lineBuffer.feed(chunk.toString()));
+  proc.once('exit', () => lineBuffer.flush());
+}
 
 function createWindow(): void {
   const savedSettings = getSettings()
@@ -52,6 +68,13 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  win.webContents.once('did-finish-load', () => {
+    const exePath = getExePath()
+    if (exePath && fs.existsSync(exePath)) {
+      probeNgxBanner(exePath, win)
+    }
+  })
 }
 
 function registerIpcHandlers(): void {
