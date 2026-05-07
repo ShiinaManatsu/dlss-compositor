@@ -797,13 +797,21 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 // Assign jitter values from camera data if available
                 if (hasCameraData && cameraLoader.hasFrame(frameInfo.frameNumber)) {
                     const auto& camData = cameraLoader.getFrame(frameInfo.frameNumber);
-                    frame.jitterX = camData.jitter_x;
-                    frame.jitterY = camData.jitter_y;
+                    float jx = camData.jitter_x;
+                    float jy = camData.jitter_y;
+                    
+                    if (std::abs(jx) > 0.5f || std::abs(jy) > 0.5f) {
+                        Log::error("[jitter] frame %d: out-of-range jitter (%.3f, %.3f), clamping to [-0.5, +0.5]\n",
+                                   frameInfo.frameNumber, jx, jy);
+                    }
+                    
+                    frame.jitterX = std::clamp(jx, -0.5f, 0.5f);
+                    frame.jitterY = std::clamp(jy, -0.5f, 0.5f);
                     
                     // Log non-zero jitter values
                     if (std::abs(frame.jitterX) > 1e-6f || std::abs(frame.jitterY) > 1e-6f) {
-                        Log::info( "Frame %d: Jitter offset = (%.4f, %.4f) pixels\n",
-                                     frameInfo.frameNumber, frame.jitterX, frame.jitterY);
+                        Log::info("Frame %d: Jitter offset = (%.4f, %.4f) pixels\n",
+                                  frameInfo.frameNumber, frame.jitterX, frame.jitterY);
                     }
                 } else {
                     frame.jitterX = 0.0f;
