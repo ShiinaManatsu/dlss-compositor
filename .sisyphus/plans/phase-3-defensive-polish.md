@@ -120,7 +120,7 @@ Wave FINAL (审查):
 
 ## TODOs
 
-- [ ] 1. 矩阵 Layout 验证测试
+- [x] 1. 矩阵 Layout 验证测试
 
   **What to do**:
   - **新建 `tests/fixtures/static_camera.json`**:
@@ -213,7 +213,7 @@ Wave FINAL (审查):
   - Files: `tests/test_matrix_layout.cpp, tests/fixtures/static_camera.json, CMakeLists.txt`
   - Pre-commit: `ctest -R matrix`
 
-- [ ] 2. Jitter Range Clamp + Warning
+- [x] 2. Jitter Range Clamp + Warning
 
   **What to do**:
   - **`src/pipeline/sequence_processor.cpp`** SR 路径填充 frame.jitterX/Y 处（约 line 822-833）：
@@ -287,7 +287,7 @@ Wave FINAL (审查):
   - Files: `src/pipeline/sequence_processor.cpp, tests/* (如新增)`
   - Pre-commit: `ctest`
 
-- [ ] 3. PQ LUT 生成器脚本
+- [x] 3. PQ LUT 生成器脚本
 
   **What to do**:
   - **新建 `tools/generate_pq_lut.py`**:
@@ -377,7 +377,7 @@ Wave FINAL (审查):
 
 ## Final Verification Wave
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle`
   Must Have / Must NOT Have 验证。Evidence 文件齐全。
 
   **QA Scenarios**:
@@ -392,13 +392,13 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase3/F1.txt
   ```
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high`
   Build + 全套测试。无 Python lint 错误。
 
-- [ ] F3. **真实 QA** — `unspecified-high`
+- [x] F3. **真实 QA** — `unspecified-high`
   3 个 task 各自的 QA 场景全跑。e2e 用 LUT 处理一段序列对比 PQ 输出。
 
-- [ ] F4. **范围保真度检查** — `deep`
+- [x] F4. **范围保真度检查** — `deep`
   Diff 范围与 Concrete Deliverables 一致。无核心模块改动。
 
 ---

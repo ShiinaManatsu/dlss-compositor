@@ -1,0 +1,21 @@
+{
+  "generator": "generate_pq_lut.py",
+  "spec": "SMPTE ST 2084 (PQ / Perceptual Quantizer)",
+  "lut_size": 64,
+  "file_size_bytes": 4194304,
+  "format": "raw float32 RGBA, no header",
+  "lattice_order": "Z slowest, Y middle, X fastest (row-major)",
+  "pq_constants": {
+    "m1": 0.1593017578125,
+    "m2": 78.84375,
+    "c1": 0.8359375,
+    "c2": 18.8515625,
+    "c3": 18.6875,
+    "SDR_WHITE_NITS": 100.0,
+    "PQ_MAX_NITS": 10000.0
+  },
+  "files": {
+    "forward": "pq_forward.bin  (scene-linear -> PQ code value [0,1])",
+    "inverse": "pq_inverse.bin  (PQ code value [0,1] -> scene-linear)"
+  }
+}
