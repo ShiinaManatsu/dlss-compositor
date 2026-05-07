@@ -175,6 +175,13 @@ bool CameraDataLoader::load(const std::string& path, std::string& errorMsg) {
     }
     m_renderHeight = root["render_height"].get<int>();
 
+    // Optional jitter_phases (default 8 for backward compatibility)
+    m_jitterPhases = 8;
+    auto jpIt = root.find("jitter_phases");
+    if (jpIt != root.end() && jpIt->is_number_integer()) {
+        m_jitterPhases = jpIt->get<int>();
+    }
+
     if (!root.contains("frames") || !root["frames"].is_object()) {
         errorMsg = "Missing or invalid 'frames' object";
         return false;
@@ -265,6 +272,7 @@ const CameraFrameData& CameraDataLoader::getFrame(int frameNumber) const {
 int CameraDataLoader::renderWidth() const { return m_renderWidth; }
 int CameraDataLoader::renderHeight() const { return m_renderHeight; }
 int CameraDataLoader::frameCount() const { return static_cast<int>(m_frames.size()); }
+int CameraDataLoader::jitterPhases() const { return m_jitterPhases; }
 
 bool CameraDataLoader::computePairParams(int currentFrame, int previousFrame,
                                           DlssFgCameraParams& out,

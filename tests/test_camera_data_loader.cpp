@@ -425,6 +425,53 @@ TEST_CASE("CameraDataLoader parses jitter fields when present", "[camera][jitter
     std::remove(path.c_str());
 }
 
+TEST_CASE("CameraDataLoader - jitter_phases defaults to 8 when missing", "[camera][jitter]") {
+    auto path = writeTempJson(kValidCameraJson, "test_camera_no_jitter_phases.json");
+    CameraDataLoader loader;
+    std::string err;
+
+    REQUIRE(loader.load(path, err));
+    REQUIRE(err.empty());
+
+    SECTION("jitterPhases() returns default 8") {
+        CHECK(loader.jitterPhases() == 8);
+    }
+
+    std::remove(path.c_str());
+}
+
+TEST_CASE("CameraDataLoader - jitter_phases parsed when present", "[camera][jitter]") {
+    static const char* kCameraJsonWithJitterPhases = R"({
+        "version": 1,
+        "render_width": 1920,
+        "render_height": 1080,
+        "jitter_phases": 32,
+        "frames": {
+            "0001": {
+                "matrix_world": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+                "projection": [[2,0,0,0],[0,2,0,0],[0,0,-1.002,-0.2002],[0,0,-1,0]],
+                "fov": 0.6911,
+                "aspect_ratio": 1.7778,
+                "near_clip": 0.1,
+                "far_clip": 100.0
+            }
+        }
+    })";
+
+    auto path = writeTempJson(kCameraJsonWithJitterPhases, "test_camera_with_jitter_phases.json");
+    CameraDataLoader loader;
+    std::string err;
+
+    REQUIRE(loader.load(path, err));
+    REQUIRE(err.empty());
+
+    SECTION("jitterPhases() returns parsed value 32") {
+        CHECK(loader.jitterPhases() == 32);
+    }
+
+    std::remove(path.c_str());
+}
+
 TEST_CASE("CameraDataLoader defaults jitter to 0.0 when fields missing", "[camera][jitter]") {
     // Use existing kValidCameraJson which does NOT have jitter fields
     auto path = writeTempJson(kValidCameraJson, "test_camera_no_jitter.json");

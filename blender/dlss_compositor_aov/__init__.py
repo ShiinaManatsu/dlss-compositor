@@ -72,9 +72,11 @@ def apply_jitter(scene):
     render = scene.render
     frame_num = scene.frame_current
 
-    # Halton(2,3) sequence, 8-sample cycle, [-0.5, +0.5] pixel range
-    jitter_x = halton(frame_num % 8, 2) - 0.5
-    jitter_y = halton(frame_num % 8, 3) - 0.5
+    # Dynamic jitter phases: 8 × output_scale² per NVIDIA spec
+    scale = getattr(scene, 'dlsscomp_output_scale', 2.0)
+    jitter_phases = max(1, int(round(8.0 * scale * scale)))
+    jitter_x = halton(frame_num % jitter_phases, 2) - 0.5
+    jitter_y = halton(frame_num % jitter_phases, 3) - 0.5
 
     # Store applied jitter so export_camera can read it back
     _runtime_jitter[frame_num] = (jitter_x, jitter_y)
@@ -153,10 +155,14 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 {"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
             return {"CANCELLED"}
 
+        scale = getattr(scene, 'dlsscomp_output_scale', 2.0)
+        jitter_phases = max(1, int(round(8.0 * scale * scale)))
+
         data = {
             "version": 1,
             "render_width": render_width,
             "render_height": render_height,
+            "jitter_phases": jitter_phases,
             "frames": {},
         }
 
@@ -179,8 +185,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 jitter_x, jitter_y = _runtime_jitter[frame_num]
             else:
                 # Fallback: compute from Halton (used when exporting without rendering first)
-                jitter_x = halton(frame_num % 8, 2) - 0.5
-                jitter_y = halton(frame_num % 8, 3) - 0.5
+                jitter_x = halton(frame_num % jitter_phases, 2) - 0.5
+                jitter_y = halton(frame_num % jitter_phases, 3) - 0.5
 
             data["frames"][key] = {
                 "matrix_world": matrix_world,
@@ -394,6 +400,8 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
         layout.prop(context.scene, "dlsscomp_output_dir",
                     text="Output Directory")
 
+        layout.prop(context.scene, "dlsscomp_output_scale", text="Output Scale")
+
         layout.operator(
             DLSSCOMP_OT_configure_passes.bl_idname,
             text="Configure All Passes",
@@ -456,6 +464,13 @@ def register():
     bpy.types.Scene.dlsscomp_output_dir = bpy.props.StringProperty(
         name="Output Directory", subtype="DIR_PATH", default=""
     )
+    bpy.types.Scene.dlsscomp_output_scale = bpy.props.FloatProperty(
+        name="Output Scale",
+        description="DLSS upscaling factor (1.0–4.0). Controls jitter phase count.",
+        default=2.0,
+        min=1.0,
+        max=4.0,
+    )
     bpy.utils.register_class(DLSSCOMP_OT_export_camera)
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.register_class(DLSSCOMP_PT_export_panel)
@@ -482,6 +497,7 @@ def unregister():
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.unregister_class(DLSSCOMP_OT_export_camera)
     del bpy.types.Scene.dlsscomp_output_dir
+    del bpy.types.Scene.dlsscomp_output_scale
 
 
 # ---------------------------------------------------------------------------

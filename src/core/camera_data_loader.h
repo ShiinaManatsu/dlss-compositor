@@ -50,11 +50,13 @@ public:
     int renderWidth() const;
     int renderHeight() const;
     int frameCount() const;
+    int jitterPhases() const;
 
 private:
     int m_version = 0;
     int m_renderWidth = 0;
     int m_renderHeight = 0;
+    int m_jitterPhases = 8;
     std::unordered_map<std::string, CameraFrameData> m_frames;
 
     static std::string padFrameNumber(int frameNumber);
