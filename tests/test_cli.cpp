@@ -4,6 +4,9 @@
 #include "../src/cli/cli_parser.h"
 #include "../src/cli/config.h"
 
+#include <cstdio>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 struct FakeArgs {
@@ -375,4 +378,74 @@ TEST_CASE("CliParser - --preset K vs Auto give different values", "[cli]") {
     REQUIRE(cfgK.preset == DlssSRPreset::K);
     // Auto and K are different enum values
     REQUIRE(static_cast<int>(cfgAuto.preset) != static_cast<int>(cfgK.preset));
+}
+
+namespace {
+    // Helper: create a temporary directory with a unique name
+    std::string createTempDir(const char* label) {
+        static int counter = 0;
+        const std::string path = (std::filesystem::temp_directory_path() /
+            (std::string("dlss_") + label + "_" + std::to_string(++counter))).string();
+        std::filesystem::create_directories(path);
+        return path;
+    }
+
+    // Helper: create a small file at the given path
+    void touchFile(const std::string& path) {
+        std::FILE* f = std::fopen(path.c_str(), "w");
+        if (f) {
+            std::fprintf(f, "{}\n");
+            std::fclose(f);
+        }
+    }
+}
+
+TEST_CASE("CliParser - auto-discover camera.json from input dir", "[cli]") {
+    const std::string tmpDir = createTempDir("camera_autodiscover");
+    touchFile((std::filesystem::path(tmpDir) / "camera.json").string());
+
+    std::string inputDirArg = tmpDir;
+    FakeArgs fa{"--input-dir", inputDirArg.c_str(), "--interpolate", "2x"};
+    AppConfig cfg;
+    std::string err;
+
+    const bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+
+    REQUIRE(ok);
+    REQUIRE(cfg.cameraDataFile == (std::filesystem::path(tmpDir) / "camera.json").string());
+
+    std::filesystem::remove_all(tmpDir);
+}
+
+TEST_CASE("CliParser - no auto-discover when camera.json missing", "[cli]") {
+    const std::string tmpDir = createTempDir("camera_missing");
+
+    std::string inputDirArg = tmpDir;
+    FakeArgs fa{"--input-dir", inputDirArg.c_str()};
+    AppConfig cfg;
+    std::string err;
+
+    const bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+
+    REQUIRE(ok);
+    REQUIRE(cfg.cameraDataFile.empty());
+
+    std::filesystem::remove_all(tmpDir);
+}
+
+TEST_CASE("CliParser - explicit --camera-data wins over auto-discover", "[cli]") {
+    const std::string tmpDir = createTempDir("camera_explicit_wins");
+    touchFile((std::filesystem::path(tmpDir) / "camera.json").string());
+
+    std::string inputDirArg = tmpDir;
+    FakeArgs fa{"--input-dir", inputDirArg.c_str(), "--camera-data", "explicit.json", "--interpolate", "2x"};
+    AppConfig cfg;
+    std::string err;
+
+    const bool ok = CliParser::parse(fa.argc(), fa.argv(), cfg, err);
+
+    REQUIRE(ok);
+    REQUIRE(cfg.cameraDataFile == "explicit.json");  // explicit flag, not auto-discovered
+
+    std::filesystem::remove_all(tmpDir);
 }

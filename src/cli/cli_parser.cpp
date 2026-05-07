@@ -7,6 +7,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -451,6 +452,15 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
 
         errorMsg = std::string("unknown argument: ") + arg;
         return false;
+    }
+
+    // Auto-discover camera.json from input directory
+    if (config.cameraDataFile.empty() && !config.inputDir.empty()) {
+        std::filesystem::path cameraPath = std::filesystem::path(config.inputDir) / "camera.json";
+        if (std::filesystem::exists(cameraPath)) {
+            config.cameraDataFile = cameraPath.string();
+            std::fprintf(stderr, "[camera] auto-discovered: %s\n", config.cameraDataFile.c_str());
+        }
     }
 
     if (config.interpolateFactor > 0 && config.cameraDataFile.empty()) {
