@@ -64,5 +64,18 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
     args.push('--channel-map', config.channelMapFile)
   }
 
+  // Source FPS — always pass (used by DLSS frame timing)
+  args.push('--source-fps', String(config.sourceFps))
+
+  // Sharpness — only if > 0 (0 = off)
+  if (config.sharpness > 0) {
+    args.push('--sharpness', config.sharpness.toFixed(2))
+  }
+
+  // NGX log level — only if not default 'warn'
+  if (config.ngxLogLevel !== 'warn') {
+    args.push('--ngx-log-level', config.ngxLogLevel)
+  }
+
   return args
 }

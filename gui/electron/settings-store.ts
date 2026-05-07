@@ -15,6 +15,9 @@ interface StoreSchema {
   memoryBudgetGB: number
   tonemapMode: string
   inverseTonemapEnabled: boolean
+  sourceFps: number
+  sharpness: number
+  ngxLogLevel: string
 }
 
 const store = new Store<StoreSchema>({
@@ -32,6 +35,9 @@ const store = new Store<StoreSchema>({
     memoryBudgetGB: 8,
     tonemapMode: 'pq',
     inverseTonemapEnabled: true,
+    sourceFps: 30,
+    sharpness: 0.0,
+    ngxLogLevel: 'warn',
   },
 })
 
@@ -50,6 +56,9 @@ export function getSettings(): Settings {
       memoryBudgetGB: store.get('memoryBudgetGB'),
       tonemapMode: store.get('tonemapMode') as 'none' | 'pq',
       inverseTonemapEnabled: store.get('inverseTonemapEnabled'),
+      sourceFps: store.get('sourceFps'),
+      sharpness: store.get('sharpness'),
+      ngxLogLevel: store.get('ngxLogLevel') as Settings['config']['ngxLogLevel'],
     },
   }
 }
@@ -69,6 +78,9 @@ export function saveSettings(settings: Partial<Settings>): void {
     if (c.memoryBudgetGB !== undefined) store.set('memoryBudgetGB', c.memoryBudgetGB)
     if (c.tonemapMode !== undefined) store.set('tonemapMode', c.tonemapMode)
     if (c.inverseTonemapEnabled !== undefined) store.set('inverseTonemapEnabled', c.inverseTonemapEnabled)
+    if (c.sourceFps !== undefined) store.set('sourceFps', c.sourceFps)
+    if (c.sharpness !== undefined) store.set('sharpness', c.sharpness)
+    if (c.ngxLogLevel !== undefined) store.set('ngxLogLevel', c.ngxLogLevel)
   }
 }
 

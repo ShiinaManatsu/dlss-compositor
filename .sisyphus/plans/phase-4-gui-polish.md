@@ -282,7 +282,7 @@ Wave FINAL (审查):
   - Files: `src/cli/cli_parser.cpp 或 src/main.cpp, src/pipeline/sequence_processor.cpp (如需), tests/*`
   - Pre-commit: `ctest --test-dir build`
 
-- [ ] 2. CLI --progress-format json (NDJSON 输出)
+- [x] 2. CLI --progress-format json (NDJSON 输出)
 
   **What to do**:
   - **`src/cli/config.h`**:

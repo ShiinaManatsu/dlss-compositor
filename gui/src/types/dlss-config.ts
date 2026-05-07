@@ -19,6 +19,9 @@ export interface DlssConfig {
   forwardLutFile: string;
   inverseLutFile: string;
   channelMapFile: string;
+  sourceFps: number;
+  sharpness: number;
+  ngxLogLevel: 'off' | 'error' | 'warn' | 'info' | 'verbose';
 }
 
 export const DEFAULT_CONFIG: DlssConfig = {
@@ -42,6 +45,9 @@ export const DEFAULT_CONFIG: DlssConfig = {
   forwardLutFile: '',
   inverseLutFile: '',
   channelMapFile: '',
+  sourceFps: 30,
+  sharpness: 0.0,
+  ngxLogLevel: 'warn',
 }
 
 export interface Settings {

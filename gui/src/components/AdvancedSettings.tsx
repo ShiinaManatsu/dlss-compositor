@@ -107,8 +107,49 @@ export default function AdvancedSettings() {
           </div>
         </div>
 
+        {/* Sharpness */}
+        <div>
+          <label className="block text-sm text-gray-400 mb-1" title="Post-DLSS sharpening (0=off, 0.2-0.4 recommended)">
+            Sharpness (Post-DLSS)
+          </label>
+          <div className="flex items-center space-x-4">
+            <input
+              data-testid="sharpness-slider"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              disabled={isRunning}
+              value={state.sharpness}
+              onChange={(e) => dispatch({ type: 'SET_SHARPNESS', payload: parseFloat(e.target.value) })}
+              className="flex-1 accent-blue-500 disabled:opacity-50"
+            />
+            <span className="w-10 text-sm text-center">{state.sharpness.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* NGX Log Level */}
+        <div>
+          <label className="block text-sm text-gray-400 mb-1" title="NGX SDK log verbosity (may slow processing at verbose)">
+            NGX SDK Log Verbosity
+          </label>
+          <select
+            data-testid="ngx-log-level-select"
+            value={state.ngxLogLevel}
+            disabled={isRunning}
+            onChange={(e) => dispatch({ type: 'SET_NGX_LOG_LEVEL', payload: e.target.value as DlssConfig['ngxLogLevel'] })}
+            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
+          >
+            <option value="off">off</option>
+            <option value="error">error</option>
+            <option value="warn">warn (default)</option>
+            <option value="info">info</option>
+            <option value="verbose">verbose</option>
+          </select>
+        </div>
+
         {/* EXR Output */}
-        <div className="space-y-4">
+        <div className="space-y-4 border-t border-gray-700 pt-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1" title="Compression algorithm for output EXR files">
               EXR Compression

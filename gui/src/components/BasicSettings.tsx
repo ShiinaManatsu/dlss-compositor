@@ -104,6 +104,34 @@ export default function BasicSettings() {
         </div>
       </div>
 
+      {/* Source FPS Section */}
+      <div className="space-y-2 pt-4 border-t border-gray-700">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1" title="Animation frame rate of source footage (used by DLSS frame timing). Distinct from video encoding FPS.">
+            Source FPS (animation frame rate)
+          </label>
+          <input
+            data-testid="source-fps-input"
+            type="number"
+            min={1}
+            max={240}
+            value={state.sourceFps}
+            disabled={isRunning}
+            onChange={(e) => dispatch({ type: 'SET_SOURCE_FPS', payload: parseInt(e.target.value, 10) || 30 })}
+            onKeyDown={handleNumberInputKeyDown}
+            onBlur={(e) => {
+              const val = parseInt(e.target.value, 10) || 30;
+              const clamped = Math.max(1, Math.min(240, val));
+              if (clamped !== state.sourceFps) {
+                dispatch({ type: 'SET_SOURCE_FPS', payload: clamped });
+                flashInput(e);
+              }
+            }}
+            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50"
+          />
+        </div>
+      </div>
+
       {/* Interpolation Section */}
       <div className="space-y-4 pt-4 border-t border-gray-700">
         <div>

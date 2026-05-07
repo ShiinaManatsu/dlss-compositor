@@ -25,7 +25,10 @@ type ConfigAction =
   | { type: 'SET_FORWARD_LUT'; payload: string }
   | { type: 'SET_INVERSE_LUT'; payload: string }
   | { type: 'SET_MEMORY_BUDGET'; payload: number }
-  | { type: 'SET_CHANNEL_MAP_FILE'; payload: string };
+  | { type: 'SET_CHANNEL_MAP_FILE'; payload: string }
+  | { type: 'SET_SOURCE_FPS'; payload: number }
+  | { type: 'SET_SHARPNESS'; payload: number }
+  | { type: 'SET_NGX_LOG_LEVEL'; payload: DlssConfig['ngxLogLevel'] };
 
 interface ConfigContextValue {
   state: ConfigState;
@@ -96,6 +99,12 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       return { ...state, memoryBudgetGB: action.payload };
     case 'SET_CHANNEL_MAP_FILE':
       return { ...state, channelMapFile: action.payload };
+    case 'SET_SOURCE_FPS':
+      return { ...state, sourceFps: action.payload };
+    case 'SET_SHARPNESS':
+      return { ...state, sharpness: action.payload };
+    case 'SET_NGX_LOG_LEVEL':
+      return { ...state, ngxLogLevel: action.payload };
     default:
       return state;
   }
