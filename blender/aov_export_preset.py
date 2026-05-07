@@ -56,7 +56,8 @@ _jitter_enabled = False
 
 def save_original_shift(scene):
     """Render init handler: save original camera shift values."""
-    global _original_shift_x, _original_shift_y, _jitter_enabled
+    global _original_shift_x, _original_shift_y, _jitter_enabled, _runtime_jitter
+    _runtime_jitter.clear()
     camera = scene.camera
     if camera and camera.data:
         _original_shift_x = camera.data.shift_x
@@ -81,6 +82,9 @@ def apply_jitter(scene):
     jitter_x = halton(frame_num % 8, 2) - 0.5
     jitter_y = halton(frame_num % 8, 3) - 0.5
 
+    # Store applied jitter so export_camera can read it back
+    _runtime_jitter[frame_num] = (jitter_x, jitter_y)
+
     # Convert pixel-space jitter to camera shift units (sensor width units)
     camera.data.shift_x = _original_shift_x + jitter_x / render.resolution_x
     camera.data.shift_y = _original_shift_y + jitter_y / render.resolution_y
@@ -98,6 +102,11 @@ def restore_shift(scene):
         camera.data.shift_y = _original_shift_y
 
     _jitter_enabled = False
+
+
+# Per-frame jitter values actually applied by apply_jitter(), keyed by frame number.
+# export_camera reads from this dict to guarantee consistency.
+_runtime_jitter: dict = {}
 
 
 # ---------------------------------------------------------------------------
@@ -169,9 +178,13 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 )
             ]
 
-            # Calculate Halton jitter for this frame (pixel space, [-0.5, +0.5])
-            jitter_x = halton(frame_num % 8, 2) - 0.5
-            jitter_y = halton(frame_num % 8, 3) - 0.5
+            # Prefer the value actually applied by apply_jitter; fall back if not rendered
+            if frame_num in _runtime_jitter:
+                jitter_x, jitter_y = _runtime_jitter[frame_num]
+            else:
+                # Fallback: compute from Halton (used when exporting without rendering first)
+                jitter_x = halton(frame_num % 8, 2) - 0.5
+                jitter_y = halton(frame_num % 8, 3) - 0.5
 
             data["frames"][key] = {
                 "matrix_world": matrix_world,
