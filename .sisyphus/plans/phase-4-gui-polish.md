@@ -1167,7 +1167,7 @@ Wave FINAL (审查):
   - Files: `gui/tests/auto-detect.spec.ts, gui/tests/resolution.spec.ts, gui/tests/preview.spec.ts, gui/tests/ndjson-parser.spec.ts, gui/tests/statusbar.spec.ts, gui/tests/new-controls.spec.ts, gui/tests/fixtures/*, gui/tests/real-processing.spec.ts (update), gui/tests/validation.spec.ts (update)`
   - Pre-commit: `cd gui; npx playwright test`
 
-- [ ] 12. 文档更新
+- [x] 12. 文档更新
 
   **What to do**:
   - **`README.md`** 更新：
@@ -1241,7 +1241,7 @@ Wave FINAL (审查):
 
 > 4 个审查 agent 并行运行。全部通过后向用户展示并获明确 okay。
 
-- [ ] F1. **计划合规审计** — `oracle`
+- [x] F1. **计划合规审计** — `oracle`
   对每个 Must Have 验证。每个交付物的实际改动（grep / 文件存在性）确认。
 
   **QA Scenarios**:
@@ -1258,7 +1258,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase4/F1-must-have.txt
   ```
 
-- [ ] F2. **代码质量审查** — `unspecified-high`
+- [x] F2. **代码质量审查** — `unspecified-high`
   Build C++ + 跑 ctest/pytest。GUI 端跑 `npm run build` + Playwright。无 TS lint 错误，无 React warning。
 
   **QA Scenarios**:
@@ -1275,7 +1275,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase4/F2-quality.txt
   ```
 
-- [ ] F3. **真实 QA** — `unspecified-high`
+- [x] F3. **真实 QA** — `unspecified-high`
   完整 e2e: 启动 Electron app → 选 input-dir（含 camera.json）→ 验证自动填充 + source res 检测 → 选 target=4K → scale 自动算 2.0 → 启动处理 → 看进度条 + live frame preview → 完成。
 
   **QA Scenarios**:
@@ -1294,7 +1294,7 @@ Wave FINAL (审查):
     Evidence: .sisyphus/evidence/phase4/F3-e2e.png + log
   ```
 
-- [ ] F4. **范围保真度检查** — `deep`
+- [x] F4. **范围保真度检查** — `deep`
   对每个 task 读 spec 和 diff，验证 1:1。无超范围改动。
 
   **QA Scenarios**:
