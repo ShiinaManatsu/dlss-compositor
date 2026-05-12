@@ -119,8 +119,11 @@ if (Test-Path $ProdModulesDir) {
 }
 New-Item -ItemType Directory -Path $ProdModulesDir | Out-Null
 
-# Copy package.json and install only production deps into a clean folder
-Copy-Item (Join-Path $GuiDir 'package.json') (Join-Path $ProdModulesDir 'package.json')
+# Copy package.json (stripped of devDependencies to avoid npm resolving dev-only versions)
+$prodPkg = Get-Content (Join-Path $GuiDir 'package.json') | ConvertFrom-Json
+$prodPkg.PSObject.Properties.Remove('devDependencies')
+$prodPkg.PSObject.Properties.Remove('scripts')
+$prodPkg | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $ProdModulesDir 'package.json')
 Push-Location $ProdModulesDir
 try {
     # --prefer-offline uses local npm cache; output suppressed
@@ -208,7 +211,7 @@ Write-Host "  OK  App code (dist-electron, dist, node_modules)"
 if (-not $SkipCmakeBuild) {
     Copy-Item (Join-Path $CliRelease 'dlss-compositor.exe') (Join-Path $AppDir 'dlss-compositor.exe')
 
-    foreach ($dll in @('nvngx_dlssd.dll', 'nvngx_dlssg.dll')) {
+    foreach ($dll in @('nvngx_dlss.dll', 'nvngx_dlssg.dll')) {
         $src = Join-Path $CliRelease $dll
         if (Test-Path $src) {
             Copy-Item $src (Join-Path $AppDir $dll)
