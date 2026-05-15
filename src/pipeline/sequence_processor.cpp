@@ -657,8 +657,21 @@ bool SequenceProcessor::scanAndSort(const std::filesystem::path& inputDir,
 
         SequenceFrameInfo frameInfo;
         frameInfo.path = entry.path();
-        frameInfo.frameNumber = std::numeric_limits<int>::max();
-        extractTrailingFrameNumber(entry.path(), frameInfo.frameNumber);
+        frameInfo.frameNumber = 0;
+        if (!extractTrailingFrameNumber(entry.path(), frameInfo.frameNumber)) {
+            auto& emitter = globalNdjsonEmitter();
+            if (emitter.isEnabled()) {
+                nlohmann::json ev = {
+                    {"type", "skipped_file"},
+                    {"path", entry.path().string()},
+                    {"reason", "no_trailing_frame_number"},
+                };
+                emitter.emitRaw(ev.dump());
+            }
+            Log::info("[scan] Skipping file without trailing frame number: %s\n",
+                      entry.path().filename().string().c_str());
+            continue;
+        }
         frames.push_back(std::move(frameInfo));
     }
 
@@ -670,7 +683,16 @@ bool SequenceProcessor::scanAndSort(const std::filesystem::path& inputDir,
     });
 
     if (frames.empty()) {
-        errorMsg = "No EXR files found in input directory: " + inputDir.string();
+        auto& emitter = globalNdjsonEmitter();
+        if (emitter.isEnabled()) {
+            nlohmann::json ev = {
+                {"type", "error"},
+                {"reason", "no_valid_frames"},
+                {"detail", "No EXR files with valid frame numbers found in: " + inputDir.string()},
+            };
+            emitter.emitRaw(ev.dump());
+        }
+        errorMsg = "No EXR files with valid frame numbers found in input directory: " + inputDir.string();
         return false;
     }
 

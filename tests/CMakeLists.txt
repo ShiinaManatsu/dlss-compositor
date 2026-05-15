@@ -19,6 +19,7 @@ add_executable(dlss-compositor-tests
     test_preset_mapping.cpp
     test_cli_advanced_flags.cpp
     test_camera_cut_detection.cpp
+    test_sequence_filename_filter.cpp
     test_ngx_banner.cpp
     test_integration_preset_trace.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
@@ -49,6 +50,8 @@ add_test(NAME CliAdvancedFlags COMMAND dlss-compositor-tests "[CliAdvancedFlags]
 set_tests_properties(CliAdvancedFlags PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME CameraCut COMMAND dlss-compositor-tests "[CameraCut]")
 set_tests_properties(CameraCut PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME SequenceFilenameFilter COMMAND dlss-compositor-tests "[SequenceFilenameFilter]")
+set_tests_properties(SequenceFilenameFilter PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME NgxBanner COMMAND dlss-compositor-tests "[NgxBanner]")
 set_tests_properties(NgxBanner PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME IntegrationPresetTrace COMMAND dlss-compositor-tests "[IntegrationPresetTrace]")
