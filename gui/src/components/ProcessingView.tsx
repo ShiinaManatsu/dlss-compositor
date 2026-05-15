@@ -11,7 +11,7 @@ function formatElapsed(seconds: number): string {
 
 export default function ProcessingView() {
   const { state } = useConfig();
-  const { status, progress, currentFrame, totalFrames, etaSeconds, errors, latestFramePath, start, stop } = useProcessing();
+  const { status, currentFrame, totalFrames, errors, latestFramePath, start, stop } = useProcessing();
   const [exeAvailable, setExeAvailable] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -154,8 +154,6 @@ export default function ProcessingView() {
           ? 'Error'
           : 'Idle';
 
-  const showProgressBar = status === 'running' || (status === 'done' && totalFrames > 0);
-  const isIndeterminateProgress = status === 'running' && totalFrames === 0;
   const frameCounterLabel =
     currentFrame === 0 && totalFrames === 0 ? 'Starting…' : `${currentFrame}/${totalFrames}`;
 
@@ -214,37 +212,6 @@ export default function ProcessingView() {
           )}
         </div>
       </div>
-
-      {/* Progress bar */}
-      {showProgressBar && (
-        <div className="flex-shrink-0">
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-            <span data-testid="progress-text">
-              {currentFrame === 0 && totalFrames === 0
-                ? 'Starting…'
-                : totalFrames > 0
-                  ? `Processing frame ${currentFrame}/${totalFrames} (${progress}%)`
-                  : `Processing frame ${currentFrame}/${totalFrames}`}
-            </span>
-            {status === 'running' && (
-              <span data-testid="eta-text" className="text-gray-500 font-mono">
-                {etaSeconds !== null 
-                  ? `ETA: ${formatElapsed(etaSeconds)}` 
-                  : currentFrame > 0 && currentFrame < 3 
-                    ? 'Estimating ETA...' 
-                    : ''}
-              </span>
-            )}
-          </div>
-          <div className="w-full h-2 bg-gray-700 rounded overflow-hidden">
-            <div
-              data-testid="progress-bar"
-              className={`h-full transition-all duration-300 ${status === 'done' ? 'bg-green-500' : 'bg-gradient-to-r from-blue-600 to-blue-400'} ${isIndeterminateProgress ? 'animate-pulse' : ''}`}
-              style={{ width: isIndeterminateProgress ? '100%' : `${progress}%` }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Completion banner */}
       {completionMsg && status === 'done' && (
