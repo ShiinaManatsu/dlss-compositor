@@ -5,31 +5,25 @@ import { useIsRunning } from '../state/processing-store';
 import { handleNumberInputKeyDown, flashInput } from './utils';
 import ResolutionPanel from './ResolutionPanel';
 
-export default function BasicSettings() {
+export default function SRSettings() {
   const { state, dispatch } = useConfig();
   const isRunning = useIsRunning();
-
-  const handleCameraDataBrowse = async () => {
-    try {
-      const file = await window.dlssApi.selectFile([{ name: 'JSON', extensions: ['json'] }]);
-      if (file) {
-        dispatch({ type: 'SET_CAMERA_DATA_FILE', payload: file });
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const showValidationError = !state.scaleEnabled && state.interpolateFactor === 0;
 
   return (
-    <div className="p-4 space-y-6">
-      {/* Validation Error */}
-      {showValidationError && (
-        <div data-testid="mode-validation-error" className="text-red-500 text-sm p-3 bg-red-500/10 border border-red-500/20 rounded">
-          Select at least upscaling or interpolation
-        </div>
-      )}
+    <div className="p-4 space-y-4 border-t border-gray-700">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+          SR Settings
+        </h2>
+        {/* Note: mode-validation-error is kept here since "Enable Upscaling" lives here */}
+        {showValidationError && (
+          <span data-testid="mode-validation-error" className="text-red-500 text-xs px-2 py-1 bg-red-500/10 border border-red-500/20 rounded">
+            Select upscaling or interpolation
+          </span>
+        )}
+      </div>
 
       {/* Upscaling Section */}
       <div className="space-y-4">
@@ -135,96 +129,25 @@ export default function BasicSettings() {
         </div>
       </div>
 
-      {/* Interpolation Section */}
-      <div className="space-y-4 pt-4 border-t border-gray-700">
-        <div>
-          <label className="block font-medium mb-2">Interpolation</label>
-          <select
-            data-testid="interpolation-select"
-            value={state.interpolateFactor}
-            disabled={isRunning}
-            onChange={(e) => dispatch({ type: 'SET_INTERPOLATION', payload: parseInt(e.target.value, 10) as 0 | 2 | 4 })}
-            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
-          >
-            <option value={0}>None</option>
-            <option value={2}>2x</option>
-            <option value={4}>4x</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Camera Data File</label>
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              readOnly
-              value={state.cameraDataFile}
-              disabled={isRunning || state.interpolateFactor === 0}
-              className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm disabled:opacity-50"
-            />
-            <button
-              data-testid="camera-data-picker"
-              onClick={handleCameraDataBrowse}
-              disabled={isRunning || state.interpolateFactor === 0}
-              className="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Browse
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Output Section */}
-      <div className="space-y-4 pt-4 border-t border-gray-700">
-        <label className="flex items-center space-x-2">
-          <input
-            data-testid="encode-video"
-            type="checkbox"
-            checked={state.encodeVideo}
-            disabled={isRunning}
-            onChange={(e) => dispatch({ type: 'SET_ENCODE_VIDEO', payload: e.target.checked })}
-            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
-          />
-          <span className="font-medium">Encode Video</span>
+      {/* Sharpness Section */}
+      <div className="pt-4 border-t border-gray-700">
+        <label className="block text-sm text-gray-400 mb-1" title="Post-DLSS sharpening (0=off, 0.2-0.4 recommended)">
+          Sharpness (Post-DLSS)
         </label>
-
-        {state.encodeVideo && (
-          <div className="space-y-4 pl-6">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">FPS</label>
-              <input
-                data-testid="fps-input"
-                type="number"
-                min={1}
-                max={240}
-                value={state.fps}
-                disabled={isRunning}
-                onChange={(e) => dispatch({ type: 'SET_FPS', payload: parseInt(e.target.value, 10) || 24 })}
-                onKeyDown={handleNumberInputKeyDown}
-                onBlur={(e) => {
-                  const val = parseInt(e.target.value, 10) || 24;
-                  const clamped = Math.max(1, Math.min(240, val));
-                  if (clamped !== state.fps) {
-                    dispatch({ type: 'SET_FPS', payload: clamped });
-                    flashInput(e);
-                  }
-                }}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all disabled:opacity-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Video Output File</label>
-              <input
-                data-testid="video-output-file"
-                type="text"
-                value={state.videoOutputFile}
-                disabled={isRunning}
-                onChange={(e) => dispatch({ type: 'SET_VIDEO_OUTPUT_FILE', payload: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
-              />
-            </div>
-          </div>
-        )}
+        <div className="flex items-center space-x-4">
+          <input
+            data-testid="sharpness-slider"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            disabled={isRunning}
+            value={state.sharpness}
+            onChange={(e) => dispatch({ type: 'SET_SHARPNESS', payload: parseFloat(e.target.value) })}
+            className="flex-1 accent-blue-500 disabled:opacity-50"
+          />
+          <span className="w-10 text-sm text-center">{state.sharpness.toFixed(2)}</span>
+        </div>
       </div>
     </div>
   );

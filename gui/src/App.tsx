@@ -3,8 +3,9 @@ import { ConfigProvider, useConfig } from './state/config-store';
 import { BannerProvider } from './state/banner-store';
 import Layout from './components/Layout';
 import InputOutputPanel from './components/InputOutputPanel';
-import BasicSettings from './components/BasicSettings';
-import AdvancedSettings from './components/AdvancedSettings';
+import CommonSettings from './components/CommonSettings';
+import SRSettings from './components/SRSettings';
+import FGSettings from './components/FGSettings';
 import ProcessingView from './components/ProcessingView';
 import StatusBar from './components/StatusBar';
 import type { Settings } from './types/dlss-config';
@@ -85,8 +86,9 @@ function AppContent() {
           sidebar={
             <div className="flex flex-col">
               <InputOutputPanel />
-              <BasicSettings />
-              <AdvancedSettings />
+              <CommonSettings />
+              <SRSettings />
+              <FGSettings />
             </div>
           }
           main={
