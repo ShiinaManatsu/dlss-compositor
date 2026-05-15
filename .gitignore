@@ -54,6 +54,9 @@ gui/out/
 gui/test-results/
 gui/playwright-report/
 
+# GUI runtime settings (project-relative; .example.json is committed)
+gui/dlss-compositor.json
+
 # Release packages
 dist/
 

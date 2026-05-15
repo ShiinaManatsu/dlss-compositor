@@ -5,11 +5,11 @@ import { spawn, exec } from 'node:child_process'
 import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
-import { getSettings, saveSettings } from './settings-store'
+import { getSettings, saveSettings, loadSettings, resetSettings, type PersistedSettings } from './settings-store'
 import { findCameraJson, readSourceResolution } from './camera-detector'
 import { exrToPng, cleanupPreviewCache } from './preview-generator'
 import { getResolvedExePath, locateCliExecutable } from './exe-locator'
-import type { DlssConfig, Settings } from '../src/types/dlss-config'
+import type { DlssConfig } from '../src/types/dlss-config'
 
 type ProcessStartPayload = {
   config: DlssConfig;
@@ -203,8 +203,13 @@ function registerIpcHandlers(): void {
     return getSettings()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, async (_event, settings: Partial<Settings>) => {
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SAVE, async (_event, settings: Partial<PersistedSettings>) => {
     saveSettings(settings)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_RESET, async () => {
+    await resetSettings()
+    return getSettings()
   })
 
   ipcMain.handle(IPC_CHANNELS.EXE_GET_RESOLVED_PATH, () => {
@@ -280,6 +285,8 @@ function registerIpcHandlers(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
+
+  loadSettings()
 
   try {
     locateCliExecutable() // caches the result inside exe-locator

@@ -1,29 +1,37 @@
-import Store from 'electron-store'
-import type { Settings } from '../src/types/dlss-config'
+import { app } from 'electron'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
 
-interface StoreSchema {
-  lastInputDir: string
-  lastOutputDir: string
-  windowBounds: { x: number; y: number; width: number; height: number } | undefined
-  scaleFactor: number
-  quality: string
-  interpolateFactor: number
-  exrCompression: string
-  exrDwaQuality: number
-  memoryBudgetGB: number
-  tonemapMode: string
-  inverseTonemapEnabled: boolean
-  sourceFps: number
-  sharpness: number
-  ngxLogLevel: string
+// Schema version — bump when making incompatible changes
+const SCHEMA_VERSION = 1
+
+export interface PersistedSettings {
+  schemaVersion: number
+  lastInputDir: string | null
+  lastOutputDir: string | null
+  windowBounds: { x?: number; y?: number; width: number; height: number } | null
+  config: {
+    scaleFactor: number
+    quality: string
+    interpolateFactor: number
+    exrCompression: string
+    exrDwaQuality: number
+    memoryBudgetGB: number
+    tonemapMode: string
+    inverseTonemapEnabled: boolean
+    sourceFps: number
+    sharpness: number
+    ngxLogLevel: string
+  }
 }
 
-const store = new Store<StoreSchema>({
-  name: 'dlss-compositor-settings',
-  defaults: {
-    lastInputDir: '',
-    lastOutputDir: '',
-    windowBounds: undefined,
+const DEFAULTS: PersistedSettings = {
+  schemaVersion: SCHEMA_VERSION,
+  lastInputDir: null,
+  lastOutputDir: null,
+  windowBounds: null,
+  config: {
     scaleFactor: 2.0,
     quality: 'MaxQuality',
     interpolateFactor: 0,
@@ -36,45 +44,100 @@ const store = new Store<StoreSchema>({
     sharpness: 0.0,
     ngxLogLevel: 'warn',
   },
-})
+}
 
-export function getSettings(): Settings {
-  return {
-    lastInputDir: store.get('lastInputDir'),
-    lastOutputDir: store.get('lastOutputDir'),
-    windowBounds: store.get('windowBounds'),
-    config: {
-      scaleFactor: store.get('scaleFactor'),
-      quality: store.get('quality') as Settings['config']['quality'],
-      interpolateFactor: store.get('interpolateFactor') as 0 | 2 | 4,
-      exrCompression: store.get('exrCompression') as Settings['config']['exrCompression'],
-      exrDwaQuality: store.get('exrDwaQuality'),
-      memoryBudgetGB: store.get('memoryBudgetGB'),
-      tonemapMode: store.get('tonemapMode') as 'none' | 'pq',
-      inverseTonemapEnabled: store.get('inverseTonemapEnabled'),
-      sourceFps: store.get('sourceFps'),
-      sharpness: store.get('sharpness'),
-      ngxLogLevel: store.get('ngxLogLevel') as Settings['config']['ngxLogLevel'],
-    },
+let _current: PersistedSettings = JSON.parse(JSON.stringify(DEFAULTS))
+let _saveTimer: ReturnType<typeof setTimeout> | null = null
+
+function getSettingsFilePath(): string {
+  if (app.isPackaged) {
+    return path.join(path.dirname(app.getPath('exe')), 'dlss-compositor.json')
+  }
+  // Dev: relative to the gui/ directory (process.cwd() when running `npm run dev` from gui/)
+  return path.resolve(process.cwd(), 'dlss-compositor.json')
+}
+
+function deepMerge(target: PersistedSettings, partial: Partial<PersistedSettings>): PersistedSettings {
+  const result: PersistedSettings = {
+    schemaVersion: target.schemaVersion,
+    lastInputDir: target.lastInputDir,
+    lastOutputDir: target.lastOutputDir,
+    windowBounds: target.windowBounds,
+    config: { ...target.config },
+  }
+  if (partial.lastInputDir !== undefined) result.lastInputDir = partial.lastInputDir
+  if (partial.lastOutputDir !== undefined) result.lastOutputDir = partial.lastOutputDir
+  if (partial.windowBounds !== undefined) result.windowBounds = partial.windowBounds
+  if (partial.config) {
+    result.config = { ...target.config, ...partial.config }
+  }
+  return result
+}
+
+export function loadSettings(): void {
+  const filePath = getSettingsFilePath()
+  try {
+    if (!fs.existsSync(filePath)) return
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    const parsed = JSON.parse(raw) as Partial<PersistedSettings>
+    if (parsed.schemaVersion !== SCHEMA_VERSION) {
+      console.warn(
+        `[settings] Schema version mismatch (got ${parsed.schemaVersion}, expected ${SCHEMA_VERSION}). Using defaults.`
+      )
+      return
+    }
+    _current = deepMerge(DEFAULTS, parsed)
+  } catch (err) {
+    console.warn('[settings] Failed to load settings, using defaults:', err)
+    _current = JSON.parse(JSON.stringify(DEFAULTS))
   }
 }
 
-export function saveSettings(settings: Partial<Settings>): void {
-  if (settings.lastInputDir !== undefined) store.set('lastInputDir', settings.lastInputDir)
-  if (settings.lastOutputDir !== undefined) store.set('lastOutputDir', settings.lastOutputDir)
-  if (settings.windowBounds !== undefined) store.set('windowBounds', settings.windowBounds)
-  if (settings.config) {
-    const c = settings.config
-    if (c.scaleFactor !== undefined) store.set('scaleFactor', c.scaleFactor)
-    if (c.quality !== undefined) store.set('quality', c.quality)
-    if (c.interpolateFactor !== undefined) store.set('interpolateFactor', c.interpolateFactor)
-    if (c.exrCompression !== undefined) store.set('exrCompression', c.exrCompression)
-    if (c.exrDwaQuality !== undefined) store.set('exrDwaQuality', c.exrDwaQuality)
-    if (c.memoryBudgetGB !== undefined) store.set('memoryBudgetGB', c.memoryBudgetGB)
-    if (c.tonemapMode !== undefined) store.set('tonemapMode', c.tonemapMode)
-    if (c.inverseTonemapEnabled !== undefined) store.set('inverseTonemapEnabled', c.inverseTonemapEnabled)
-    if (c.sourceFps !== undefined) store.set('sourceFps', c.sourceFps)
-    if (c.sharpness !== undefined) store.set('sharpness', c.sharpness)
-    if (c.ngxLogLevel !== undefined) store.set('ngxLogLevel', c.ngxLogLevel)
+async function writeToDisk(): Promise<void> {
+  const filePath = getSettingsFilePath()
+  const tmpPath = filePath + '.tmp'
+  try {
+    await fsp.writeFile(tmpPath, JSON.stringify(_current, null, 2), 'utf-8')
+    await fsp.rename(tmpPath, filePath)
+  } catch (err) {
+    console.error('[settings] Failed to write settings:', err)
+    try {
+      await fsp.unlink(tmpPath)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function scheduleSave(): void {
+  if (_saveTimer) clearTimeout(_saveTimer)
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null
+    void writeToDisk()
+  }, 500)
+}
+
+export function getSettings(): PersistedSettings {
+  return JSON.parse(JSON.stringify(_current))
+}
+
+export function saveSettings(partial: Partial<PersistedSettings>): void {
+  _current = deepMerge(_current, partial)
+  scheduleSave()
+}
+
+export async function resetSettings(): Promise<void> {
+  _current = JSON.parse(JSON.stringify(DEFAULTS))
+  if (_saveTimer) {
+    clearTimeout(_saveTimer)
+    _saveTimer = null
+  }
+  const filePath = getSettingsFilePath()
+  try {
+    if (fs.existsSync(filePath)) {
+      await fsp.unlink(filePath)
+    }
+  } catch (err) {
+    console.error('[settings] Failed to delete settings file:', err)
   }
 }

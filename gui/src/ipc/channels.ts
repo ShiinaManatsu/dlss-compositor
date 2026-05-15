@@ -11,6 +11,7 @@ export const IPC_CHANNELS = {
   PROCESS_BANNER: 'process:banner',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
+  SETTINGS_RESET: 'settings:reset',
   EXE_GET_RESOLVED_PATH: 'exe:get-resolved-path',
   CAMERA_AUTO_DETECT: 'camera:auto-detect',
   FRAME_PREVIEW_PNG: 'frame:preview-png',

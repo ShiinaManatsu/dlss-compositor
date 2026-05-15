@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "lastInputDir": null,
+  "lastOutputDir": null,
+  "windowBounds": null,
+  "config": {
+    "scaleFactor": 2.0,
+    "quality": "MaxQuality",
+    "interpolateFactor": 0,
+    "exrCompression": "dwaa",
+    "exrDwaQuality": 95.0,
+    "memoryBudgetGB": 8,
+    "tonemapMode": "pq",
+    "inverseTonemapEnabled": true,
+    "sourceFps": 30,
+    "sharpness": 0.0,
+    "ngxLogLevel": "warn"
+  }
+}
