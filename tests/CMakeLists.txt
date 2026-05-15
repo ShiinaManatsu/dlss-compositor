@@ -16,6 +16,7 @@ add_executable(dlss-compositor-tests
     test_integration.cpp
     test_matrix_layout.cpp
     test_ndjson_emitter.cpp
+    test_preset_mapping.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
@@ -28,6 +29,7 @@ target_include_directories(dlss-compositor-tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cli
     ${CMAKE_SOURCE_DIR}/src/core
 )
+
 include(CTest)
 include(Catch)
 catch_discover_tests(dlss-compositor-tests)
@@ -41,6 +43,17 @@ add_test(NAME test_matrix_layout COMMAND dlss-compositor-tests "[matrix]")
 set_tests_properties(test_matrix_layout PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 if(MSVC)
+    add_custom_command(TARGET dlss-compositor-tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+            "$<TARGET_FILE_DIR:dlss-compositor-tests>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Catch2::Catch2>"
+            "$<TARGET_FILE_DIR:dlss-compositor-tests>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Catch2::Catch2WithMain>"
+            "$<TARGET_FILE_DIR:dlss-compositor-tests>"
+    )
     file(GLOB DLSS_NGXCORE_DLLS "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel/nvngx_dlssd.dll")
     foreach(DLL ${DLSS_NGXCORE_DLLS})
         add_custom_command(TARGET dlss-compositor-tests POST_BUILD

@@ -16,6 +16,31 @@ using VkDevice = VkDevice_T*;
 struct VkCommandBuffer_T;
 using VkCommandBuffer = VkCommandBuffer_T*;
 
+struct DlssPresetConfig {
+    DlssSRPreset globalPreset = DlssSRPreset::Auto;
+    DlssSRPreset dlaa = DlssSRPreset::Auto;
+    DlssSRPreset quality = DlssSRPreset::Auto;
+    DlssSRPreset balanced = DlssSRPreset::Auto;
+    DlssSRPreset performance = DlssSRPreset::Auto;
+    DlssSRPreset ultraPerformance = DlssSRPreset::Auto;
+    DlssSRPreset ultraQuality = DlssSRPreset::Auto;
+};
+
+struct DlssPresetSlots {
+    int dlaa = 0;
+    int quality = 0;
+    int balanced = 0;
+    int performance = 0;
+    int ultraPerformance = 0;
+    int ultraQuality = 0;
+};
+
+DlssPresetConfig makeDlssPresetConfig(const AppConfig& config);
+int resolveDlssPresetValue(DlssSRPreset perQualityPreset,
+                           DlssSRPreset globalPreset,
+                           NVSDK_NGX_PerfQuality_Value quality);
+DlssPresetSlots resolveDlssPresetSlots(const DlssPresetConfig& presets);
+
 class NgxContext {
 public:
     NgxContext();
@@ -33,12 +58,12 @@ public:
 
     bool createDlssSR(int inputWidth,
                       int inputHeight,
-                      int outputWidth,
-                      int outputHeight,
-                      DlssQualityMode quality,
-                      DlssSRPreset preset,
-                      VkCommandBuffer cmdBuf,
-                      std::string& errorMsg);
+                       int outputWidth,
+                       int outputHeight,
+                       DlssQualityMode quality,
+                       const DlssPresetConfig& presets,
+                       VkCommandBuffer cmdBuf,
+                       std::string& errorMsg);
 
     void releaseDlssSR();
     bool isDlssFGAvailable() const;

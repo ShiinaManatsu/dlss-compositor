@@ -779,7 +779,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
-                            config.preset,
+                            makeDlssPresetConfig(config),
                             createCmdBuf,
                             errorMsg) ||
         !submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
@@ -1195,7 +1195,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
-                            config.preset,
+                            makeDlssPresetConfig(config),
                             createCmdBufSR,
                             errorMsg)) {
         Log::error( "[SRFG] DLSS-SR feature creation failed: %s\n", errorMsg.c_str());

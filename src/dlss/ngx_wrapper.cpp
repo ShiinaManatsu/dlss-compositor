@@ -72,6 +72,94 @@ bool readIntParameter(const NVSDK_NGX_Parameter* parameters, const char* name, i
     return true;
 }
 
+static int resolveAutoPreset(NVSDK_NGX_PerfQuality_Value quality) {
+    switch (quality) {
+    case NVSDK_NGX_PerfQuality_Value_DLAA:
+    case NVSDK_NGX_PerfQuality_Value_MaxQuality:
+    case NVSDK_NGX_PerfQuality_Value_Balanced:
+    case NVSDK_NGX_PerfQuality_Value_UltraQuality:
+        return NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+    case NVSDK_NGX_PerfQuality_Value_MaxPerf:
+        return NVSDK_NGX_DLSS_Hint_Render_Preset_M;
+    case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
+        return NVSDK_NGX_DLSS_Hint_Render_Preset_L;
+    }
+
+    return NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+}
+
+const char* qualityName(DlssQualityMode quality) {
+    switch (quality) {
+    case DlssQualityMode::DLAA: return "DLAA";
+    case DlssQualityMode::MaxQuality: return "MaxQuality";
+    case DlssQualityMode::Balanced: return "Balanced";
+    case DlssQualityMode::Performance: return "Performance";
+    case DlssQualityMode::UltraPerformance: return "UltraPerformance";
+    }
+
+    return "unknown";
+}
+
+const char* presetLabel(int presetValue) {
+    switch (presetValue) {
+    case NVSDK_NGX_DLSS_Hint_Render_Preset_J: return "J";
+    case NVSDK_NGX_DLSS_Hint_Render_Preset_K: return "K";
+    case NVSDK_NGX_DLSS_Hint_Render_Preset_L: return "L";
+    case NVSDK_NGX_DLSS_Hint_Render_Preset_M: return "M";
+    default: return "?";
+    }
+}
+
+DlssSRPreset presetOverrideForQuality(NVSDK_NGX_PerfQuality_Value quality,
+                                      const DlssPresetConfig& presets) {
+    switch (quality) {
+    case NVSDK_NGX_PerfQuality_Value_DLAA:
+        return presets.dlaa;
+    case NVSDK_NGX_PerfQuality_Value_MaxQuality:
+        return presets.quality;
+    case NVSDK_NGX_PerfQuality_Value_Balanced:
+        return presets.balanced;
+    case NVSDK_NGX_PerfQuality_Value_MaxPerf:
+        return presets.performance;
+    case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
+        return presets.ultraPerformance;
+    case NVSDK_NGX_PerfQuality_Value_UltraQuality:
+        return presets.ultraQuality;
+    }
+
+    return DlssSRPreset::Auto;
+}
+
+int presetSlotForQuality(NVSDK_NGX_PerfQuality_Value quality,
+                         const DlssPresetSlots& slots) {
+    switch (quality) {
+    case NVSDK_NGX_PerfQuality_Value_DLAA:
+        return slots.dlaa;
+    case NVSDK_NGX_PerfQuality_Value_MaxQuality:
+        return slots.quality;
+    case NVSDK_NGX_PerfQuality_Value_Balanced:
+        return slots.balanced;
+    case NVSDK_NGX_PerfQuality_Value_MaxPerf:
+        return slots.performance;
+    case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
+        return slots.ultraPerformance;
+    case NVSDK_NGX_PerfQuality_Value_UltraQuality:
+        return slots.ultraQuality;
+    }
+
+    return slots.quality;
+}
+
+const char* presetSourceLabel(DlssSRPreset perQualityPreset, DlssSRPreset globalPreset) {
+    if (perQualityPreset != DlssSRPreset::Auto) {
+        return "per-quality override";
+    }
+    if (globalPreset != DlssSRPreset::Auto) {
+        return "global override";
+    }
+    return "auto";
+}
+
 static std::string getDllFileVersion(const wchar_t* dllName) {
     wchar_t dllPath[MAX_PATH] = {};
     HMODULE hMod = GetModuleHandleW(dllName);
@@ -110,6 +198,53 @@ static std::string getDllFileVersion(const wchar_t* dllName) {
 }
 
 } // namespace
+
+DlssPresetConfig makeDlssPresetConfig(const AppConfig& config) {
+    DlssPresetConfig presets;
+    presets.globalPreset = config.preset;
+    presets.dlaa = config.presetDLAA;
+    presets.quality = config.presetQuality;
+    presets.balanced = config.presetBalanced;
+    presets.performance = config.presetPerformance;
+    presets.ultraPerformance = config.presetUltraPerformance;
+    presets.ultraQuality = config.presetUltraQuality;
+    return presets;
+}
+
+int resolveDlssPresetValue(DlssSRPreset perQualityPreset,
+                           DlssSRPreset globalPreset,
+                           NVSDK_NGX_PerfQuality_Value quality) {
+    if (perQualityPreset != DlssSRPreset::Auto) {
+        return static_cast<int>(perQualityPreset);
+    }
+    if (globalPreset != DlssSRPreset::Auto) {
+        return static_cast<int>(globalPreset);
+    }
+    return resolveAutoPreset(quality);
+}
+
+DlssPresetSlots resolveDlssPresetSlots(const DlssPresetConfig& presets) {
+    DlssPresetSlots slots;
+    slots.dlaa = resolveDlssPresetValue(presets.dlaa,
+                                        presets.globalPreset,
+                                        NVSDK_NGX_PerfQuality_Value_DLAA);
+    slots.quality = resolveDlssPresetValue(presets.quality,
+                                           presets.globalPreset,
+                                           NVSDK_NGX_PerfQuality_Value_MaxQuality);
+    slots.balanced = resolveDlssPresetValue(presets.balanced,
+                                            presets.globalPreset,
+                                            NVSDK_NGX_PerfQuality_Value_Balanced);
+    slots.performance = resolveDlssPresetValue(presets.performance,
+                                               presets.globalPreset,
+                                               NVSDK_NGX_PerfQuality_Value_MaxPerf);
+    slots.ultraPerformance = resolveDlssPresetValue(presets.ultraPerformance,
+                                                    presets.globalPreset,
+                                                    NVSDK_NGX_PerfQuality_Value_UltraPerformance);
+    slots.ultraQuality = resolveDlssPresetValue(presets.ultraQuality,
+                                                presets.globalPreset,
+                                                NVSDK_NGX_PerfQuality_Value_UltraQuality);
+    return slots;
+}
 
 NgxContext::NgxContext() = default;
 
@@ -208,7 +343,7 @@ bool NgxContext::createDlssSR(int inputWidth,
                               int outputWidth,
                               int outputHeight,
                               DlssQualityMode quality,
-                              DlssSRPreset preset,
+                              const DlssPresetConfig& presets,
                               VkCommandBuffer cmdBuf,
                               std::string& errorMsg) {
     errorMsg.clear();
@@ -230,46 +365,27 @@ bool NgxContext::createDlssSR(int inputWidth,
     createParams.Feature.InHeight = static_cast<unsigned int>(inputHeight);
     createParams.Feature.InTargetWidth = static_cast<unsigned int>(outputWidth);
     createParams.Feature.InTargetHeight = static_cast<unsigned int>(outputHeight);
-    createParams.Feature.InPerfQualityValue = mapQuality(quality);
+    const NVSDK_NGX_PerfQuality_Value perfQuality = mapQuality(quality);
+    createParams.Feature.InPerfQualityValue = perfQuality;
      createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
                                          NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
                                          NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
     createParams.InEnableOutputSubrects = false;
 
-    // Auto selects NVIDIA-recommended preset per quality mode; explicit preset overrides all
-    auto pickPreset = [&](DlssSRPreset defaultPreset) -> int {
-        return preset == DlssSRPreset::Auto
-            ? static_cast<int>(defaultPreset)
-            : static_cast<int>(preset);
-    };
+    const DlssPresetSlots presetSlots = resolveDlssPresetSlots(presets);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,             presetSlots.dlaa);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,          presetSlots.quality);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced,         presetSlots.balanced);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,      presetSlots.performance);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, presetSlots.ultraPerformance);
+    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality,     presetSlots.ultraQuality);
 
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,             pickPreset(DlssSRPreset::K));
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,          pickPreset(DlssSRPreset::K));
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced,         pickPreset(DlssSRPreset::K));
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,      pickPreset(DlssSRPreset::M));
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, pickPreset(DlssSRPreset::L));
-    NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality,     pickPreset(DlssSRPreset::K));
-
-
-    // Determine effective preset for the configured quality mode (for logging)
-    const char* qualityName = "unknown";
-    DlssSRPreset effectiveDefaultPreset = DlssSRPreset::K;
-    switch (quality) {
-        case DlssQualityMode::DLAA:             qualityName = "DLAA";             effectiveDefaultPreset = DlssSRPreset::K; break;
-        case DlssQualityMode::MaxQuality:       qualityName = "MaxQuality";       effectiveDefaultPreset = DlssSRPreset::K; break;
-        case DlssQualityMode::Balanced:         qualityName = "Balanced";         effectiveDefaultPreset = DlssSRPreset::K; break;
-        case DlssQualityMode::Performance:      qualityName = "Performance";      effectiveDefaultPreset = DlssSRPreset::M; break;
-        case DlssQualityMode::UltraPerformance: qualityName = "UltraPerformance"; effectiveDefaultPreset = DlssSRPreset::L; break;
-    }
-    const int effectivePresetValue = pickPreset(effectiveDefaultPreset);
-    const char* presetLabel = (effectivePresetValue == static_cast<int>(DlssSRPreset::J)) ? "J" :
-                              (effectivePresetValue == static_cast<int>(DlssSRPreset::K)) ? "K" :
-                              (effectivePresetValue == static_cast<int>(DlssSRPreset::L)) ? "L" :
-                              (effectivePresetValue == static_cast<int>(DlssSRPreset::M)) ? "M" : "?";
+    const int effectivePresetValue = presetSlotForQuality(perfQuality, presetSlots);
+    const DlssSRPreset perQualityPreset = presetOverrideForQuality(perfQuality, presets);
     Log::info("[NGX] DLSS-SR preset: %s (%s for %s)\n",
-              presetLabel,
-              preset == DlssSRPreset::Auto ? "auto" : "user override",
-              qualityName);
+              presetLabel(effectivePresetValue),
+              presetSourceLabel(perQualityPreset, presets.globalPreset),
+              qualityName(quality));
 
     const NVSDK_NGX_Result createResult = NGX_VULKAN_CREATE_DLSS_EXT1(m_device,
                                                                         cmdBuf,
@@ -284,28 +400,8 @@ bool NgxContext::createDlssSR(int inputWidth,
         return false;
     }
 
-    // Feature creation summary banner
-    const char* qualityNameBanner = "unknown";
-    switch (quality) {
-        case DlssQualityMode::DLAA:             qualityNameBanner = "DLAA"; break;
-        case DlssQualityMode::MaxQuality:       qualityNameBanner = "MaxQuality"; break;
-        case DlssQualityMode::Balanced:         qualityNameBanner = "Balanced"; break;
-        case DlssQualityMode::Performance:      qualityNameBanner = "Performance"; break;
-        case DlssQualityMode::UltraPerformance: qualityNameBanner = "UltraPerformance"; break;
-    }
-    const char* effectivePresetLabel = "?";
-    if (preset != DlssSRPreset::Auto) {
-        switch (preset) {
-            case DlssSRPreset::J: effectivePresetLabel = "J"; break;
-            case DlssSRPreset::K: effectivePresetLabel = "K"; break;
-            case DlssSRPreset::L: effectivePresetLabel = "L"; break;
-            case DlssSRPreset::M: effectivePresetLabel = "M"; break;
-            default: break;
-        }
-    }
-    const char* presetLabelFinal = (preset == DlssSRPreset::Auto) ? "auto" : effectivePresetLabel;
     Log::info("[NGX] DLSS-SR feature created: %dx%d -> %dx%d, quality=%s, preset=%s\n",
-              inputWidth, inputHeight, outputWidth, outputHeight, qualityNameBanner, presetLabelFinal);
+              inputWidth, inputHeight, outputWidth, outputHeight, qualityName(quality), presetLabel(effectivePresetValue));
 
     return true;
 }

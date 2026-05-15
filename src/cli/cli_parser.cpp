@@ -92,6 +92,23 @@ bool parsePreset(const char* value, DlssSRPreset& out) {
     return false;
 }
 
+bool parsePresetFlag(int& index,
+                     int argc,
+                     char* argv[],
+                     const char* flagName,
+                     DlssSRPreset& out,
+                     std::string& errorMsg) {
+    if (index + 1 >= argc) {
+        errorMsg = std::string(flagName) + " requires a value";
+        return false;
+    }
+    if (!parsePreset(argv[++index], out)) {
+        errorMsg = std::string(flagName) + " must be one of: auto, J, K, L, M";
+        return false;
+    }
+    return true;
+}
+
 bool parseInterpolateFactor(const char* value, int& out) {
     if (std::strcmp(value, "2x") == 0 || std::strcmp(value, "2X") == 0) {
         out = 2;
@@ -308,12 +325,43 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             continue;
         }
         if (std::strcmp(arg, "--preset") == 0) {
-            if (i + 1 >= argc) {
-                errorMsg = "--preset requires a value";
+            if (!parsePresetFlag(i, argc, argv, "--preset", config.preset, errorMsg)) {
                 return false;
             }
-            if (!parsePreset(argv[++i], config.preset)) {
-                errorMsg = "--preset must be one of: auto, J, K, L, M";
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-dlaa") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-dlaa", config.presetDLAA, errorMsg)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-quality") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-quality", config.presetQuality, errorMsg)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-balanced") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-balanced", config.presetBalanced, errorMsg)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-performance") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-performance", config.presetPerformance, errorMsg)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-ultra-performance") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-ultra-performance", config.presetUltraPerformance, errorMsg)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(arg, "--preset-ultra-quality") == 0) {
+            if (!parsePresetFlag(i, argc, argv, "--preset-ultra-quality", config.presetUltraQuality, errorMsg)) {
                 return false;
             }
             continue;
@@ -511,6 +559,12 @@ void CliParser::printHelp() {
     std::printf("  --memory-budget <GB>   GPU memory budget for texture pool (default: 8, min: 1)\n");
     std::printf("  --quality <mode>       DLSS quality mode (DLAA|MaxQuality|Balanced|Performance|UltraPerformance)\n");
     std::printf("  --preset <mode>        SR preset hint (auto|J|K|L|M; default: auto, NVIDIA-recommended per quality)\n");
+    std::printf("  --preset-dlaa <mode>   SR preset for DLAA (auto|J|K|L|M)\n");
+    std::printf("  --preset-quality <mode> SR preset for MaxQuality (auto|J|K|L|M)\n");
+    std::printf("  --preset-balanced <mode> SR preset for Balanced (auto|J|K|L|M)\n");
+    std::printf("  --preset-performance <mode> SR preset for Performance (auto|J|K|L|M)\n");
+    std::printf("  --preset-ultra-performance <mode> SR preset for UltraPerformance (auto|J|K|L|M)\n");
+    std::printf("  --preset-ultra-quality <mode> SR preset for UltraQuality hint slot (auto|J|K|L|M)\n");
     std::printf("  --channel-map <file>   Custom channel name mapping JSON file\n");
     std::printf("  --encode-video [file]  Encode output sequence to MP4 via FFmpeg\n");
     std::printf("  --fps <rate>           Video encoding frame rate (default: 24)\n");

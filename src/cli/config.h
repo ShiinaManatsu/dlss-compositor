@@ -60,6 +60,12 @@ struct AppConfig {
     bool scaleExplicit = false;
     DlssQualityMode quality = DlssQualityMode::MaxQuality;
     DlssSRPreset preset = DlssSRPreset::Auto;
+    DlssSRPreset presetDLAA = DlssSRPreset::Auto;
+    DlssSRPreset presetQuality = DlssSRPreset::Auto;
+    DlssSRPreset presetBalanced = DlssSRPreset::Auto;
+    DlssSRPreset presetPerformance = DlssSRPreset::Auto;
+    DlssSRPreset presetUltraPerformance = DlssSRPreset::Auto;
+    DlssSRPreset presetUltraQuality = DlssSRPreset::Auto;
 
     int interpolateFactor = 0;
     std::string cameraDataFile;
