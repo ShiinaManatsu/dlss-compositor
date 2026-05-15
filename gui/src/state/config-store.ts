@@ -32,7 +32,24 @@ type ConfigAction =
   | { type: 'SET_SOURCE_RESOLUTION'; payload: { width: number | null; height: number | null } }
   | { type: 'CLEAR_SOURCE_RESOLUTION' }
   | { type: 'SET_TARGET_PRESET'; payload: '4K' | '1440p' | '1080p' | 'Custom' | 'DLAA' }
-  | { type: 'SET_CUSTOM_TARGET_RESOLUTION'; payload: { width: number | null; height: number | null } };
+  | { type: 'SET_CUSTOM_TARGET_RESOLUTION'; payload: { width: number | null; height: number | null } }
+  | { type: 'SET_PRESET_DLAA'; payload: DlssConfig['presetDLAA'] }
+  | { type: 'SET_PRESET_QUALITY'; payload: DlssConfig['presetQuality'] }
+  | { type: 'SET_PRESET_BALANCED'; payload: DlssConfig['presetBalanced'] }
+  | { type: 'SET_PRESET_PERFORMANCE'; payload: DlssConfig['presetPerformance'] }
+  | { type: 'SET_PRESET_ULTRA_PERFORMANCE'; payload: DlssConfig['presetUltraPerformance'] }
+  | { type: 'SET_PRESET_ULTRA_QUALITY'; payload: DlssConfig['presetUltraQuality'] }
+  | { type: 'SET_FEATURE_FLAG_HDR'; payload: boolean }
+  | { type: 'SET_FEATURE_FLAG_MV_LOW_RES'; payload: boolean }
+  | { type: 'SET_FEATURE_FLAG_AUTO_EXPOSURE'; payload: boolean }
+  | { type: 'SET_ENABLE_OUTPUT_SUBRECTS'; payload: boolean }
+  | { type: 'SET_EXPOSURE_SCALE'; payload: number }
+  | { type: 'SET_FRAME_TIME_DELTA_MS'; payload: number }
+  | { type: 'SET_DLSS_SHARPNESS'; payload: number }
+  | { type: 'SET_CAMERA_CUT_DETECTION_ENABLED'; payload: boolean }
+  | { type: 'SET_CAMERA_CUT_TRANSLATION_THRESHOLD'; payload: number }
+  | { type: 'SET_CAMERA_CUT_ROTATION_THRESHOLD'; payload: number }
+  | { type: 'SET_ENABLE_DYNAMIC_RESOLUTION'; payload: boolean };
 
 interface ConfigContextValue {
   state: ConfigState;
@@ -143,6 +160,40 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       const newScale = computeScale(state.sourceWidth, 'Custom', width);
       return { ...state, customTargetWidth: width, customTargetHeight: height, scaleFactor: newScale };
     }
+    case 'SET_PRESET_DLAA':
+      return { ...state, presetDLAA: action.payload };
+    case 'SET_PRESET_QUALITY':
+      return { ...state, presetQuality: action.payload };
+    case 'SET_PRESET_BALANCED':
+      return { ...state, presetBalanced: action.payload };
+    case 'SET_PRESET_PERFORMANCE':
+      return { ...state, presetPerformance: action.payload };
+    case 'SET_PRESET_ULTRA_PERFORMANCE':
+      return { ...state, presetUltraPerformance: action.payload };
+    case 'SET_PRESET_ULTRA_QUALITY':
+      return { ...state, presetUltraQuality: action.payload };
+    case 'SET_FEATURE_FLAG_HDR':
+      return { ...state, featureFlagHDR: action.payload };
+    case 'SET_FEATURE_FLAG_MV_LOW_RES':
+      return { ...state, featureFlagMVLowRes: action.payload };
+    case 'SET_FEATURE_FLAG_AUTO_EXPOSURE':
+      return { ...state, featureFlagAutoExposure: action.payload };
+    case 'SET_ENABLE_OUTPUT_SUBRECTS':
+      return { ...state, enableOutputSubrects: action.payload };
+    case 'SET_EXPOSURE_SCALE':
+      return { ...state, exposureScale: action.payload };
+    case 'SET_FRAME_TIME_DELTA_MS':
+      return { ...state, frameTimeDeltaMsOverride: action.payload };
+    case 'SET_DLSS_SHARPNESS':
+      return { ...state, dlssSharpness: action.payload };
+    case 'SET_CAMERA_CUT_DETECTION_ENABLED':
+      return { ...state, cameraCutDetectionEnabled: action.payload };
+    case 'SET_CAMERA_CUT_TRANSLATION_THRESHOLD':
+      return { ...state, cameraCutTranslationThreshold: action.payload };
+    case 'SET_CAMERA_CUT_ROTATION_THRESHOLD':
+      return { ...state, cameraCutRotationThreshold: action.payload };
+    case 'SET_ENABLE_DYNAMIC_RESOLUTION':
+      return { ...state, enableDynamicResolution: action.payload };
     default:
       return state;
   }

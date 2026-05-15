@@ -21,6 +21,27 @@ export interface DlssConfig {
   channelMapFile: string;
   sourceFps: number;
   sharpness: number;
+  // Per-quality presets (Plan 1 T1) — 'auto' uses NVIDIA recommended; others override
+  presetDLAA: 'auto' | 'J' | 'K' | 'L' | 'M';
+  presetQuality: 'auto' | 'J' | 'K' | 'L' | 'M';
+  presetBalanced: 'auto' | 'J' | 'K' | 'L' | 'M';
+  presetPerformance: 'auto' | 'J' | 'K' | 'L' | 'M';
+  presetUltraPerformance: 'auto' | 'J' | 'K' | 'L' | 'M';
+  presetUltraQuality: 'auto' | 'J' | 'K' | 'L' | 'M';
+  // NGX advanced flags (Plan 1 T2)
+  featureFlagHDR: boolean;        // default true — NVSDK_NGX_DLSS_Feature_Flags_IsHDR
+  featureFlagMVLowRes: boolean;   // default true — MVLowRes flag
+  featureFlagAutoExposure: boolean; // default true — AutoExposure flag
+  enableOutputSubrects: boolean;  // default false
+  exposureScale: number;          // default 1.0 — InExposureScale
+  frameTimeDeltaMsOverride: number; // default -1.0 (-1 = auto from --source-fps)
+  dlssSharpness: number;          // default 0.0 — NGX InSharpness (distinct from post-CAS sharpness)
+  // Camera cut detection (Plan 1 T3)
+  cameraCutDetectionEnabled: boolean;     // default true
+  cameraCutTranslationThreshold: number;  // default 5.0 world units
+  cameraCutRotationThreshold: number;     // default 30.0 degrees
+  // FG-related knob
+  enableDynamicResolution: boolean;       // default false
   ngxLogLevel: 'off' | 'error' | 'warn' | 'info' | 'verbose';
   sourceWidth: number | null;
   sourceHeight: number | null;
@@ -52,6 +73,23 @@ export const DEFAULT_CONFIG: DlssConfig = {
   channelMapFile: '',
   sourceFps: 30,
   sharpness: 0.0,
+  presetDLAA: 'auto',
+  presetQuality: 'auto',
+  presetBalanced: 'auto',
+  presetPerformance: 'auto',
+  presetUltraPerformance: 'auto',
+  presetUltraQuality: 'auto',
+  featureFlagHDR: true,
+  featureFlagMVLowRes: true,
+  featureFlagAutoExposure: true,
+  enableOutputSubrects: false,
+  exposureScale: 1.0,
+  frameTimeDeltaMsOverride: -1.0,
+  dlssSharpness: 0.0,
+  cameraCutDetectionEnabled: true,
+  cameraCutTranslationThreshold: 5.0,
+  cameraCutRotationThreshold: 30.0,
+  enableDynamicResolution: false,
   ngxLogLevel: 'warn',
   sourceWidth: null,
   sourceHeight: null,

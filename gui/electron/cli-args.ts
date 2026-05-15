@@ -80,6 +80,31 @@ export function buildCliArgs(config: DlssConfig, _exePath: string): string[] {
     args.push('--ngx-log-level', config.ngxLogLevel)
   }
 
+  // Per-quality presets — only emit non-auto values
+  if (config.presetDLAA !== 'auto') args.push('--preset-dlaa', config.presetDLAA)
+  if (config.presetQuality !== 'auto') args.push('--preset-quality', config.presetQuality)
+  if (config.presetBalanced !== 'auto') args.push('--preset-balanced', config.presetBalanced)
+  if (config.presetPerformance !== 'auto') args.push('--preset-performance', config.presetPerformance)
+  if (config.presetUltraPerformance !== 'auto') args.push('--preset-ultra-performance', config.presetUltraPerformance)
+  if (config.presetUltraQuality !== 'auto') args.push('--preset-ultra-quality', config.presetUltraQuality)
+
+  // Feature flags — emit --no-* when disabled (defaults are all true)
+  if (!config.featureFlagHDR) args.push('--no-feature-flag-hdr')
+  if (!config.featureFlagMVLowRes) args.push('--no-feature-flag-mv-low-res')
+  if (!config.featureFlagAutoExposure) args.push('--no-feature-flag-auto-exposure')
+  if (config.enableOutputSubrects) args.push('--enable-output-subrects')
+
+  // Numeric overrides — emit when differ from default
+  if (config.exposureScale !== 1.0) args.push('--exposure-scale', String(config.exposureScale))
+  if (config.frameTimeDeltaMsOverride > 0) args.push('--frame-time-delta-ms', String(config.frameTimeDeltaMsOverride))
+  if (config.dlssSharpness > 0) args.push('--dlss-sharpness', config.dlssSharpness.toFixed(2))
+  if (config.enableDynamicResolution) args.push('--enable-dynamic-resolution')
+
+  // Camera cut detection
+  if (!config.cameraCutDetectionEnabled) args.push('--no-camera-cut-detection')
+  if (config.cameraCutTranslationThreshold !== 5.0) args.push('--camera-cut-translation-threshold', String(config.cameraCutTranslationThreshold))
+  if (config.cameraCutRotationThreshold !== 30.0) args.push('--camera-cut-rotation-threshold', String(config.cameraCutRotationThreshold))
+
   // GUI always uses NDJSON for reliable event parsing
   args.push('--progress-format', 'json')
 

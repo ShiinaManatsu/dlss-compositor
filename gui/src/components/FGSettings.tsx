@@ -142,6 +142,18 @@ export default function FGSettings() {
           )}
         </div>
 
+        <label className="flex items-center space-x-2" title="Reserved FG-only knob (may not affect current SR processing)">
+          <input
+            data-testid="advanced-dynamic-resolution"
+            type="checkbox"
+            disabled={isRunning}
+            checked={state.enableDynamicResolution}
+            onChange={(e) => dispatch({ type: 'SET_ENABLE_DYNAMIC_RESOLUTION', payload: e.target.checked })}
+            className="w-4 h-4 rounded bg-gray-700 border-gray-600 focus:ring-blue-500 disabled:opacity-50"
+          />
+          <span className="text-sm text-gray-400">Enable Dynamic Resolution (FG)</span>
+        </label>
+
         <div>
           <label className="block text-sm text-gray-400 mb-1" title="Custom 3D LUT file for inverse mapping (.bin)">
             Inverse LUT File

@@ -4,6 +4,7 @@ import { DlssConfig } from '../types/dlss-config';
 import { useIsRunning } from '../state/processing-store';
 import { handleNumberInputKeyDown, flashInput } from './utils';
 import ResolutionPanel from './ResolutionPanel';
+import AdvancedNgxPanel from './AdvancedNgxPanel';
 
 export default function SRSettings() {
   const { state, dispatch } = useConfig();
@@ -148,6 +149,11 @@ export default function SRSettings() {
           />
           <span className="w-10 text-sm text-center">{state.sharpness.toFixed(2)}</span>
         </div>
+      </div>
+
+      {/* Advanced NGX Settings */}
+      <div className="pt-2">
+        <AdvancedNgxPanel />
       </div>
     </div>
   );
