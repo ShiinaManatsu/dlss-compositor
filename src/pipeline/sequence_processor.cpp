@@ -779,7 +779,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
-                            makeDlssPresetConfig(config),
+                            config,
                             createCmdBuf,
                             errorMsg) ||
         !submitAndWait(m_ctx, createCmdBuf, errorMsg)) {
@@ -906,6 +906,12 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 }
 
                 frame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
+                if (config.frameTimeDeltaMsOverride > 0.0f) {
+                    frame.frameTimeDeltaMs = config.frameTimeDeltaMsOverride;
+                }
+                frame.dlssSharpness = config.dlssSharpness;
+                frame.evalExposureScale = config.exposureScale;
+                frame.preExposure = config.featureFlagAutoExposure ? 1.0f : config.exposureScale;
 
                 VkCommandBuffer evalCmdBuf = VK_NULL_HANDLE;
                 if (!allocateCommandBuffer(m_ctx, evalCmdBuf, frameError) ||
@@ -1195,7 +1201,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
                             expectedOutputWidth,
                             expectedOutputHeight,
                             config.quality,
-                            makeDlssPresetConfig(config),
+                            config,
                             createCmdBufSR,
                             errorMsg)) {
         Log::error( "[SRFG] DLSS-SR feature creation failed: %s\n", errorMsg.c_str());
@@ -1332,6 +1338,12 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
     firstFrame.mvScaleY = firstMvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
     firstFrame.reset = true;
     firstFrame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
+    if (config.frameTimeDeltaMsOverride > 0.0f) {
+        firstFrame.frameTimeDeltaMs = config.frameTimeDeltaMsOverride;
+    }
+    firstFrame.dlssSharpness = config.dlssSharpness;
+    firstFrame.evalExposureScale = config.exposureScale;
+    firstFrame.preExposure = config.featureFlagAutoExposure ? 1.0f : config.exposureScale;
 
     VkCommandBuffer firstEvalCmdBuf = VK_NULL_HANDLE;
     if (!allocateCommandBuffer(m_ctx, firstEvalCmdBuf, errorMsg)) {
@@ -1485,6 +1497,12 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         srFrame.mvScaleY = mvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
         srFrame.reset = resetFlag;
         srFrame.frameTimeDeltaMs = 1000.0f / static_cast<float>(config.sourceFps > 0 ? config.sourceFps : 30);
+        if (config.frameTimeDeltaMsOverride > 0.0f) {
+            srFrame.frameTimeDeltaMs = config.frameTimeDeltaMsOverride;
+        }
+        srFrame.dlssSharpness = config.dlssSharpness;
+        srFrame.evalExposureScale = config.exposureScale;
+        srFrame.preExposure = config.featureFlagAutoExposure ? 1.0f : config.exposureScale;
 
         VkCommandBuffer srEvalCmdBuf = VK_NULL_HANDLE;
         if (!allocateCommandBuffer(m_ctx, srEvalCmdBuf, errorMsg)) {

@@ -61,7 +61,7 @@ public:
                        int outputWidth,
                        int outputHeight,
                        DlssQualityMode quality,
-                       const DlssPresetConfig& presets,
+                       const AppConfig& config,
                        VkCommandBuffer cmdBuf,
                        std::string& errorMsg);
 

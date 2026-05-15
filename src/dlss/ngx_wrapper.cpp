@@ -343,7 +343,7 @@ bool NgxContext::createDlssSR(int inputWidth,
                               int outputWidth,
                               int outputHeight,
                               DlssQualityMode quality,
-                              const DlssPresetConfig& presets,
+                              const AppConfig& config,
                               VkCommandBuffer cmdBuf,
                               std::string& errorMsg) {
     errorMsg.clear();
@@ -367,11 +367,14 @@ bool NgxContext::createDlssSR(int inputWidth,
     createParams.Feature.InTargetHeight = static_cast<unsigned int>(outputHeight);
     const NVSDK_NGX_PerfQuality_Value perfQuality = mapQuality(quality);
     createParams.Feature.InPerfQualityValue = perfQuality;
-     createParams.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
-                                         NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
-                                         NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
-    createParams.InEnableOutputSubrects = false;
+    unsigned int flags = 0u;
+    if (config.featureFlagHDR)          flags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
+    if (config.featureFlagMVLowRes)     flags |= NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+    if (config.featureFlagAutoExposure) flags |= NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
+    createParams.InFeatureCreateFlags = static_cast<NVSDK_NGX_DLSS_Feature_Flags>(flags);
+    createParams.InEnableOutputSubrects = config.enableOutputSubrects;
 
+    const DlssPresetConfig presets = makeDlssPresetConfig(config);
     const DlssPresetSlots presetSlots = resolveDlssPresetSlots(presets);
     NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,             presetSlots.dlaa);
     NVSDK_NGX_Parameter_SetI(m_parameters, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,          presetSlots.quality);

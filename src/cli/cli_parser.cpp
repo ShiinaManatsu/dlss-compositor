@@ -442,6 +442,86 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.sharpness = std::clamp(sharpness, 0.0f, 1.0f);
             continue;
         }
+        // ── NGX advanced (power-user) ───────────────────────────────────────
+        if (std::strcmp(arg, "--feature-flag-hdr") == 0) {
+            config.featureFlagHDR = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-feature-flag-hdr") == 0) {
+            config.featureFlagHDR = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--feature-flag-mv-low-res") == 0) {
+            config.featureFlagMVLowRes = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-feature-flag-mv-low-res") == 0) {
+            config.featureFlagMVLowRes = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--feature-flag-auto-exposure") == 0) {
+            config.featureFlagAutoExposure = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-feature-flag-auto-exposure") == 0) {
+            config.featureFlagAutoExposure = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--enable-output-subrects") == 0) {
+            config.enableOutputSubrects = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-enable-output-subrects") == 0) {
+            config.enableOutputSubrects = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--exposure-scale") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--exposure-scale requires a value";
+                return false;
+            }
+            float v = 0.0f;
+            if (!parseFloat(argv[++i], v) || !(v > 0.0f && v <= 100.0f)) {
+                errorMsg = "--exposure-scale must be a float in (0.0, 100.0]";
+                return false;
+            }
+            config.exposureScale = v;
+            continue;
+        }
+        if (std::strcmp(arg, "--frame-time-delta-ms") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--frame-time-delta-ms requires a value";
+                return false;
+            }
+            float v = 0.0f;
+            if (!parseFloat(argv[++i], v) || !(v > 0.0f)) {
+                errorMsg = "--frame-time-delta-ms must be > 0.0 (use -1 to auto-derive from --source-fps)";
+                return false;
+            }
+            config.frameTimeDeltaMsOverride = v;
+            continue;
+        }
+        if (std::strcmp(arg, "--dlss-sharpness") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--dlss-sharpness requires a value";
+                return false;
+            }
+            float v = 0.0f;
+            if (!parseFloat(argv[++i], v) || v < 0.0f || v > 1.0f) {
+                errorMsg = "--dlss-sharpness must be a float in [0.0, 1.0]";
+                return false;
+            }
+            config.dlssSharpness = v;
+            continue;
+        }
+        if (std::strcmp(arg, "--enable-dynamic-resolution") == 0) {
+            config.enableDynamicResolution = true;
+            continue;
+        }
+        if (std::strcmp(arg, "--no-enable-dynamic-resolution") == 0) {
+            config.enableDynamicResolution = false;
+            continue;
+        }
         if (std::strcmp(arg, "--output-passes") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--output-passes requires a value";
@@ -580,6 +660,17 @@ void CliParser::printHelp() {
     std::printf("  --ngx-log-level <level> NGX log verbosity (off|error|warn|info|verbose; default: off)\n");
     std::printf("  --progress-format <fmt> Progress reporting format (human|json; default: human)\n"
                 "                          'json' emits NDJSON events to stdout (one JSON object per line)\n");
+    std::printf("\n");
+    std::printf("Advanced NGX settings (power-user; defaults match prior hardcoded behavior):\n");
+    std::printf("  --feature-flag-hdr / --no-feature-flag-hdr               HDR feature flag (default: enabled)\n");
+    std::printf("  --feature-flag-mv-low-res / --no-feature-flag-mv-low-res Render-resolution motion vectors (default: enabled)\n");
+    std::printf("  --feature-flag-auto-exposure / --no-feature-flag-auto-exposure  NGX auto-exposure (default: enabled)\n");
+    std::printf("  --enable-output-subrects / --no-enable-output-subrects   Output subrect support (default: disabled)\n");
+    std::printf("  --exposure-scale <float>      InExposureScale; (0.0, 100.0] (default: 1.0)\n");
+    std::printf("  --frame-time-delta-ms <float> Override frame time delta in ms; > 0.0 (default: auto from --source-fps)\n");
+    std::printf("  --dlss-sharpness <0.0..1.0>   NGX InSharpness (default: 0.0 = off)\n");
+    std::printf("  --enable-dynamic-resolution / --no-enable-dynamic-resolution  Reserved knob (default: disabled)\n");
+    std::printf("\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
     std::printf("  --help, -h             Show this help\n");

@@ -29,6 +29,9 @@ struct DlssSRFrameInput {
     float frameTimeDeltaMs = 33.3f;  // Derived from --source-fps; default 30 fps
     float mvScaleX = 1.0f;
     float mvScaleY = 1.0f;
+    float dlssSharpness = 0.0f;     // NGX InSharpness; 0 = off
+    float preExposure = 1.0f;       // InPreExposure
+    float evalExposureScale = 1.0f; // InExposureScale
     bool reset = false;
 };
 

@@ -97,4 +97,14 @@ struct AppConfig {
     std::string inverseLutFile;
 
     ProgressFormat progressFormat = ProgressFormat::Human;
+
+    // NGX advanced (power-user) — all default to current behavior
+    bool   featureFlagHDR           = true;   // NVSDK_NGX_DLSS_Feature_Flags_IsHDR
+    bool   featureFlagMVLowRes      = true;   // NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
+    bool   featureFlagAutoExposure  = true;   // NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
+    bool   enableOutputSubrects     = false;  // createParams.InEnableOutputSubrects
+    float  exposureScale            = 1.0f;   // InExposureScale (and InPreExposure when autoExposure=false)
+    float  frameTimeDeltaMsOverride = -1.0f;  // -1 = auto from --source-fps; >0 = manual override
+    float  dlssSharpness            = 0.0f;   // NGX InSharpness [0,1]; 0 = off
+    bool   enableDynamicResolution  = false;  // reserved/FG-only knob; stored but not yet wired to NGX
 };

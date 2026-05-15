@@ -154,14 +154,14 @@ TEST_CASE("dlss_sr_single_evaluation", "[gpu][dlss]") {
 
     VkCommandBuffer createCmdBuf = allocateCommandBuffer(ctx);
     beginCommandBuffer(createCmdBuf);
-    DlssPresetConfig presets;
-    presets.globalPreset = DlssSRPreset::L;
+    AppConfig cfg;
+    cfg.preset = DlssSRPreset::L;
     REQUIRE(ngx.createDlssSR(kInputWidth,
                              kInputHeight,
                              kOutputWidth,
                              kOutputHeight,
                              DlssQualityMode::Balanced,
-                             presets,
+                             cfg,
                              createCmdBuf,
                              errorMsg));
     submitAndWait(ctx, createCmdBuf);

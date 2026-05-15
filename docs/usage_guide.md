@@ -166,6 +166,38 @@ dlss-compositor.exe --input-dir "C:/path/to/renders/" --output-dir "C:/path/to/o
 
 **Camera.json auto-discovery:** If `--camera-data` is omitted and `<input-dir>/camera.json` exists, it is used automatically (auto-discovery). An info log confirms: `[camera] auto-discovered: <path>`.
 
+## Advanced NGX Settings (Power Users)
+
+These flags expose the underlying NGX create-time and per-evaluate parameters. **All defaults preserve the prior hardcoded behavior** — you only need them for debugging, A/B comparisons, or edge cases (HDR, custom exposure, fixed temporal cadence).
+
+| Flag | Default | Valid Range | Description |
+|------|---------|-------------|-------------|
+| `--feature-flag-hdr` / `--no-feature-flag-hdr` | enabled | — | Toggle `NVSDK_NGX_DLSS_Feature_Flags_IsHDR` at feature creation. Disable only if your input is sRGB. |
+| `--feature-flag-mv-low-res` / `--no-feature-flag-mv-low-res` | enabled | — | Toggle `NVSDK_NGX_DLSS_Feature_Flags_MVLowRes`. Disable only if your motion vectors are at output resolution. |
+| `--feature-flag-auto-exposure` / `--no-feature-flag-auto-exposure` | enabled | — | Toggle `NVSDK_NGX_DLSS_Feature_Flags_AutoExposure`. When disabled, `--exposure-scale` is also forwarded to NGX as `InPreExposure`. |
+| `--enable-output-subrects` / `--no-enable-output-subrects` | disabled | — | Toggle `createParams.InEnableOutputSubrects`. Currently unused by this tool — exposed for parity. |
+| `--exposure-scale <float>` | `1.0` | `(0.0, 100.0]` | NGX `InExposureScale` (and `InPreExposure` when auto-exposure is OFF). |
+| `--frame-time-delta-ms <float>` | auto | `> 0.0` | Override `InFrameTimeDeltaInMsec`. Default: derived from `--source-fps` (`1000 / fps`). |
+| `--dlss-sharpness <float>` | `0.0` | `[0.0, 1.0]` | NGX `InSharpness`. `0` disables in-DLSS sharpening. Distinct from post-DLSS `--sharpness` (CAS). |
+| `--enable-dynamic-resolution` / `--no-enable-dynamic-resolution` | disabled | — | Reserved knob (not yet wired into NGX). Stored in config for forward compatibility. |
+
+**Examples**
+
+```bash
+# Disable HDR feature flag for sRGB input
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --no-feature-flag-hdr
+
+# Manual exposure (auto-exposure off, scale 2.0 used as InPreExposure)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 \
+    --no-feature-flag-auto-exposure --exposure-scale 2.0
+
+# Force a fixed frame time delta (e.g. 16.667 ms = 60 fps cadence)
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --frame-time-delta-ms 16.667
+
+# In-DLSS sharpening at 0.4
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --dlss-sharpness 0.4
+```
+
 ### Video Encoding
 If you use `--encode-video`, the tool will call FFmpeg to create a video from the processed EXR frames. Ensure `ffmpeg` is accessible from your command prompt.
 

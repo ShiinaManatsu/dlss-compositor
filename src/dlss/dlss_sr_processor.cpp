@@ -140,8 +140,9 @@ bool DlssSRProcessor::evaluate(VkCommandBuffer cmdBuf, const DlssSRFrameInput& f
     evalParams.InMVScaleX = frame.mvScaleX;
     evalParams.InMVScaleY = frame.mvScaleY;
     evalParams.InFrameTimeDeltaInMsec = frame.frameTimeDeltaMs;
-    evalParams.InPreExposure = 1.0f;
-    evalParams.InExposureScale = 1.0f;
+    evalParams.Feature.InSharpness = frame.dlssSharpness;
+    evalParams.InPreExposure = frame.preExposure;
+    evalParams.InExposureScale = frame.evalExposureScale;
 
     const NVSDK_NGX_Result result = NGX_VULKAN_EVALUATE_DLSS_EXT(
         cmdBuf,
