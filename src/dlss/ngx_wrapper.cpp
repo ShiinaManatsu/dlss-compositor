@@ -7,12 +7,15 @@
 #include "dlss/ngx_wrapper.h"
 
 #include "core/logger.h"
+#include "core/ndjson_emitter.h"
 #include "core/version.h"
 
 #include <nvsdk_ngx_helpers_vk.h>
 #include <nvsdk_ngx_helpers_dlssg_vk.h>
 #include <nvsdk_ngx_params.h>
 #include <nvsdk_ngx_vk.h>
+
+#include <nlohmann/json.hpp>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -23,6 +26,7 @@
 #include <windows.h>
 #pragma comment(lib, "Version.lib")
 
+#include <cstdint>
 #include <cstdio>
 #include <cwchar>
 #include <string>
@@ -31,6 +35,19 @@
 namespace {
 
 constexpr wchar_t kNgxWorkDir[] = L".";
+
+// Primary NGX API version (matches the bundled SDK header). Stored as a
+// uint32_t so we can also build a fallback value (primary - 1) at compile
+// time without needing a second enum entry. Cast to NVSDK_NGX_Version when
+// passed to the NGX init API. See nvsdk_ngx_defs.h:56.
+constexpr uint32_t kNgxApiVersionPrimary  = NVSDK_NGX_VERSION_API_MACRO;      // 0x15 (1.5.0)
+constexpr uint32_t kNgxApiVersionFallback = NVSDK_NGX_VERSION_API_MACRO - 1;  // 0x14 (1.4.0)
+
+static std::string toHex(uint32_t v) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%x", v);
+    return buf;
+}
 
 void NVSDK_CONV ngxLogCallback(const char* message,
                                NVSDK_NGX_Logging_Level,
@@ -277,22 +294,49 @@ bool NgxContext::init(VkInstance instance,
     featureInfo.LoggingInfo.MinimumLoggingLevel = logLevel;
     featureInfo.LoggingInfo.DisableOtherLoggingSinks = false;
 
-    const NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(appver::kNgxProjectId,
-                                                                               NVSDK_NGX_ENGINE_TYPE_CUSTOM,
-                                                                               appver::kEngineVersion,
-                                                                              kNgxWorkDir,
-                                                                              instance,
-                                                                              physicalDevice,
-                                                                              device,
-                                                                              vkGetInstanceProcAddr,
-                                                                              vkGetDeviceProcAddr,
-                                                                              &featureInfo,
-                                                                              NVSDK_NGX_Version_API);
+    // Primary attempt with the SDK-bundled API version.
+    NVSDK_NGX_Result initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(
+        appver::kNgxProjectId,
+        NVSDK_NGX_ENGINE_TYPE_CUSTOM,
+        appver::kEngineVersion,
+        kNgxWorkDir,
+        instance,
+        physicalDevice,
+        device,
+        vkGetInstanceProcAddr,
+        vkGetDeviceProcAddr,
+        &featureInfo,
+        static_cast<NVSDK_NGX_Version>(kNgxApiVersionPrimary));
+
+    m_ngxUsedFallback = false;
     if (NVSDK_NGX_FAILED(initResult)) {
-        errorMsg = "NGX init failed: " + ngxResultToString(initResult);
+        // Fallback: retry with API version - 1 (mirrors UE5 NGXVulkanRHI plugin
+        // pattern: an older driver may only advertise the previous API version).
+        initResult = NVSDK_NGX_VULKAN_Init_with_ProjectID(
+            appver::kNgxProjectId,
+            NVSDK_NGX_ENGINE_TYPE_CUSTOM,
+            appver::kEngineVersion,
+            kNgxWorkDir,
+            instance,
+            physicalDevice,
+            device,
+            vkGetInstanceProcAddr,
+            vkGetDeviceProcAddr,
+            &featureInfo,
+            static_cast<NVSDK_NGX_Version>(kNgxApiVersionFallback));
+        if (!NVSDK_NGX_FAILED(initResult)) {
+            m_ngxUsedFallback = true;
+        }
+    }
+
+    if (NVSDK_NGX_FAILED(initResult)) {
+        errorMsg = "NGX init failed (primary " + toHex(kNgxApiVersionPrimary)
+                 + " and fallback " + toHex(kNgxApiVersionFallback)
+                 + "): " + ngxResultToString(initResult);
         m_device = nullptr;
         return false;
     }
+    m_ngxApiVersionUsed = m_ngxUsedFallback ? kNgxApiVersionFallback : kNgxApiVersionPrimary;
 
     const NVSDK_NGX_Result paramsResult = NVSDK_NGX_VULKAN_GetCapabilityParameters(&m_parameters);
     if (NVSDK_NGX_FAILED(paramsResult)) {
@@ -334,6 +378,32 @@ bool NgxContext::init(VkInstance instance,
     const std::string fgDllVersion = getDllFileVersion(L"nvngx_dlssg.dll");
     Log::info("[NGX] Loaded: nvngx_dlss.dll v%s, nvngx_dlssg.dll v%s\n",
               srDllVersion.c_str(), fgDllVersion.c_str());
+
+    // NDJSON banner event (only emitted when --progress-format json is active).
+    {
+        auto& emitter = globalNdjsonEmitter();
+        if (emitter.isEnabled()) {
+            nlohmann::json bannerEvent = {
+                {"type", "banner"},
+                {"ngx_sdk_version", appver::kDlssSdkVersion},
+                {"ngx_api_version_used", toHex(m_ngxApiVersionUsed)},
+                {"ngx_api_version_path", m_ngxUsedFallback ? "fallback" : "primary"},
+                {"dlss_dll_version", srDllVersion},
+                {"dlssg_dll_version", fgDllVersion}
+            };
+            emitter.emitRaw(bannerEvent.dump());
+
+            if (m_ngxUsedFallback) {
+                nlohmann::json warnEvent = {
+                    {"type", "warning"},
+                    {"code", "ngx_api_fallback"},
+                    {"detail", "Primary NGX API version " + toHex(kNgxApiVersionPrimary)
+                              + " failed; succeeded with fallback " + toHex(kNgxApiVersionFallback)}
+                };
+                emitter.emitRaw(warnEvent.dump());
+            }
+        }
+    }
 
     return true;
 }
@@ -493,6 +563,8 @@ void NgxContext::shutdown() {
     m_dlssFGAvailable = false;
     m_maxMultiFrameCount = 0;
     m_unavailableReason.clear();
+    m_ngxApiVersionUsed = 0;
+    m_ngxUsedFallback = false;
 }
 
 NVSDK_NGX_Handle* NgxContext::featureHandle() const {
@@ -517,6 +589,18 @@ int NgxContext::maxMultiFrameCount() const {
 
 bool NgxContext::isInitialized() const {
     return m_initialized;
+}
+
+uint32_t NgxContext::ngxApiVersionUsed() const {
+    return m_ngxApiVersionUsed;
+}
+
+bool NgxContext::ngxUsedFallback() const {
+    return m_ngxUsedFallback;
+}
+
+std::string NgxContext::dlssDllVersion() const {
+    return getDllFileVersion(L"nvngx_dlss.dll");
 }
 
 bool NgxContext::isDlssSRAvailable() const {

@@ -5,6 +5,7 @@
 #include <nvsdk_ngx_defs.h>
 #include <nvsdk_ngx_params.h>
 
+#include <cstdint>
 #include <string>
 
 struct VkInstance_T;
@@ -83,6 +84,19 @@ public:
 
     bool isInitialized() const;
 
+    /// API version that successfully initialized NGX (0 if not yet initialized).
+    /// Either kNgxApiVersionPrimary or kNgxApiVersionFallback (defined in .cpp).
+    uint32_t ngxApiVersionUsed() const;
+
+    /// True if init() succeeded only after falling back to API_VERSION - 1.
+    bool ngxUsedFallback() const;
+
+    /// Returns version string of nvngx_dlss.dll currently loaded in this
+    /// process (e.g. "310.5.3.0"). Returns "not loaded" / "version unavailable"
+    /// when the DLL is not yet mapped or its version resource is absent. Safe
+    /// to call without GPU; uses GetModuleHandleW (does not LoadLibrary).
+    std::string dlssDllVersion() const;
+
 private:
     NVSDK_NGX_PerfQuality_Value mapQuality(DlssQualityMode quality) const;
     bool queryDlssSRAvailability();
@@ -97,4 +111,6 @@ private:
     bool m_dlssFGAvailable = false;
     int m_maxMultiFrameCount = 0;
     std::string m_unavailableReason;
+    uint32_t m_ngxApiVersionUsed = 0;
+    bool m_ngxUsedFallback = false;
 };

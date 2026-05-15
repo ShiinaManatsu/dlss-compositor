@@ -19,6 +19,7 @@ add_executable(dlss-compositor-tests
     test_preset_mapping.cpp
     test_cli_advanced_flags.cpp
     test_camera_cut_detection.cpp
+    test_ngx_banner.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
@@ -47,6 +48,8 @@ add_test(NAME CliAdvancedFlags COMMAND dlss-compositor-tests "[CliAdvancedFlags]
 set_tests_properties(CliAdvancedFlags PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME CameraCut COMMAND dlss-compositor-tests "[CameraCut]")
 set_tests_properties(CameraCut PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME NgxBanner COMMAND dlss-compositor-tests "[NgxBanner]")
+set_tests_properties(NgxBanner PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 if(MSVC)
     add_custom_command(TARGET dlss-compositor-tests POST_BUILD
