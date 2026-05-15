@@ -201,6 +201,35 @@ dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --dlss-s
 ### Video Encoding
 If you use `--encode-video`, the tool will call FFmpeg to create a video from the processed EXR frames. Ensure `ffmpeg` is accessible from your command prompt.
 
+## DLSS Preset Selection
+
+DLSS-SR selects a rendering algorithm variant (preset) that affects quality/performance characteristics. Each DLSS quality mode has its own preset slot, so you can mix-and-match.
+
+### Global Preset (`--preset`)
+Set a single preset for all quality modes:
+```bash
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --preset K
+```
+Valid presets: `auto`, `J`, `K`, `L`, `M`. Default is `auto`.
+
+### Per-Quality Preset Overrides
+Override the preset for a specific quality mode while leaving the others at Auto:
+```bash
+# Use preset M for Performance mode, K for everything else
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 2 --quality Performance --preset-performance M
+
+# Override only the DLAA preset
+dlss-compositor.exe --input-dir renders/ --output-dir output/ --scale 1 --quality DLAA --preset-dlaa J
+```
+
+Available per-quality flags: `--preset-dlaa`, `--preset-quality`, `--preset-balanced`, `--preset-performance`, `--preset-ultra-performance`, `--preset-ultra-quality`.
+
+**Resolution priority** (per quality slot): `--preset-<mode>` → `--preset` → Auto table (NVIDIA recommended defaults).
+
+**Auto table**: DLAA / MaxQuality / Balanced / UltraQuality = `K`, Performance = `M`, UltraPerformance = `L`.
+
+See [DLSS Advanced Settings](dlss_advanced.md) for the complete preset reference and the rest of the advanced flags (NGX feature flags, eval parameters, camera-cut detection, NDJSON banner schema).
+
 ## Troubleshooting
 
 ### "InReset=true" on every frame
