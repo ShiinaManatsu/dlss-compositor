@@ -7,7 +7,7 @@ import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import { getSettings, saveSettings, loadSettings, resetSettings, type PersistedSettings } from './settings-store'
 import { findCameraJson } from './camera-detector'
-import { exrToPng, cleanupPreviewCache } from './preview-generator'
+import { cleanupPreviewCache, generatePreview, locateFFmpeg } from './preview-generator'
 import { getResolvedExePath, locateCliExecutable } from './exe-locator'
 import type { DlssConfig } from '../src/types/dlss-config'
 
@@ -121,6 +121,16 @@ function createWindow(): void {
   }
 
   win.webContents.once('did-finish-load', () => {
+    // Inform the renderer whether FFmpeg is available so the preview pane
+    // can show a graceful "install FFmpeg" hint without waiting for a frame.
+    locateFFmpeg()
+      .then((ff) => {
+        win.webContents.send(IPC_CHANNELS.SYSTEM_FFMPEG_STATUS, { available: !!ff })
+      })
+      .catch(() => {
+        win.webContents.send(IPC_CHANNELS.SYSTEM_FFMPEG_STATUS, { available: false })
+      })
+
     if (cliLocatorError) {
       win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, `CLI not found: ${cliLocatorError}`)
       return
@@ -314,11 +324,7 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.FRAME_PREVIEW_PNG, async (_event, exrPath: string) => {
-    try {
-      return await exrToPng(exrPath)
-    } catch {
-      return null
-    }
+    return await generatePreview(exrPath)
   })
 
   ipcMain.handle(IPC_CHANNELS.EXR_READ_HEADER, async (_event, filePath: string): Promise<{ ok: boolean; data?: unknown; error?: string }> => {
@@ -347,7 +353,7 @@ function registerIpcHandlers(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
 
   loadSettings()
@@ -356,6 +362,13 @@ app.whenReady().then(() => {
     locateCliExecutable() // caches the result inside exe-locator
   } catch (err) {
     cliLocatorError = err instanceof Error ? err.message : String(err)
+  }
+
+  // Probe FFmpeg availability once at startup so the renderer can degrade
+  // gracefully (preview-generator caches the result internally).
+  const ffmpeg = await locateFFmpeg()
+  if (!ffmpeg) {
+    console.warn('[preview] FFmpeg not found in PATH — live preview unavailable')
   }
 
   registerIpcHandlers()

@@ -17,4 +17,5 @@ export const IPC_CHANNELS = {
   FRAME_PREVIEW_PNG: 'frame:preview-png',
   COUNT_EXR_FILES: 'count:exr-files',
   EXR_READ_HEADER: 'exr:read-header',
+  SYSTEM_FFMPEG_STATUS: 'system:ffmpeg-status',
 } as const;

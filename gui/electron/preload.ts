@@ -64,8 +64,16 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('exe:get-resolved-path'),
   getLatestFrame: (outputDir: string): Promise<string> =>
     ipcRenderer.invoke('frame:latest', outputDir),
-  getFramePreview: (exrPath: string): Promise<string | null> =>
+  getFramePreview: (
+    exrPath: string
+  ): Promise<{ success: boolean; pngPath?: string; reason?: string; detail?: string }> =>
     ipcRenderer.invoke('frame:preview-png', exrPath),
+  onFFmpegStatus: (callback: (data: { available: boolean }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { available: boolean }) =>
+      callback(data)
+    ipcRenderer.on('system:ffmpeg-status', handler)
+    return () => ipcRenderer.removeListener('system:ffmpeg-status', handler)
+  },
   cameraAutoDetect: (inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }> =>
     ipcRenderer.invoke('camera:auto-detect', inputDir),
   countExrFiles: (dir: string): Promise<number> =>

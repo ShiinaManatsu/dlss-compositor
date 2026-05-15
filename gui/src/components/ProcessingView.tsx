@@ -17,6 +17,10 @@ export default function ProcessingView() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [completionMsg, setCompletionMsg] = useState('');
   const [previewPng, setPreviewPng] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<
+    'ffmpeg-not-found' | 'exr-decode-error' | 'timeout' | 'unknown' | null
+  >(null);
+  const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(0);
 
@@ -29,6 +33,18 @@ export default function ProcessingView() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Subscribe to the startup FFmpeg-availability ping from main so we can
+  // show a "FFmpeg not installed" hint immediately, before any frame lands.
+  useEffect(() => {
+    const unlisten = window.dlssApi.onFFmpegStatus(({ available }) => {
+      setFfmpegAvailable(available);
+      if (!available) {
+        setPreviewError('ffmpeg-not-found');
+      }
+    });
+    return unlisten;
   }, []);
 
   useEffect(() => {
@@ -60,11 +76,22 @@ export default function ProcessingView() {
 
   useEffect(() => {
     if (!latestFramePath) return;
-    
+
     let isCancelled = false;
-    window.dlssApi.getFramePreview(latestFramePath).then((pngPath) => {
-      if (!isCancelled && pngPath) {
-        setPreviewPng(pngPath);
+    window.dlssApi.getFramePreview(latestFramePath).then((result) => {
+      if (isCancelled) return;
+      if (result && result.success && result.pngPath) {
+        setPreviewPng(result.pngPath);
+        setPreviewError(null);
+      } else {
+        setPreviewPng(null);
+        const reason = result?.reason as
+          | 'ffmpeg-not-found'
+          | 'exr-decode-error'
+          | 'timeout'
+          | 'unknown'
+          | undefined;
+        setPreviewError(reason ?? 'unknown');
       }
     });
 
@@ -256,7 +283,25 @@ export default function ProcessingView() {
               <div className="flex flex-col items-center justify-center w-full max-w-lg">
                 <div data-testid="frame-preview-placeholder" className="text-gray-500 text-sm text-center py-16 w-full border border-dashed border-gray-700 bg-gray-900/50 rounded flex flex-col items-center justify-center">
                   <div className="mb-2">{status === 'running' && !latestFramePath ? 'Waiting for first frame...' : 'No preview available'}</div>
-                  <div className="text-xs text-gray-600">Live preview via FFmpeg (install FFmpeg if not shown)</div>
+                  {previewError === 'ffmpeg-not-found' || ffmpegAvailable === false ? (
+                    <div data-testid="preview-error-ffmpeg" className="text-xs text-yellow-400 text-center mt-2 px-3">
+                      FFmpeg not found in PATH. Install from ffmpeg.org for live preview.
+                    </div>
+                  ) : previewError === 'exr-decode-error' ? (
+                    <div data-testid="preview-error-decode" className="text-xs text-orange-400 text-center mt-2 px-3">
+                      Frame format not supported by FFmpeg. Preview unavailable.
+                    </div>
+                  ) : previewError === 'timeout' ? (
+                    <div data-testid="preview-error-timeout" className="text-xs text-red-400 text-center mt-2 px-3">
+                      Preview generation timed out. Frame may be very large.
+                    </div>
+                  ) : previewError === 'unknown' ? (
+                    <div data-testid="preview-error-unknown" className="text-xs text-red-400 text-center mt-2 px-3">
+                      Preview generation failed.
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-600">Live preview via FFmpeg</div>
+                  )}
                 </div>
                 <div className="text-5xl font-mono font-bold text-blue-400 mt-6 mb-3">
                   {frameCounterLabel.includes('/') ? (

@@ -32,7 +32,13 @@ interface DlssApi {
   saveSettings(settings: unknown): Promise<void>
   getResolvedExePath(): Promise<string | null>
   getLatestFrame(outputDir: string): Promise<string>
-  getFramePreview(exrPath: string): Promise<string | null>
+  getFramePreview(exrPath: string): Promise<{
+    success: boolean
+    pngPath?: string
+    reason?: 'ffmpeg-not-found' | 'exr-decode-error' | 'timeout' | 'unknown'
+    detail?: string
+  }>
+  onFFmpegStatus(callback: (data: { available: boolean }) => void): DlssApiUnlisten
   cameraAutoDetect(inputDir: string): Promise<{ cameraJsonPath: string | null; firstExrPath: string | null }>
   countExrFiles(dir: string): Promise<number>
   readExrHeader(filePath: string): Promise<{ ok: boolean; data?: { width: number; height: number; channels: string[]; compression: string; is_multi_part: boolean }; error?: string }>
