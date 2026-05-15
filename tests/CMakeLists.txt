@@ -2,6 +2,7 @@
 add_executable(dlss-compositor-tests
     test_scaffold.cpp
     test_exr_reader.cpp
+    test_exr_channel_aliases.cpp
     test_channel_mapper.cpp
     test_mv_converter.cpp
     test_frame_prefetcher.cpp
@@ -54,6 +55,8 @@ add_test(NAME SequenceFilenameFilter COMMAND dlss-compositor-tests "[SequenceFil
 set_tests_properties(SequenceFilenameFilter PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME NgxBanner COMMAND dlss-compositor-tests "[NgxBanner]")
 set_tests_properties(NgxBanner PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
+add_test(NAME ExrChannelAliases COMMAND dlss-compositor-tests "[ExrChannelAliases]")
+set_tests_properties(ExrChannelAliases PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 add_test(NAME IntegrationPresetTrace COMMAND dlss-compositor-tests "[IntegrationPresetTrace]")
 set_tests_properties(IntegrationPresetTrace PROPERTIES
     SKIP_REGULAR_EXPRESSION "SKIPPED:"

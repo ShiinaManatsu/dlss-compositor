@@ -17,6 +17,10 @@ public:
     ~ExrReader();
 
     bool open(const std::string& path, std::string& errorMsg);
+    // Loads R and G channels from mvPath as motion vector X and Y.
+    // Call after open() succeeds on the main EXR. Returns false if mvPath
+    // doesn't exist or can't be parsed (caller decides if this is fatal).
+    bool mergeMvFile(const std::string& mvPath, std::string& errorMsg);
     void close();
 
     int width() const;

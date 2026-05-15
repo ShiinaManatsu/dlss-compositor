@@ -190,6 +190,40 @@ bool extractTrailingFrameNumber(const std::filesystem::path& path, int& frameNum
     }
 }
 
+bool hasLayerQualifiedChannels(const ExrReader& reader) {
+    const std::vector<std::string> channels = reader.listChannels();
+    return std::any_of(channels.begin(), channels.end(), [](const std::string& channel) {
+        return channel.find('.') != std::string::npos;
+    });
+}
+
+void mergeSiblingMotionVectors(ExrReader& reader, const std::filesystem::path& framePath) {
+    if (reader.readChannel("RenderLayer.Vector.X") != nullptr &&
+        reader.readChannel("RenderLayer.Vector.Y") != nullptr) {
+        return;
+    }
+
+    const bool isStandardExr = !hasLayerQualifiedChannels(reader);
+    const std::filesystem::path mvPath = framePath.parent_path() / (framePath.stem().string() + ".mv.exr");
+
+    std::error_code ec;
+    const bool mvExists = std::filesystem::exists(mvPath, ec) && std::filesystem::is_regular_file(mvPath, ec);
+    if (mvExists) {
+        std::string mvWarning;
+        if (!reader.mergeMvFile(mvPath.string(), mvWarning)) {
+            Log::info("[exr] MV merge failed for %s: %s\n",
+                      mvPath.filename().string().c_str(),
+                      mvWarning.c_str());
+        }
+        return;
+    }
+
+    if (isStandardExr) {
+        Log::info("[exr] Missing MV sibling for standard EXR %s; using zero motion vectors\n",
+                  framePath.filename().string().c_str());
+    }
+}
+
 void forceOpaqueAlpha(std::vector<float>& rgba) {
     for (size_t i = 3; i < rgba.size(); i += 4u) {
         rgba[i] = 1.0f;
@@ -794,6 +828,7 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
         errorMsg = "Failed to open first frame: " + peekError;
         return false;
     }
+    mergeSiblingMotionVectors(peekReader, frames.front().path);
 
     const int expectedInputWidth = peekReader.width();
     const int expectedInputHeight = peekReader.height();
@@ -1232,6 +1267,7 @@ bool SequenceProcessor::processDirectorySRFG(const std::string& inputDir,
         Log::error( "[SRFG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
+    mergeSiblingMotionVectors(firstReader, frames.front().path);
 
     const int expectedInputWidth = firstReader.width();
     const int expectedInputHeight = firstReader.height();
@@ -1907,6 +1943,7 @@ bool SequenceProcessor::processDirectoryFG(const std::string& inputDir,
         Log::error( "[FG] Failed to open first EXR: %s\n", errorMsg.c_str());
         return false;
     }
+    mergeSiblingMotionVectors(firstReader, frames.front().path);
 
     const int expectedWidth = firstReader.width();
     const int expectedHeight = firstReader.height();

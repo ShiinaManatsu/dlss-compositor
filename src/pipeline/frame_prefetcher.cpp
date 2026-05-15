@@ -1,8 +1,50 @@
 #include "pipeline/frame_prefetcher.h"
 
+#include "core/logger.h"
 #include "pipeline/sequence_processor.h"
 
+#include <algorithm>
+#include <filesystem>
+#include <system_error>
 #include <utility>
+
+namespace {
+
+bool hasLayerQualifiedChannels(const ExrReader& reader) {
+    const std::vector<std::string> channels = reader.listChannels();
+    return std::any_of(channels.begin(), channels.end(), [](const std::string& channel) {
+        return channel.find('.') != std::string::npos;
+    });
+}
+
+void mergeSiblingMotionVectors(ExrReader& reader, const std::filesystem::path& framePath) {
+    if (reader.readChannel("RenderLayer.Vector.X") != nullptr &&
+        reader.readChannel("RenderLayer.Vector.Y") != nullptr) {
+        return;
+    }
+
+    const bool isStandardExr = !hasLayerQualifiedChannels(reader);
+    const std::filesystem::path mvPath = framePath.parent_path() / (framePath.stem().string() + ".mv.exr");
+
+    std::error_code ec;
+    const bool mvExists = std::filesystem::exists(mvPath, ec) && std::filesystem::is_regular_file(mvPath, ec);
+    if (mvExists) {
+        std::string mvWarning;
+        if (!reader.mergeMvFile(mvPath.string(), mvWarning)) {
+            Log::info("[exr] MV merge failed for %s: %s\n",
+                      mvPath.filename().string().c_str(),
+                      mvWarning.c_str());
+        }
+        return;
+    }
+
+    if (isStandardExr) {
+        Log::info("[exr] Missing MV sibling for standard EXR %s; using zero motion vectors\n",
+                  framePath.filename().string().c_str());
+    }
+}
+
+} // namespace
 
 FramePrefetcher::FramePrefetcher(const ChannelMapper& mapper, const MvConverter& converter,
                                  int ringSize, int expectedWidth, int expectedHeight)
@@ -127,6 +169,8 @@ void FramePrefetcher::workerLoop() {
             if (reader.open(path, openError) &&
                 reader.width() == m_expectedWidth &&
                 reader.height() == m_expectedHeight) {
+                mergeSiblingMotionVectors(reader, std::filesystem::path(path));
+
                 MappedBuffers mappedBuffers;
                 std::string mapError;
                 if (m_mapper.mapFromExr(reader, mappedBuffers, mapError)) {

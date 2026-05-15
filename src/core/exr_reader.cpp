@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <sstream>
 #include <unordered_map>
 
@@ -31,6 +32,22 @@ std::string buildChannelName(const Imf::Header& header, const char* rawName) {
 }
 
 std::string makeLegacyAlias(const std::string& channelName) {
+    if (channelName == "R") {
+        return "RenderLayer.Combined.R";
+    }
+    if (channelName == "G") {
+        return "RenderLayer.Combined.G";
+    }
+    if (channelName == "B") {
+        return "RenderLayer.Combined.B";
+    }
+    if (channelName == "A") {
+        return "RenderLayer.Combined.A";
+    }
+    if (channelName == "Z") {
+        return "RenderLayer.Depth.Z";
+    }
+
     const auto remap = [&](const std::string& prefix, const std::string& replacement) -> std::string {
         if (channelName.rfind(prefix, 0) != 0) {
             return {};
@@ -219,4 +236,93 @@ std::vector<float> ExrReader::readRGBA(const std::string& r, const std::string& 
         }
     }
     return rgba;
+}
+
+bool ExrReader::mergeMvFile(const std::string& mvPath, std::string& errorMsg) {
+    if (!m_impl || m_impl->width <= 0 || m_impl->height <= 0) {
+        errorMsg = "mergeMvFile called before open()";
+        return false;
+    }
+
+    std::error_code ec;
+    if (!std::filesystem::exists(mvPath, ec)) {
+        errorMsg = "MV file does not exist: " + mvPath;
+        return false;
+    }
+
+    try {
+        Imf::MultiPartInputFile mvFile(mvPath.c_str());
+        if (mvFile.parts() <= 0) {
+            errorMsg = "MV file has no readable parts: " + mvPath;
+            return false;
+        }
+
+        Imf::InputPart part(mvFile, 0);
+        const Imf::Header& header = part.header();
+        const Imath::Box2i dataWindow = header.dataWindow();
+        const int mvWidth = dataWindow.max.x - dataWindow.min.x + 1;
+        const int mvHeight = dataWindow.max.y - dataWindow.min.y + 1;
+
+        if (mvWidth != m_impl->width || mvHeight != m_impl->height) {
+            errorMsg = "MV file dimensions " + std::to_string(mvWidth) + "x" + std::to_string(mvHeight) +
+                       " do not match main file " + std::to_string(m_impl->width) + "x" +
+                       std::to_string(m_impl->height);
+            return false;
+        }
+
+        const size_t pixelCount = static_cast<size_t>(mvWidth) * static_cast<size_t>(mvHeight);
+        const std::unordered_map<std::string, std::string> mvAliases = {
+            {"R", "RenderLayer.Vector.X"},
+            {"G", "RenderLayer.Vector.Y"},
+        };
+
+        const Imf::ChannelList& channels = header.channels();
+        Imf::FrameBuffer frameBuffer;
+        std::vector<std::pair<std::string, std::vector<float>>> mvChannels;
+        mvChannels.reserve(mvAliases.size());
+
+        for (auto it = channels.begin(); it != channels.end(); ++it) {
+            const std::string rawName = it.name();
+            const auto aliasIt = mvAliases.find(rawName);
+            if (aliasIt == mvAliases.end()) {
+                continue;
+            }
+
+            const std::string& canonicalName = aliasIt->second;
+            if (readChannel(canonicalName) != nullptr) {
+                continue;
+            }
+
+            mvChannels.emplace_back(canonicalName, std::vector<float>(pixelCount, 0.0f));
+            auto& pixels = mvChannels.back().second;
+            const std::ptrdiff_t baseOffset = static_cast<std::ptrdiff_t>(dataWindow.min.x) +
+                                              static_cast<std::ptrdiff_t>(dataWindow.min.y) *
+                                                  static_cast<std::ptrdiff_t>(mvWidth);
+            frameBuffer.insert(
+                it.name(),
+                Imf::Slice(Imf::FLOAT,
+                           reinterpret_cast<char*>(pixels.data() - baseOffset),
+                           sizeof(float),
+                           sizeof(float) * static_cast<size_t>(mvWidth)));
+        }
+
+        if (mvChannels.empty()) {
+            errorMsg = "MV file does not contain readable R/G motion-vector channels: " + mvPath;
+            return false;
+        }
+
+        part.setFrameBuffer(frameBuffer);
+        part.readPixels(dataWindow.min.y, dataWindow.max.y);
+
+        for (auto& [name, pixels] : mvChannels) {
+            m_impl->channelData.emplace(name, std::move(pixels));
+            m_impl->channelOrder.push_back(name);
+        }
+
+        errorMsg.clear();
+        return true;
+    } catch (const std::exception& ex) {
+        errorMsg = ex.what();
+        return false;
+    }
 }
