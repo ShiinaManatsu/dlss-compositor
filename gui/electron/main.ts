@@ -15,22 +15,71 @@ type ProcessStartPayload = {
   config: DlssConfig;
 }
 
+function toBannerIpcPayload(event: NonNullable<ReturnType<typeof parseNdjsonLine>>): Record<string, unknown> {
+  return {
+    ...event,
+    sdk: event.sdk ?? event.ngx_sdk_version,
+  }
+}
+
+function formatProbeExit(code: number | null, signal: NodeJS.Signals | null): string {
+  if (code !== null) {
+    return `code ${code}`
+  }
+  return `signal ${signal ?? 'unknown'}`
+}
+
 let mainWindow: BrowserWindow | null = null
 let cliLocatorError: string | null = null
 
 function probeNgxBanner(exePath: string, win: BrowserWindow): void {
-  if (!exePath || !fs.existsSync(exePath)) return;
+  if (!exePath || !fs.existsSync(exePath)) return
 
-  const proc = spawn(exePath, ['--test-ngx', '--progress-format', 'json'], { stdio: 'pipe' });
-  const lineBuffer = new ProgressLineBuffer();
-  lineBuffer.onLine = (line: string) => {
-    const event = parseNdjsonLine(line);
-    if (event?.event === 'banner') {
-      win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, event);
+  const proc = spawn(exePath, ['--test-ngx', '--progress-format', 'json'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  let bannerReceived = false
+  const handleLine = (line: string) => {
+    const event = parseNdjsonLine(line)
+    if (!event) return
+
+    // CLI emits {"type":"banner",...} after the Plan 1 T4 NDJSON fix.
+    // Accept the legacy `event` discriminator too for older CLI binaries.
+    if (event.type === 'banner' || event.event === 'banner') {
+      bannerReceived = true
+      win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, toBannerIpcPayload(event))
     }
-  };
-  proc.stdout?.on('data', (chunk: Buffer) => lineBuffer.feed(chunk.toString()));
-  proc.once('exit', () => lineBuffer.flush());
+  }
+
+  const stdoutBuffer = new ProgressLineBuffer()
+  stdoutBuffer.onLine = handleLine
+  proc.stdout?.on('data', (chunk: Buffer) => stdoutBuffer.feed(chunk.toString()))
+
+  // Keep stderr parseable for defensive compatibility if banner routing ever
+  // changes. Non-JSON SDK log lines are ignored by parseNdjsonLine().
+  const stderrBuffer = new ProgressLineBuffer()
+  stderrBuffer.onLine = handleLine
+  proc.stderr?.on('data', (chunk: Buffer) => stderrBuffer.feed(chunk.toString()))
+
+  proc.once('exit', (code, signal) => {
+    stdoutBuffer.flush()
+    stderrBuffer.flush()
+    if (!bannerReceived) {
+      win.webContents.send(
+        IPC_CHANNELS.PROCESS_ERROR,
+        `DLSS detection failed: process exited (${formatProbeExit(code, signal)}) without emitting a banner event. ` +
+          'Ensure NVIDIA RTX drivers and DLSS DLLs are installed.',
+      )
+    }
+  })
+
+  proc.once('error', (err) => {
+    win.webContents.send(
+      IPC_CHANNELS.PROCESS_ERROR,
+      `DLSS detection failed: could not start process: ${err.message}`,
+    )
+  })
 }
 
 function createWindow(): void {
@@ -136,7 +185,8 @@ function registerIpcHandlers(): void {
 
       const event = parseNdjsonLine(line)
       if (event) {
-        switch (event.event) {
+        const eventType = event.event ?? event.type
+        switch (eventType) {
           case 'started':
             // Initial total announcement — surface as a 0/total progress tick
             win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: 0, total: event.total })
@@ -148,7 +198,7 @@ function registerIpcHandlers(): void {
             win.webContents.send(IPC_CHANNELS.PROCESS_FRAME_WRITTEN, { path: event.path, n: event.n })
             break
           case 'banner':
-            win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, event)
+            win.webContents.send(IPC_CHANNELS.PROCESS_BANNER, toBannerIpcPayload(event))
             break
           case 'complete':
             // PROCESS_COMPLETE is sent by the 'exit' handler below; just bump
@@ -156,7 +206,7 @@ function registerIpcHandlers(): void {
             win.webContents.send(IPC_CHANNELS.PROCESS_PROGRESS, { current: event.total, total: event.total })
             break
           case 'error':
-            win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, event.message)
+            win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, event.message ?? event.detail ?? event.reason ?? 'Unknown CLI error')
             break
         }
       } else {

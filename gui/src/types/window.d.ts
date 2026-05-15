@@ -2,6 +2,21 @@ import type { DlssConfig } from './dlss-config'
 
 type DlssApiUnlisten = () => void
 
+interface DlssBannerPayload {
+  event?: string
+  type?: string
+  sdk?: string
+  engine?: string
+  sr_available?: boolean
+  fg_available?: boolean
+  max_multi_frame?: number
+  ngx_sdk_version?: string
+  ngx_api_version_used?: string
+  ngx_api_version_path?: string
+  dlss_dll_version?: string
+  dlssg_dll_version?: string
+}
+
 interface DlssApi {
   selectDirectory(): Promise<string>
   selectFile(filters: { name: string; extensions: string[] }[]): Promise<string>
@@ -12,9 +27,7 @@ interface DlssApi {
   onComplete(callback: () => void): DlssApiUnlisten
   onLog(callback: (line: string) => void): DlssApiUnlisten
   onFrameWritten(callback: (data: { path: string; n: number }) => void): DlssApiUnlisten
-  onBanner(
-    callback: (data: { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number }) => void
-  ): DlssApiUnlisten
+  onBanner(callback: (data: DlssBannerPayload) => void): DlssApiUnlisten
   getSettings(): Promise<unknown>
   saveSettings(settings: unknown): Promise<void>
   getResolvedExePath(): Promise<string | null>

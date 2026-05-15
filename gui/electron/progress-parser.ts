@@ -15,24 +15,48 @@ export function parseProgressLine(line: string): { current: number; total: numbe
 
 /**
  * NDJSON event emitted by dlss-compositor with --progress-format json.
+ *
+ * Older progress events use `event` as the discriminator. Newer diagnostic
+ * events added in Plan 1 use `type`; the GUI accepts both fields so mixed
+ * CLI streams remain parseable.
  */
-export type ProgressEvent =
-  | { event: 'started'; total: number; input_dir: string; output_dir: string }
-  | { event: 'frame_started'; n: number; total: number; timestamp_ms: number }
-  | { event: 'frame_written'; n: number; path: string; timestamp_ms: number }
-  | { event: 'banner'; sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number }
-  | { event: 'error'; frame?: number; message: string }
-  | { event: 'complete'; total: number; duration_ms: number; errors: number };
+export type ProgressEvent = {
+  event?: string;
+  type?: string;
+  total?: number;
+  input_dir?: string;
+  output_dir?: string;
+  n?: number;
+  path?: string;
+  frame?: number;
+  message?: string;
+  reason?: string;
+  detail?: string;
+  duration_ms?: number;
+  errors?: number;
+  timestamp_ms?: number;
+  sdk?: string;
+  engine?: string;
+  sr_available?: boolean;
+  fg_available?: boolean;
+  max_multi_frame?: number;
+  ngx_sdk_version?: string;
+  ngx_api_version_used?: string;
+  ngx_api_version_path?: string;
+  dlss_dll_version?: string;
+  dlssg_dll_version?: string;
+  code?: string;
+}
 
 /**
  * Parse a single NDJSON line from dlss-compositor stdout.
  * Returns the typed event, or null if the line is not valid JSON or
- * does not have a string `event` field.
+ * does not have a string `event` or `type` field.
  */
 export function parseNdjsonLine(line: string): ProgressEvent | null {
   try {
     const obj = JSON.parse(line);
-    if (obj && typeof obj.event === 'string') {
+    if (obj && typeof obj === 'object' && (typeof obj.event === 'string' || typeof obj.type === 'string')) {
       return obj as ProgressEvent;
     }
     return null;

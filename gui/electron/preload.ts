@@ -1,6 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from './ipc-channels'
 
+type DlssBannerPayload = {
+  event?: string
+  type?: string
+  sdk?: string
+  engine?: string
+  sr_available?: boolean
+  fg_available?: boolean
+  max_multi_frame?: number
+  ngx_sdk_version?: string
+  ngx_api_version_used?: string
+  ngx_api_version_path?: string
+  dlss_dll_version?: string
+  dlssg_dll_version?: string
+}
+
 contextBridge.exposeInMainWorld('dlssApi', {
   selectDirectory: (): Promise<string> =>
     ipcRenderer.invoke('dialog:openDirectory'),
@@ -35,11 +50,9 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.on('process:frame-written', handler)
     return () => ipcRenderer.removeListener('process:frame-written', handler)
   },
-  onBanner: (
-    callback: (data: { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number }) => void
-  ): (() => void) => {
+  onBanner: (callback: (data: DlssBannerPayload) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
-      callback(data as { sdk: string; engine: string; sr_available: boolean; fg_available: boolean; max_multi_frame: number })
+      callback(data as DlssBannerPayload)
     ipcRenderer.on('process:banner', handler)
     return () => ipcRenderer.removeListener('process:banner', handler)
   },

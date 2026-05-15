@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { DlssConfig } from '../types/dlss-config'
 import { setGlobalIsRunning } from '../state/processing-store'
-import { useBanner } from '../state/banner-store'
 
 export type ProcessingStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -34,8 +33,6 @@ export function useProcessing(): ProcessingState {
   const [errors, setErrors] = useState<string[]>([])
   const [latestFramePath, setLatestFramePath] = useState<string | null>(null)
   
-  const { setBanner } = useBanner()
-
   useEffect(() => {
     setGlobalIsRunning(status === 'running');
   }, [status]);
@@ -70,16 +67,11 @@ export function useProcessing(): ProcessingState {
       setLatestFramePath(data.path)
     })
 
-    const unlistenBanner = window.dlssApi.onBanner((data) => {
-      setBanner(data)
-    })
-
     return () => {
       unlistenProgress()
       unlistenError()
       unlistenComplete()
       unlistenFrameWritten()
-      unlistenBanner()
     }
   }, [])
 
