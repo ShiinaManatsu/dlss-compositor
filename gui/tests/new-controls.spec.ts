@@ -1,10 +1,10 @@
 /**
- * Coverage for the Phase 4 controls:
- *   - source-fps input (BasicSettings)
- *   - sharpness slider (AdvancedSettings)
- *   - ngx-log-level select (AdvancedSettings)
- *   - tonemap select with custom option (AdvancedSettings)
- *   - tonemap=custom + missing forward LUT disables Start
+ * Coverage for the Phase 4 controls (post-T7 restructure):
+ *   - source-fps input lives in SRSettings (always visible)
+ *   - sharpness slider lives in SRSettings (always visible)
+ *   - ngx-log-level select lives in CommonSettings (always visible)
+ *   - tonemap select lives in FGSettings with custom option (always visible)
+ *   - tonemap=custom + missing forward LUT keeps Start disabled
  */
 
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
@@ -26,13 +26,13 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-newctrls-${Date.now()}`);
 
 test.beforeAll(async () => {
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],
   });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
-  // Wait for the app to finish loading (so settings panel is rendered)
   await page.getByTestId('settings-panel').waitFor({ state: 'visible', timeout: 15_000 });
 });
 
@@ -58,26 +58,16 @@ test('source-fps input clamps out-of-range values on blur', async () => {
   await input.press('Tab');
 });
 
-test('advanced settings has sharpness slider defaulting to 0', async () => {
-  // Open the panel if not already open
-  const content = page.getByTestId('advanced-settings-content');
-  if (await content.evaluate((el) => el.classList.contains('hidden'))) {
-    await page.getByTestId('advanced-settings-toggle').click();
-  }
+test('sharpness slider defaults to 0 and is always visible', async () => {
   const slider = page.getByTestId('sharpness-slider');
   await expect(slider).toBeVisible();
   await expect(slider).toHaveValue('0');
 });
 
-test('advanced settings has ngx-log-level select defaulting to warn', async () => {
-  const content = page.getByTestId('advanced-settings-content');
-  if (await content.evaluate((el) => el.classList.contains('hidden'))) {
-    await page.getByTestId('advanced-settings-toggle').click();
-  }
+test('ngx-log-level select defaults to warn and is always visible', async () => {
   const select = page.getByTestId('ngx-log-level-select');
   await expect(select).toBeVisible();
   await expect(select).toHaveValue('warn');
-  // Verify all expected options exist
   const optionValues = await select.locator('option').evaluateAll((opts) =>
     (opts as HTMLOptionElement[]).map((o) => o.value),
   );
@@ -85,10 +75,6 @@ test('advanced settings has ngx-log-level select defaulting to warn', async () =
 });
 
 test('tonemap select has pq, none, and custom options', async () => {
-  const content = page.getByTestId('advanced-settings-content');
-  if (await content.evaluate((el) => el.classList.contains('hidden'))) {
-    await page.getByTestId('advanced-settings-toggle').click();
-  }
   const select = page.getByTestId('tonemap-select');
   await expect(select).toBeVisible();
   const optionValues = await select.locator('option').evaluateAll((opts) =>
@@ -98,21 +84,13 @@ test('tonemap select has pq, none, and custom options', async () => {
 });
 
 test('selecting tonemap=custom enables forward-LUT picker', async () => {
-  const content = page.getByTestId('advanced-settings-content');
-  if (await content.evaluate((el) => el.classList.contains('hidden'))) {
-    await page.getByTestId('advanced-settings-toggle').click();
-  }
   await page.getByTestId('tonemap-select').selectOption('custom');
   await expect(page.getByTestId('forward-lut-picker')).toBeEnabled();
-  // Reset to default
+  // Reset
   await page.getByTestId('tonemap-select').selectOption('pq');
 });
 
 test('tonemap=custom + missing forward LUT keeps start button disabled', async () => {
-  const content = page.getByTestId('advanced-settings-content');
-  if (await content.evaluate((el) => el.classList.contains('hidden'))) {
-    await page.getByTestId('advanced-settings-toggle').click();
-  }
   await page.getByTestId('tonemap-select').selectOption('custom');
   // Without an exe path / input dir / output dir / forward LUT, start is disabled.
   await expect(page.getByTestId('start-btn')).toBeDisabled();

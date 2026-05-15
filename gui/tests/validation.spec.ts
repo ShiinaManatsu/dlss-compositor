@@ -17,6 +17,8 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-validation-${Date.now()}`);
 
 test.beforeAll(async () => {
+  // Wipe shared project-relative settings so default state is reproducible.
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],
@@ -42,8 +44,10 @@ test('start button is disabled when no exe path configured', async () => {
 
 test('input directory shows error on blur when empty', async () => {
   const inputField = page.getByTestId('input-dir-field');
+  // Use the DOM blur event — Playwright's Locator.blur() can be unreliable on
+  // readOnly inputs. Dispatching focus then blur via element handle works.
   await inputField.focus();
-  await inputField.blur();
+  await inputField.evaluate((el: HTMLInputElement) => el.blur());
 
   await expect(page.getByTestId('input-dir-error')).toBeVisible();
   await expect(page.getByTestId('input-dir-error')).toContainText('required');

@@ -22,6 +22,7 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-statusbar-${Date.now()}`);
 
 test.beforeAll(async () => {
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],

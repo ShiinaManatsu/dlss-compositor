@@ -29,6 +29,7 @@ let page: Page;
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-autodetect-${Date.now()}`);
 
 test.beforeAll(async () => {
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],
@@ -72,10 +73,12 @@ test('input-dir-browse triggers EXR count + camera auto-detect (with_camera_json
   await expect(cameraHint).toBeVisible({ timeout: 10_000 });
   await expect(cameraHint).toContainText(/Auto-detected/);
 
-  // Source resolution display should now show 1920 × 1080
-  const sourceDisplay = page.getByTestId('source-resolution-display');
-  await expect(sourceDisplay).toContainText(/1920/);
-  await expect(sourceDisplay).toContainText(/1080/);
+  // T6: source resolution is now read from EXR header (not camera.json).
+  // The fixture EXRs are 7-byte stubs, so header decoding will fail and the
+  // hint surfaces the failure mode rather than a width/height.
+  const sourceHint = page.getByTestId('source-resolution-hint');
+  await expect(sourceHint).toBeVisible({ timeout: 10_000 });
+  await expect(sourceHint).toContainText(/Could not detect|No EXR files|Source:/);
 });
 
 test('selecting without_camera_json shows EXR count but no auto-detect hint', async () => {

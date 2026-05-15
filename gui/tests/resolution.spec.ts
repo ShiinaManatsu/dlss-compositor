@@ -1,9 +1,12 @@
 /**
- * Coverage for ResolutionPanel:
- *   - target preset select (4K / 1440p / 1080p / DLAA / Custom)
- *   - source-resolution display defaults to "Unknown" when no camera.json
- *   - Custom preset reveals width/height inputs
- *   - computed-scale-display appears for DLAA (always known scale=1.0)
+ * Coverage for the T6 ResolutionPanel:
+ *   - source-unknown mode shows warning + fallback scale input
+ *   - preset select / primary-dim-input only render once source resolution
+ *     is known (this happens after EXR header detection in InputOutputPanel)
+ *   - Old DLAA/4K/1440p/1080p/Custom preset selector is gone — replaced by
+ *     orientation-aware "Same as Source / 1080p / 1440p / 4K" presets
+ *   - Custom width/height fields are gone — replaced by single primary-dim
+ *     input + computed-target display + scale input
  */
 
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
@@ -25,6 +28,7 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-resolution-${Date.now()}`);
 
 test.beforeAll(async () => {
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],
@@ -39,41 +43,28 @@ test.afterAll(async () => {
   fs.rmSync(userDataDir, { recursive: true, force: true });
 });
 
-test('target preset select is present and visible', async () => {
-  const select = page.getByTestId('target-preset-select');
-  await expect(select).toBeVisible();
+test('source-unknown mode shows warning on fresh launch (no input dir)', async () => {
+  await expect(page.getByTestId('source-unknown-warning')).toBeVisible();
 });
 
-test('target preset select offers 4K / 1440p / 1080p / DLAA / Custom', async () => {
-  const select = page.getByTestId('target-preset-select');
-  const optionValues = await select.locator('option').evaluateAll((opts) =>
-    (opts as HTMLOptionElement[]).map((o) => o.value),
-  );
-  expect(optionValues).toEqual(['4K', '1440p', '1080p', 'DLAA', 'Custom']);
+test('source-unknown mode shows fallback scale input', async () => {
+  const fallback = page.getByTestId('resolution-scale-input-fallback');
+  await expect(fallback).toBeVisible();
+  await expect(fallback).toHaveAttribute('type', 'number');
 });
 
-test('source resolution display shows Unknown when no camera.json was loaded', async () => {
-  const display = page.getByTestId('source-resolution-display');
-  await expect(display).toBeVisible();
-  await expect(display).toContainText(/Unknown/);
+test('source-unknown mode hides preset select and primary-dim input', async () => {
+  // The aspect-locked controls are gated by sourceKnown
+  await expect(page.getByTestId('resolution-preset-select')).toHaveCount(0);
+  await expect(page.getByTestId('primary-dim-input')).toHaveCount(0);
 });
 
-test('selecting Custom preset reveals custom width and height inputs', async () => {
-  const select = page.getByTestId('target-preset-select');
-  await select.selectOption('Custom');
-  await expect(page.getByTestId('custom-target-width')).toBeVisible();
-  await expect(page.getByTestId('custom-target-height')).toBeVisible();
-  // Reset
-  await select.selectOption('1080p');
+test('legacy custom width/height inputs no longer exist', async () => {
   await expect(page.getByTestId('custom-target-width')).toHaveCount(0);
+  await expect(page.getByTestId('custom-target-height')).toHaveCount(0);
 });
 
-test('computed scale display is shown for DLAA (always known)', async () => {
-  const select = page.getByTestId('target-preset-select');
-  await select.selectOption('DLAA');
-  const scale = page.getByTestId('computed-scale-display');
-  await expect(scale).toBeVisible();
-  await expect(scale).toContainText(/Scale:\s*1\.00/);
-  // Reset
-  await select.selectOption('1080p');
+test('legacy target-preset-select no longer exists', async () => {
+  // Old DLAA/4K/1440p/1080p/Custom selector replaced by resolution-preset-select
+  await expect(page.getByTestId('target-preset-select')).toHaveCount(0);
 });

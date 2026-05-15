@@ -134,7 +134,7 @@ export default function ResolutionPanel() {
           <div className="flex items-center space-x-2">
             <label className="text-sm text-gray-300">Scale Factor:</label>
             <input
-              data-testid="scale-input"
+              data-testid="resolution-scale-input-fallback"
               type="number"
               min={0.5} max={8} step={0.01}
               disabled={isRunning}
@@ -245,7 +245,7 @@ export default function ResolutionPanel() {
           <div className="flex items-center space-x-2 pt-1">
             <label className="text-sm text-gray-300">Scale Factor:</label>
             <input
-              data-testid="scale-input"
+              data-testid="resolution-scale-input"
               type="number"
               min={0.5} max={8} step={0.01}
               disabled={isRunning}

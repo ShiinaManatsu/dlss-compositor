@@ -17,6 +17,10 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-launch-${Date.now()}`);
 
 test.beforeAll(async () => {
+  // Tests share gui/dlss-compositor.json (project-relative store). Wipe
+  // before launching so we land on documented defaults, not whatever a
+  // previous spec left behind.
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],

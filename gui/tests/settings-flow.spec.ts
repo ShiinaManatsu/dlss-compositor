@@ -17,6 +17,7 @@ const mainEntry = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 const userDataDir = path.join(os.tmpdir(), `dlss-pw-settings-${Date.now()}`);
 
 test.beforeAll(async () => {
+  fs.rmSync(path.resolve(__dirname, '..', 'dlss-compositor.json'), { force: true });
   app = await electron.launch({
     executablePath: require('electron') as unknown as string,
     args: [mainEntry, `--user-data-dir=${userDataDir}`],
@@ -46,16 +47,19 @@ test('quality can be manually selected', async () => {
   await page.getByTestId('quality-select').selectOption('MaxQuality');
 });
 
-test('advanced settings panel toggles open and closed', async () => {
-  const content = page.getByTestId('advanced-settings-content');
-  // Initially hidden
-  await expect(content).toHaveClass(/hidden/);
+test('advanced NGX panel toggles open and closed', async () => {
+  // T7 deleted AdvancedSettings (basic+advanced toggle). Per-quality NGX presets
+  // and feature flags now live in <details data-testid="advanced-ngx-toggle">.
+  const toggle = page.getByTestId('advanced-ngx-toggle');
+  await expect(toggle).toBeVisible();
 
-  await page.getByTestId('advanced-settings-toggle').click();
-  await expect(content).not.toHaveClass(/hidden/);
-
-  await page.getByTestId('advanced-settings-toggle').click();
-  await expect(content).toHaveClass(/hidden/);
+  const content = page.getByTestId('advanced-ngx-content');
+  // <details> opens/closes via the parent's `open` attribute. Visibility flips with it.
+  await expect(content).toBeHidden();
+  await toggle.click();
+  await expect(content).toBeVisible();
+  await toggle.click();
+  await expect(content).toBeHidden();
 });
 
 test('interpolation→2x enables camera data picker', async () => {

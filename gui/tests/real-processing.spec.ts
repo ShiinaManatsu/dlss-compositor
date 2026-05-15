@@ -28,26 +28,31 @@ const OUT_RRFG    = 'E:\\Render Output\\Compositing\\SittingSex1\\sequences\\out
 const EVIDENCE    = 'F:\\Projects\\GitRepos\\dlss-compositor\\.sisyphus\\evidence';
 const mainEntry   = path.resolve(__dirname, '..', 'dist-electron', 'main.js');
 
-// Pre-seed exe path in electron-store so the app launches ready.
-// electron-store writes to {userData}/{store-name}.json (flat, no subdirectory).
-// The store name in main.js is "dlss-compositor-settings", so the file is
-// {userData}/dlss-compositor-settings.json with the same flat structure.
+// Skip the entire suite if the hardcoded test asset paths aren't present.
+// Real-processing tests target a specific dev workstation layout.
+const ASSETS_AVAILABLE = fs.existsSync(EXE_PATH) && fs.existsSync(INPUT_DIR);
+test.skip(!ASSETS_AVAILABLE, 'real-processing assets not present on this machine');
+
+// Pre-seed dirs in the GUI-relative settings file so the app launches ready.
+// T10 removed ExePathConfig — the exe is now auto-detected from build/Release/.
 async function launchApp(userDataDir: string): Promise<{ app: ElectronApplication; page: Page }> {
   fs.mkdirSync(userDataDir, { recursive: true });
   fs.writeFileSync(
     path.join(userDataDir, 'dlss-compositor-settings.json'),
     JSON.stringify({
-      exePath: EXE_PATH,
       lastInputDir: '',
       lastOutputDir: '',
-      scaleFactor: 2,
-      quality: 'MaxQuality',
-      interpolateFactor: 0,
-      exrCompression: 'dwaa',
-      exrDwaQuality: 95,
-      memoryBudgetGB: 8,
-      tonemapMode: 'pq',
-      inverseTonemapEnabled: true,
+      config: {
+        scaleEnabled: true,
+        scaleFactor: 2,
+        quality: 'MaxQuality',
+        interpolateFactor: 0,
+        exrCompression: 'dwaa',
+        exrDwaQuality: 95,
+        memoryBudgetGB: 8,
+        tonemapMode: 'pq',
+        inverseTonemapEnabled: true,
+      },
     }),
   );
 
@@ -57,7 +62,9 @@ async function launchApp(userDataDir: string): Promise<{ app: ElectronApplicatio
   });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
-  await page.getByTestId('exe-path-field').waitFor({ state: 'visible', timeout: 15_000 });
+  // Wait for app shell instead of the now-removed exe-path-field.
+  await page.getByTestId('app-root').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('settings-panel').waitFor({ state: 'visible', timeout: 15_000 });
   return { app, page };
 }
 
