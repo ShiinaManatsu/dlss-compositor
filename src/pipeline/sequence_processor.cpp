@@ -119,6 +119,19 @@ void ndjsonEmitError(int frame, const std::string& message) {
     emitter.emitRaw(ev.dump());
 }
 
+void ndjsonEmitCameraCut(int frame, float translationDelta, float rotationDeltaDeg) {
+    auto& emitter = globalNdjsonEmitter();
+    if (!emitter.isEnabled()) return;
+    nlohmann::json ev = {
+        {"type", "camera_cut"},
+        {"frame", frame},
+        {"translation_delta", translationDelta},
+        {"rotation_delta_deg", rotationDeltaDeg},
+        {"timestamp_ms", ndjsonNowMs()},
+    };
+    emitter.emitRaw(ev.dump());
+}
+
 void ndjsonEmitComplete(int total, int64_t durationMs, int errors) {
     auto& emitter = globalNdjsonEmitter();
     if (!emitter.isEnabled()) return;
@@ -880,6 +893,33 @@ bool SequenceProcessor::processDirectory(const std::string& inputDir,
                 frame.mvScaleX = mvResult.scaleX * static_cast<float>(expectedOutputWidth) / static_cast<float>(expectedInputWidth);
                 frame.mvScaleY = mvResult.scaleY * static_cast<float>(expectedOutputHeight) / static_cast<float>(expectedInputHeight);
                 frame.reset = resetFlags[index] || !anyFrameSucceeded;
+
+                // Camera cut detection: sets InReset on large camera jumps.
+                if (config.cameraCutDetectionEnabled && hasCameraData) {
+                    const int prevFrameNum = frameInfo.frameNumber - 1;
+                    if (prevFrameNum > 0 && cameraLoader.hasFrame(prevFrameNum) &&
+                        cameraLoader.hasFrame(frameInfo.frameNumber)) {
+                        const auto& prevCam = cameraLoader.getFrame(prevFrameNum);
+                        const auto& currCam = cameraLoader.getFrame(frameInfo.frameNumber);
+                        if (isCameraCut(prevCam, currCam,
+                                        config.cameraCutTranslationThreshold,
+                                        config.cameraCutRotationThreshold)) {
+                            frame.reset = true;
+
+                            const float dx = currCam.position[0] - prevCam.position[0];
+                            const float dy = currCam.position[1] - prevCam.position[1];
+                            const float dz = currCam.position[2] - prevCam.position[2];
+                            const float translationDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                            float dot = prevCam.forward[0] * currCam.forward[0]
+                                      + prevCam.forward[1] * currCam.forward[1]
+                                      + prevCam.forward[2] * currCam.forward[2];
+                            dot = std::max(-1.0f, std::min(1.0f, dot));
+                            const float rotationDeltaDeg = std::acos(dot) * (180.0f / 3.14159265358979323846f);
+                            ndjsonEmitCameraCut(frameInfo.frameNumber, translationDelta, rotationDeltaDeg);
+                        }
+                    }
+                }
 
                 // Assign jitter values from camera data if available
                 if (hasCameraData && cameraLoader.hasFrame(frameInfo.frameNumber)) {

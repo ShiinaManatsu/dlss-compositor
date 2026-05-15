@@ -355,3 +355,20 @@ bool CameraDataLoader::computePairParams(int currentFrame, int previousFrame,
 
     return true;
 }
+
+bool isCameraCut(const CameraFrameData& prev, const CameraFrameData& curr,
+                 float translationThreshold, float rotationThresholdDeg) {
+    const float dx = curr.position[0] - prev.position[0];
+    const float dy = curr.position[1] - prev.position[1];
+    const float dz = curr.position[2] - prev.position[2];
+    const float translationDelta = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    float dot = prev.forward[0] * curr.forward[0]
+              + prev.forward[1] * curr.forward[1]
+              + prev.forward[2] * curr.forward[2];
+    if (dot > 1.0f) dot = 1.0f;
+    if (dot < -1.0f) dot = -1.0f;
+    const float rotationDeltaDeg = std::acos(dot) * (180.0f / 3.14159265358979323846f);
+
+    return translationDelta > translationThreshold || rotationDeltaDeg > rotationThresholdDeg;
+}

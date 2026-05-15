@@ -522,6 +522,36 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.enableDynamicResolution = false;
             continue;
         }
+        if (std::strcmp(arg, "--no-camera-cut-detection") == 0) {
+            config.cameraCutDetectionEnabled = false;
+            continue;
+        }
+        if (std::strcmp(arg, "--camera-cut-translation-threshold") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--camera-cut-translation-threshold requires a value";
+                return false;
+            }
+            float v = 0.0f;
+            if (!parseFloat(argv[++i], v) || !(v > 0.0f)) {
+                errorMsg = "--camera-cut-translation-threshold must be > 0.0";
+                return false;
+            }
+            config.cameraCutTranslationThreshold = v;
+            continue;
+        }
+        if (std::strcmp(arg, "--camera-cut-rotation-threshold") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--camera-cut-rotation-threshold requires a value";
+                return false;
+            }
+            float v = 0.0f;
+            if (!parseFloat(argv[++i], v) || !(v > 0.0f && v <= 180.0f)) {
+                errorMsg = "--camera-cut-rotation-threshold must be a float in (0.0, 180.0]";
+                return false;
+            }
+            config.cameraCutRotationThreshold = v;
+            continue;
+        }
         if (std::strcmp(arg, "--output-passes") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--output-passes requires a value";
@@ -670,6 +700,9 @@ void CliParser::printHelp() {
     std::printf("  --frame-time-delta-ms <float> Override frame time delta in ms; > 0.0 (default: auto from --source-fps)\n");
     std::printf("  --dlss-sharpness <0.0..1.0>   NGX InSharpness (default: 0.0 = off)\n");
     std::printf("  --enable-dynamic-resolution / --no-enable-dynamic-resolution  Reserved knob (default: disabled)\n");
+    std::printf("  --no-camera-cut-detection               Disable camera cut detection (default: enabled)\n");
+    std::printf("  --camera-cut-translation-threshold <f>  World-unit translation threshold for cut detection (default: 5.0)\n");
+    std::printf("  --camera-cut-rotation-threshold <f>     Rotation threshold in degrees for cut detection (default: 30.0)\n");
     std::printf("\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");

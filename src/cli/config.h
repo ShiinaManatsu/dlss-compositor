@@ -107,4 +107,9 @@ struct AppConfig {
     float  frameTimeDeltaMsOverride = -1.0f;  // -1 = auto from --source-fps; >0 = manual override
     float  dlssSharpness            = 0.0f;   // NGX InSharpness [0,1]; 0 = off
     bool   enableDynamicResolution  = false;  // reserved/FG-only knob; stored but not yet wired to NGX
+
+    // Camera cut detection
+    bool  cameraCutDetectionEnabled     = true;    // --no-camera-cut-detection disables
+    float cameraCutTranslationThreshold = 5.0f;    // world units; cuts when delta > this
+    float cameraCutRotationThreshold    = 30.0f;   // degrees; cuts when delta > this
 };

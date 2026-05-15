@@ -70,3 +70,8 @@ namespace MatrixUtil {
     void multiply(float out[4][4], const float a[4][4], const float b[4][4]);
     bool inverse(float out[4][4], const float m[4][4]);
 } // namespace MatrixUtil
+
+// Returns true if camera moved more than translationThreshold world units
+// OR rotated more than rotationThresholdDeg degrees between prev and curr frames.
+bool isCameraCut(const CameraFrameData& prev, const CameraFrameData& curr,
+                 float translationThreshold, float rotationThresholdDeg);
