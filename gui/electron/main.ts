@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, exec } from 'node:child_process'
 import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
@@ -250,6 +250,31 @@ function registerIpcHandlers(): void {
     } catch {
       return null
     }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.EXR_READ_HEADER, async (_event, filePath: string): Promise<{ ok: boolean; data?: unknown; error?: string }> => {
+    let exePath: string
+    try {
+      exePath = locateCliExecutable()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `CLI not found: ${message}` }
+    }
+
+    return new Promise((resolve) => {
+      const safeFilePath = filePath.replace(/"/g, '\\"')
+      exec(`"${exePath}" --inspect-exr "${safeFilePath}"`, { timeout: 5000 }, (err, stdout, stderr) => {
+        if (err) {
+          resolve({ ok: false, error: stderr || err.message })
+          return
+        }
+        try {
+          resolve({ ok: true, data: JSON.parse(stdout.trim()) })
+        } catch {
+          resolve({ ok: false, error: `Failed to parse inspector output: ${stdout}` })
+        }
+      })
+    })
   })
 }
 

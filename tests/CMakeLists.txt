@@ -23,6 +23,7 @@ add_executable(dlss-compositor-tests
     test_sequence_filename_filter.cpp
     test_ngx_banner.cpp
     test_integration_preset_trace.cpp
+    test_exr_inspector.cpp
     ${CMAKE_SOURCE_DIR}/src/cli/cli_parser.cpp
 )
 target_link_libraries(dlss-compositor-tests PRIVATE
@@ -62,6 +63,8 @@ set_tests_properties(IntegrationPresetTrace PROPERTIES
     SKIP_REGULAR_EXPRESSION "SKIPPED:"
     LABELS "gpu_required"
 )
+add_test(NAME ExrInspector COMMAND dlss-compositor-tests "[ExrInspector]")
+set_tests_properties(ExrInspector PROPERTIES SKIP_REGULAR_EXPRESSION "SKIPPED:")
 
 if(MSVC)
     add_custom_command(TARGET dlss-compositor-tests POST_BUILD

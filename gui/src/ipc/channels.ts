@@ -15,4 +15,5 @@ export const IPC_CHANNELS = {
   CAMERA_AUTO_DETECT: 'camera:auto-detect',
   FRAME_PREVIEW_PNG: 'frame:preview-png',
   COUNT_EXR_FILES: 'count:exr-files',
+  EXR_READ_HEADER: 'exr:read-header',
 } as const;

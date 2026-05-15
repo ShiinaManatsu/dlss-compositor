@@ -9,6 +9,7 @@
 #include "dlss/ngx_wrapper.h"
 #include "gpu/texture_pipeline.h"
 #include "gpu/vulkan_context.h"
+#include "inspection/exr_inspector.h"
 #include "pipeline/sequence_processor.h"
 
 int main(int argc, char* argv[]) {
@@ -81,6 +82,19 @@ int main(int argc, char* argv[]) {
         ngx.shutdown();
         context.destroy();
         return 1;
+    }
+
+    if (!config.inspectExrPath.empty()) {
+        ExrMetadata meta;
+        std::string inspectError;
+        if (!inspectExr(config.inspectExrPath, meta, inspectError)) {
+            // Output error JSON to stderr, exit non-zero
+            std::fprintf(stderr, "{\"error\":\"%s\"}\n", inspectError.c_str());
+            return 1;
+        }
+        // Output metadata JSON to stdout
+        std::printf("%s\n", toInspectJson(meta).c_str());
+        return 0;
     }
 
     if (!config.inputDir.empty() || !config.outputDir.empty()) {

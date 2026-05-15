@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { IPC_CHANNELS } from './ipc-channels'
 
 contextBridge.exposeInMainWorld('dlssApi', {
   selectDirectory: (): Promise<string> =>
@@ -56,4 +57,6 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('camera:auto-detect', inputDir),
   countExrFiles: (dir: string): Promise<number> =>
     ipcRenderer.invoke('count:exr-files', dir),
+  readExrHeader: (filePath: string): Promise<{ ok: boolean; data?: unknown; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXR_READ_HEADER, filePath),
 })

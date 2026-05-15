@@ -249,6 +249,14 @@ bool CliParser::parse(int argc, char* argv[], AppConfig& config, std::string& er
             config.testVulkan = true;
             continue;
         }
+        if (std::strcmp(arg, "--inspect-exr") == 0) {
+            if (i + 1 >= argc) {
+                errorMsg = "--inspect-exr requires a file path";
+                return false;
+            }
+            config.inspectExrPath = argv[++i];
+            continue;
+        }
         if (std::strcmp(arg, "--input-dir") == 0) {
             if (i + 1 >= argc) {
                 errorMsg = "--input-dir requires a value";
@@ -706,6 +714,7 @@ void CliParser::printHelp() {
     std::printf("\n");
     std::printf("  --test-ngx             Test NGX/DLSS-SR availability and exit\n");
     std::printf("  --test-vulkan         Initialize Vulkan compute context and exit\n");
+    std::printf("  --inspect-exr <file>   Inspect EXR file header and output metadata as JSON\n");
     std::printf("  --help, -h             Show this help\n");
     std::printf("  --version              Show version\n");
 }

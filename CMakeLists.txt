@@ -99,6 +99,7 @@ add_library(dlss_compositor_core STATIC
     src/pipeline/sequence_processor.cpp
     src/pipeline/frame_prefetcher.cpp
     src/pipeline/async_exr_writer.cpp
+    src/inspection/exr_inspector.cpp
 )
 target_include_directories(dlss_compositor_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src

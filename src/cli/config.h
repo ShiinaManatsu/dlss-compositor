@@ -81,6 +81,8 @@ struct AppConfig {
     bool testNgx = false;
     bool testVulkan = false;
 
+    std::string inspectExrPath;  // set by --inspect-exr <file>; non-empty triggers InspectExr mode
+
     NVSDK_NGX_Logging_Level ngxLogLevel = NVSDK_NGX_LOGGING_LEVEL_OFF;
     bool showHelp = false;
     bool showVersion = false;
