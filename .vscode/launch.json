@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch GUI (Dev)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "npm: dev:wait",
+      "cwd": "${workspaceFolder}/gui",
+      "runtimeExecutable": "${workspaceFolder}/gui/node_modules/.bin/electron.cmd",
+      "args": [
+        ".",
+        "--enable-logging"
+      ],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "outputCapture": "std",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Launch GUI (Packaged)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "npm: package",
+      "program": "${workspaceFolder}/gui/dist-electron/dlss-compositor-gui.exe",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug C++ CLI",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "preLaunchTask": "cmake: build release",
+      "program": "${workspaceFolder}/build/Release/dlss-compositor.exe",
+      "args": [
+        "--input-dir",
+        "${workspaceFolder}/tests/fixtures/sequence",
+        "--output-dir",
+        "${workspaceFolder}/tmp/debug-out",
+        "--scale",
+        "2"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
