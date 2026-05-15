@@ -30,11 +30,12 @@ DLSS Compositor reads multi-channel EXR sequences from Blender Cycles, feeds the
 
 ## Quick Start
 1. **Build**: Clone the repository and build using CMake (see [Build Guide](docs/build_guide.md)).
-2. **Configure Blender**: In Blender 4.2+, go to **Edit > Preferences > Extensions**. Click the down arrow in the top right, select **Install from Disk**, and choose the `dlss-compositor-blender-v0.1.0.zip` file (or the `blender/dlss_compositor_aov/` folder for development).
-3. **Render**: Use the **DLSS Compositor** panel in the **Render Properties** to configure passes and render your animation as a MultiLayer EXR sequence.
-4. **Process (GUI)**: Double-click `dlss-compositor-gui.exe` to launch the GUI. Point it to your input directory and click **Start Processing**.
-5. **Process (CLI)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
-6. **Frame Generation**: In the Blender panel, click **Export Camera Data** to generate `camera.json`, then use the GUI or run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
+2. **Install Blender extension**: In Blender 4.2+, go to **Edit > Preferences > Extensions**. Click the down arrow in the top right, select **Install from Disk**, and choose the `dlss-compositor-blender-v<VERSION>.zip` file (or the `blender/dlss_compositor_aov/` folder for development).
+3. **Render**: Open **Render Properties → DLSS Compositor**. Click **Configure All Passes**, set output directory, render the sequence. The exporter writes standard single-layer EXR (`####.exr` for color/depth, `####.mv.exr` for motion vectors). See [Blender Export Guide](docs/blender_export_guide.md).
+4. **Open the GUI**: Double-click `dlss-compositor-gui.exe`. The CLI binary is auto-detected from `build/Release/` in dev or alongside the packaged GUI executable. Select the input directory — the GUI inspects the first EXR's header and fills source resolution automatically.
+5. **Process (GUI)**: Configure target resolution, quality, and output directory, then click **Start**.
+6. **Process (CLI)**: Run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --scale 2`.
+7. **Frame Generation**: In the Blender panel, click **Export Camera Data** to generate `camera.json`, then enable Interpolation in the GUI's FG Settings or run `dlss-compositor.exe --input-dir <path_to_renders> --output-dir <output_path> --interpolate 2x --camera-data camera.json`.
 
 ## CLI Usage
 ```bash
@@ -115,34 +116,20 @@ PQ covers 0 to 10,000 cd/m² — more than enough for any physically-based scene
 
 ## GUI Usage
 
-The Electron-based desktop app provides a streamlined, intelligent interface for DLSS processing.
+The Electron-based desktop application provides a configuration and monitoring interface for the DLSS Compositor CLI.
+
+**CLI auto-detection**: The CLI binary is auto-detected from `build/Release/dlss-compositor.exe` relative to the project root in dev mode, or from `dlss-compositor.exe` placed alongside `dlss-compositor-gui.exe` in a packaged release. There is no executable path picker — if detection fails, the StatusBar shows an explicit error.
+
+**Settings persistence**: All settings persist to `gui/dlss-compositor.json` in the GUI directory (project-relative, not Electron `userData`). A template `gui/dlss-compositor.example.json` is committed with all defaults.
 
 **Quick Start (5 steps):**
-1. **Configure Exe Path**: Point to `dlss-compositor.exe` (first run only — auto-detected if in the same folder)
-2. **Select Input Directory**: Browse to your EXR sequence folder — `camera.json` is auto-detected and source resolution auto-filled
-3. **Select Output Directory**: Choose where to save processed frames
-4. **Choose Target Resolution**: Pick 4K, 1440p, 1080p preset or Custom — scale factor auto-computed from source resolution
-5. **Click Start**: Monitor real-time progress, ETA, and live frame preview (requires FFmpeg)
+1. **Install + render** in Blender via the DLSS Compositor extension (see [Blender Export Guide](docs/blender_export_guide.md)).
+2. **Open the GUI**: Run `dlss-compositor-gui.exe`, or `npm run dev` from `gui/` for development. The StatusBar reports DLSS SDK version, SR availability, and FG availability after the auto-probe completes.
+3. **Select Input Directory**: The GUI runs `dlss-compositor.exe --inspect-exr` against the first `.exr` file alphabetically and reads source resolution from its header. The Resolution Panel switches into aspect-locked mode with single W or H + Scale inputs and orientation-aware presets.
+4. **Configure**: Three sections — **Common Settings** (memory budget, EXR compression, video output), **SR Settings** (Resolution Panel, quality mode, preset, source FPS, sharpness, plus a collapsible Advanced NGX panel), **FG Settings** (interpolation, camera data, tonemap, LUT files).
+5. **Start**: Monitor real-time progress, ETA, and live frame preview. FFmpeg is required for the live preview and for `--encode-video`; missing or failed FFmpeg surfaces a structured error in the preview pane and the rest of the pipeline continues unaffected.
 
-**Phase 4 Features:**
-- **NGX Status Bar**: Shows DLSS SDK version and SR/FG availability at app top
-- **Auto Camera Detection**: Input directory selection auto-finds `camera.json` and reads source resolution
-- **Resolution Presets**: 4K/1440p/1080p/Custom target with automatic scale calculation
-- **Live Frame Preview**: FFmpeg converts output EXR frames to PNG thumbnails in real time
-- **ETA Estimation**: Estimated time remaining after 3+ frames processed
-- **New Controls**: Source FPS, Sharpness (post-DLSS), NGX Log Level, Tonemap=custom mode
-- **NDJSON Progress**: Machine-readable event stream for reliable GUI progress parsing
-
-- **Configuration Panel**: Set your executable path, input/output directories, and DLSS parameters (Upscaling factor, Quality mode, Interpolation, etc.).
-- **Progress Monitoring**: Real-time progress bar, ETA, and frame-by-frame live preview.
-- **Auto-save**: Your settings are automatically persisted between sessions.
-
-Launch by running `dlss-compositor-gui.exe` (found in the release package) or by running `npm run dev` in the `gui/` directory for development.
-
-See [GUI Guide](docs/gui_guide.md) for the full walkthrough.
-
-## Screenshots
-<!-- TODO: Add screenshots -->
+See [GUI Guide](docs/gui_guide.md) for the full walkthrough and [DLSS Advanced](docs/dlss_advanced.md) for per-quality presets and feature flag tuning.
 
 ## License
 MIT License. See `LICENSE` for details.
