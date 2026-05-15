@@ -9,6 +9,7 @@ export default function InputOutputPanel() {
   const [outputTouched, setOutputTouched] = useState(false);
   const [autoDetectedCamera, setAutoDetectedCamera] = useState(false);
   const [exrCount, setExrCount] = useState<number | null>(null);
+  const [sourceDetectionInfo, setSourceDetectionInfo] = useState<string | null>(null);
 
   const handleInputBrowse = async () => {
     try {
@@ -24,7 +25,7 @@ export default function InputOutputPanel() {
           console.error('EXR file count failed:', err);
         }
 
-        // Auto-detect camera.json
+        // Auto-detect camera.json and find first EXR for resolution
         try {
           const result = await window.dlssApi.cameraAutoDetect(dir);
           if (result.cameraJsonPath) {
@@ -33,8 +34,30 @@ export default function InputOutputPanel() {
           } else {
             setAutoDetectedCamera(false);
           }
-          if (result.sourceWidth !== null && result.sourceHeight !== null) {
-            dispatch({ type: 'SET_SOURCE_RESOLUTION', payload: { width: result.sourceWidth, height: result.sourceHeight } });
+
+          if (result.firstExrPath) {
+            try {
+              const headerResult = await window.dlssApi.readExrHeader(result.firstExrPath);
+              if (headerResult.ok && headerResult.data) {
+                const { width, height } = headerResult.data as { width: number; height: number };
+                if (width > 0 && height > 0) {
+                  dispatch({ type: 'SET_SOURCE_RESOLUTION', payload: { width, height } });
+                  setSourceDetectionInfo(`Source: ${width}×${height} from ${result.firstExrPath.split(/[/\\]/).pop() ?? 'EXR'}`);
+                } else {
+                  dispatch({ type: 'CLEAR_SOURCE_RESOLUTION' });
+                  setSourceDetectionInfo('Could not detect source resolution from EXR header.');
+                }
+              } else {
+                dispatch({ type: 'CLEAR_SOURCE_RESOLUTION' });
+                setSourceDetectionInfo('Could not detect source resolution from EXR header.');
+              }
+            } catch {
+              dispatch({ type: 'CLEAR_SOURCE_RESOLUTION' });
+              setSourceDetectionInfo('Could not detect source resolution from EXR header.');
+            }
+          } else {
+            dispatch({ type: 'CLEAR_SOURCE_RESOLUTION' });
+            setSourceDetectionInfo('No EXR files found in directory. Resolution detection unavailable.');
           }
         } catch (err) {
           console.error('Camera auto-detect failed:', err);
@@ -97,6 +120,14 @@ export default function InputOutputPanel() {
         {autoDetectedCamera && state.cameraDataFile && (
           <span data-testid="camera-auto-detected-hint" className="text-green-500 text-xs mt-1 block">
             ✓ Auto-detected camera.json from input directory
+          </span>
+        )}
+        {sourceDetectionInfo && (
+          <span
+            data-testid="source-resolution-hint"
+            className={`text-xs mt-1 block ${sourceDetectionInfo.startsWith('Source:') ? 'text-green-400' : 'text-yellow-400'}`}
+          >
+            {sourceDetectionInfo}
           </span>
         )}
       </div>

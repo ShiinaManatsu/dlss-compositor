@@ -30,6 +30,7 @@ type ConfigAction =
   | { type: 'SET_SHARPNESS'; payload: number }
   | { type: 'SET_NGX_LOG_LEVEL'; payload: DlssConfig['ngxLogLevel'] }
   | { type: 'SET_SOURCE_RESOLUTION'; payload: { width: number | null; height: number | null } }
+  | { type: 'CLEAR_SOURCE_RESOLUTION' }
   | { type: 'SET_TARGET_PRESET'; payload: '4K' | '1440p' | '1080p' | 'Custom' | 'DLAA' }
   | { type: 'SET_CUSTOM_TARGET_RESOLUTION'; payload: { width: number | null; height: number | null } };
 
@@ -127,6 +128,10 @@ function configReducer(state: ConfigState, action: ConfigAction): ConfigState {
       const { width, height } = action.payload;
       const newScale = computeScale(width, state.targetPreset, state.customTargetWidth);
       return { ...state, sourceWidth: width, sourceHeight: height, scaleFactor: newScale };
+    }
+    case 'CLEAR_SOURCE_RESOLUTION': {
+      const newScale = computeScale(null, state.targetPreset, state.customTargetWidth);
+      return { ...state, sourceWidth: null, sourceHeight: null, scaleFactor: newScale };
     }
     case 'SET_TARGET_PRESET': {
       const newPreset = action.payload;

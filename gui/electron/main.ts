@@ -6,7 +6,7 @@ import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
 import { getSettings, saveSettings, loadSettings, resetSettings, type PersistedSettings } from './settings-store'
-import { findCameraJson, readSourceResolution } from './camera-detector'
+import { findCameraJson } from './camera-detector'
 import { exrToPng, cleanupPreviewCache } from './preview-generator'
 import { getResolvedExePath, locateCliExecutable } from './exe-locator'
 import type { DlssConfig } from '../src/types/dlss-config'
@@ -268,11 +268,25 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.CAMERA_AUTO_DETECT, async (_event, inputDir: string) => {
     const cameraJsonPath = findCameraJson(inputDir);
-    const resolution = cameraJsonPath ? readSourceResolution(cameraJsonPath) : null;
+    let firstExrPath: string | null = null;
+
+    try {
+      if (inputDir && fs.existsSync(inputDir)) {
+        const files = fs.readdirSync(inputDir)
+          .filter(f => f.toLowerCase().endsWith('.exr'))
+          .sort();
+
+        if (files.length > 0) {
+          firstExrPath = path.join(inputDir, files[0]);
+        }
+      }
+    } catch {
+      firstExrPath = null;
+    }
+
     return {
       cameraJsonPath,
-      sourceWidth: resolution?.width ?? null,
-      sourceHeight: resolution?.height ?? null,
+      firstExrPath,
     };
   })
 
