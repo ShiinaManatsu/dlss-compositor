@@ -6,17 +6,19 @@ pipeline. Run headless with:
     blender --background --factory-startup --python aov_export_preset.py -- --test
 """
 
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportArgumentType=false, reportIncompatibleMethodOverride=false
+
+import bpy  # noqa: E402
+
 bl_info = {
-    "name": "DLSS Compositor — AOV Export Preset",
+    "name": "DLSS Compositor - AOV Export Preset",
     "author": "DLSS Compositor",
-    "version": (1, 0, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "Render Properties > DLSS Compositor",
     "description": "Configure render passes and AOVs for DLSS Compositor workflow",
     "category": "Render",
 }
-
-import bpy  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +55,35 @@ _original_shift_x = 0.0
 _original_shift_y = 0.0
 _jitter_enabled = False
 
+# Global state for render-scale handlers (snapshot of resolution before scaling)
+_original_resolution_x = 0
+_original_resolution_y = 0
 
+
+@bpy.app.handlers.persistent
+def apply_render_scale(scene):
+    """Render init handler: scale render resolution by dlss_compositor_render_scale."""
+    global _original_resolution_x, _original_resolution_y
+    scale = getattr(scene, 'dlss_compositor_render_scale', 1.0)
+    if abs(scale - 1.0) > 0.001:
+        _original_resolution_x = scene.render.resolution_x
+        _original_resolution_y = scene.render.resolution_y
+        scene.render.resolution_x = int(round(_original_resolution_x * scale))
+        scene.render.resolution_y = int(round(_original_resolution_y * scale))
+
+
+@bpy.app.handlers.persistent
+def restore_render_scale(scene):
+    """Render complete/cancel handler: restore original render resolution."""
+    global _original_resolution_x, _original_resolution_y
+    if _original_resolution_x > 0:
+        scene.render.resolution_x = _original_resolution_x
+        scene.render.resolution_y = _original_resolution_y
+        _original_resolution_x = 0
+        _original_resolution_y = 0
+
+
+@bpy.app.handlers.persistent
 def save_original_shift(scene):
     """Render init handler: save original camera shift values."""
     global _original_shift_x, _original_shift_y, _jitter_enabled, _runtime_jitter
@@ -65,6 +95,7 @@ def save_original_shift(scene):
         _jitter_enabled = True
 
 
+@bpy.app.handlers.persistent
 def apply_jitter(scene):
     """Frame change handler: apply Halton jitter via camera shift."""
     global _jitter_enabled, _original_shift_x, _original_shift_y
@@ -92,6 +123,7 @@ def apply_jitter(scene):
     camera.data.shift_y = _original_shift_y + jitter_y / render.resolution_y
 
 
+@bpy.app.handlers.persistent
 def restore_shift(scene):
     """Render complete/cancel handler: restore original camera shift."""
     global _original_shift_x, _original_shift_y, _jitter_enabled
@@ -156,7 +188,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
         frame_end = scene.frame_end
 
         if frame_end < frame_start:
-            self.report({"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
+            self.report(
+                {"ERROR"}, f"Empty frame range ({frame_start}–{frame_end}).")
             return {"CANCELLED"}
 
         scale = getattr(scene, 'dlsscomp_output_scale', 2.0)
@@ -203,7 +236,8 @@ class DLSSCOMP_OT_export_camera(bpy.types.Operator):
                 "jitter_y": jitter_y,
             }
 
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        os.makedirs(os.path.dirname(
+            os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2)
 
@@ -227,20 +261,16 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         vl.use_pass_z = True
         vl.use_pass_vector = True
 
-        # 2 — Compositor: multilayer EXR file output ---------------------------
+        # 2 — Compositor: dual standard-EXR file outputs -----------------------
         scene = context.scene
-        if bpy.app.version >= (5, 0, 0):
-            # Blender 5.x: compositor uses compositing_node_group
-            tree = scene.compositing_node_group
-            if tree is None:
-                tree = bpy.data.node_groups.new("Compositing", "CompositorNodeTree")
-                scene.compositing_node_group = tree
-        else:
-            # Blender 4.x: compositor uses scene.node_tree
-            scene.use_nodes = True
-            tree = scene.node_tree
+        tree = scene.compositing_node_group
         if tree is None:
-            self.report({"ERROR"}, "Could not initialise compositor node tree.")
+            tree = bpy.data.node_groups.new(
+                "Compositing", "CompositorNodeTree")
+            scene.compositing_node_group = tree
+        if tree is None:
+            self.report(
+                {"ERROR"}, "Could not initialise compositor node tree.")
             return {"CANCELLED"}
 
         # Find or create Render Layers node
@@ -252,69 +282,147 @@ class DLSSCOMP_OT_configure_passes(bpy.types.Operator):
         if render_layer_node is None:
             render_layer_node = tree.nodes.new("CompositorNodeRLayers")
 
-        # Find or create File Output node
-        file_output = None
+        # Compression codec from Scene property (default ZIP)
+        compression_codec = getattr(
+            scene, 'dlss_compositor_compression', 'ZIP')
+
+        base_dir = scene.dlsscomp_output_dir or ""
+
+        # --- Node 1: Main EXR (Combined RGBA + Depth Z) -------------------
+        # Two slots in OPEN_EXR (non-multilayer) → two sibling files per frame:
+        #   <base>/####.exr        (Combined RGBA from Image slot)
+        #   <base>/####.depth.exr  (single-channel Z from Depth slot)
+        main_out = None
         for node in tree.nodes:
-            if node.type == "OUTPUT_FILE":
-                file_output = node
+            if node.type == "OUTPUT_FILE" and node.label == 'DLSS_Main':
+                main_out = node
                 break
-        if file_output is None:
-            file_output = tree.nodes.new("CompositorNodeOutputFile")
+        if main_out is None:
+            main_out = tree.nodes.new("CompositorNodeOutputFile")
+            main_out.label = 'DLSS_Main'
+            main_out.name = 'DLSS_Main'
 
-        file_output.format.file_format = "OPEN_EXR_MULTILAYER"
-        file_output.format.color_depth = "32"
-        file_output.format.exr_codec = "ZIP"
+        main_out.format.file_format = "OPEN_EXR"
+        main_out.format.color_depth = "32"
+        main_out.format.exr_codec = compression_codec
+        if base_dir:
+            main_out.base_path = base_dir
 
-        if scene.dlsscomp_output_dir:
-            if bpy.app.version >= (5, 0, 0):
-                file_output.directory = scene.dlsscomp_output_dir
-            else:
-                file_output.base_path = scene.dlsscomp_output_dir
+        # Configure slots: Image (Combined RGBA) + Depth (Z)
+        # In OPEN_EXR mode each slot writes its own file using slot.path as prefix.
+        main_slots = main_out.file_slots
+        existing_main_paths = {s.path for s in main_slots}
+        if 'Image' not in {s.name for s in main_slots} and \
+                "####" not in existing_main_paths:
+            main_slots.new('Image')
+        if 'Depth' not in {s.name for s in main_slots} and \
+                "####.depth" not in existing_main_paths:
+            main_slots.new('Depth')
 
-        # Connect render layer passes to file output inputs
-        # Blender 5.x renamed some render pass outputs
-        if bpy.app.version >= (5, 0, 0):
-            # Blender 5.x: VALUE→FLOAT
-            pass_names = [
-                ("Image", "RGBA"),  # Combined
-                ("Depth", "FLOAT"),  # Z
-                ("Vector", "VECTOR"),
-            ]
-        else:
-            pass_names = [
-                ("Image", "RGBA"),
-                ("Depth", "VALUE"),
-                ("Vector", "VECTOR"),
-            ]
+        # Set slot filename patterns for sibling layout
+        for slot in main_slots:
+            if slot.name == 'Image' or slot.path == 'Image':
+                slot.path = "####"
+            elif slot.name == 'Depth' or slot.path == 'Depth':
+                slot.path = "####.depth"
 
-        # Get existing slots collection (API changed in Blender 5.x)
-        if bpy.app.version >= (5, 0, 0):
-            slots_collection = file_output.file_output_items
-        else:
-            slots_collection = file_output.file_slots
-        existing_slots = {s.name for s in slots_collection}
+        # Connect Render Layers → main_out
+        if 'Image' in render_layer_node.outputs:
+            for inp in main_out.inputs:
+                if inp.name == 'Image' and not inp.is_linked:
+                    tree.links.new(render_layer_node.outputs['Image'], inp)
+                    break
+        if 'Depth' in render_layer_node.outputs:
+            for inp in main_out.inputs:
+                if inp.name == 'Depth' and not inp.is_linked:
+                    tree.links.new(render_layer_node.outputs['Depth'], inp)
+                    break
 
-        for pname, sock_type in pass_names:
-            # Ensure a matching file slot exists
-            if pname not in existing_slots:
-                if bpy.app.version >= (5, 0, 0):
-                    slots_collection.new(sock_type, pname)
-                else:
-                    slots_collection.new(pname)
+        # --- Node 2: MV EXR (Vector X→R, Y→G, sibling .mv.exr) ------------
+        # Vector pass is split via Separate XYZ then re-packed via Combine
+        # Color into a single RGBA image so we get a single sibling file:
+        #   <base>/####.mv.exr  (R = MV X, G = MV Y, B = 0, A = 1)
+        mv_out = None
+        for node in tree.nodes:
+            if node.type == "OUTPUT_FILE" and node.label == 'DLSS_MV':
+                mv_out = node
+                break
+        if mv_out is None:
+            mv_out = tree.nodes.new("CompositorNodeOutputFile")
+            mv_out.label = 'DLSS_MV'
+            mv_out.name = 'DLSS_MV'
 
-            # Try to connect
-            if pname in render_layer_node.outputs:
-                rl_out = render_layer_node.outputs[pname]
-                fo_in = None
-                for inp in file_output.inputs:
-                    if inp.name == pname:
-                        fo_in = inp
-                        break
-                if fo_in is not None and not fo_in.is_linked:
-                    tree.links.new(rl_out, fo_in)
+        mv_out.format.file_format = "OPEN_EXR"
+        mv_out.format.color_depth = "32"
+        # Motion vectors are precision-critical: always lossless ZIP
+        mv_out.format.exr_codec = "ZIP"
+        if base_dir:
+            mv_out.base_path = base_dir
+
+        # Find or create the Separate XYZ node that splits the Vector pass
+        separate_xyz = None
+        for node in tree.nodes:
+            if node.type == "SEPARATE_XYZ" and node.label == 'DLSS_VectorSplit':
+                separate_xyz = node
+                break
+        if separate_xyz is None:
+            separate_xyz = tree.nodes.new("CompositorNodeSeparateXYZ")
+            separate_xyz.label = 'DLSS_VectorSplit'
+            separate_xyz.name = 'DLSS_VectorSplit'
+
+        if 'Vector' in render_layer_node.outputs:
+            sep_in = separate_xyz.inputs[0]
+            if not sep_in.is_linked:
+                tree.links.new(render_layer_node.outputs['Vector'], sep_in)
+
+        # Find or create a Combine Color node to pack X→R, Y→G into RGBA
+        combine_color = None
+        for node in tree.nodes:
+            if node.type == "COMBINE_COLOR" and node.label == 'DLSS_VectorPack':
+                combine_color = node
+                break
+        if combine_color is None:
+            combine_color = tree.nodes.new("CompositorNodeCombineColor")
+            combine_color.label = 'DLSS_VectorPack'
+            combine_color.name = 'DLSS_VectorPack'
+            # Default mode is RGB; set explicitly for safety across versions
+            try:
+                combine_color.mode = 'RGB'
+            except (AttributeError, TypeError):
+                pass
+
+        # Combine Color inputs: Red (0), Green (1), Blue (2), Alpha (3)
+        if len(combine_color.inputs) >= 3:
+            red_in = combine_color.inputs[0]
+            green_in = combine_color.inputs[1]
+            blue_in = combine_color.inputs[2]
+            if not red_in.is_linked and 'X' in separate_xyz.outputs:
+                tree.links.new(separate_xyz.outputs['X'], red_in)
+            if not green_in.is_linked and 'Y' in separate_xyz.outputs:
+                tree.links.new(separate_xyz.outputs['Y'], green_in)
+            # Force B = 0 (no z-component); leave alpha to default (1.0)
+            try:
+                blue_in.default_value = 0.0
+            except (AttributeError, TypeError):
+                pass
+
+        # MV file output: single Image slot, named "####.mv" → ####.mv.exr
+        mv_slots = mv_out.file_slots
+        # Remove any leftover slots from previous runs (R/G/etc.) that aren't ours
+        # Keep an existing Image-ish slot if present
+        if len(mv_slots) == 0:
+            mv_slots.new('Image')
+        # Set first slot's path to produce the sibling filename
+        mv_slots[0].path = "####.mv"
+
+        # Connect Combine Color → MV Image slot
+        if len(mv_out.inputs) > 0:
+            mv_in = mv_out.inputs[0]
+            if not mv_in.is_linked and 'Image' in combine_color.outputs:
+                tree.links.new(combine_color.outputs['Image'], mv_in)
 
         # 5 — Report -----------------------------------------------------------
-        configured = "Combined, Z, Vector"
+        configured = "Combined, Z, Vector (dual EXR sibling files)"
         self.report(
             {"INFO"},
             f"Passes configured: {configured}",
@@ -364,15 +472,22 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
         layout = self.layout
         vl = context.view_layer
 
-        layout.prop(context.scene, "dlsscomp_output_dir", text="Output Directory")
+        layout.prop(context.scene, "dlsscomp_output_dir",
+                    text="Output Directory")
 
         layout.prop(context.scene, "dlsscomp_output_scale", text="Output Scale")
+
+        layout.prop(context.scene, "dlss_compositor_compression",
+                    text="EXR Compression")
+        layout.prop(context.scene, "dlss_compositor_render_scale",
+                    text="Render Scale", slider=True)
 
         layout.operator(
             DLSSCOMP_OT_configure_passes.bl_idname,
             text="Configure All Passes",
             icon="RENDERLAYERS",
         )
+        layout.label(text="Standard EXR (opens in RenderDoc)", icon="INFO")
 
         layout.operator(
             DLSSCOMP_OT_cleanup_legacy_aov_nodes.bl_idname,
@@ -390,7 +505,8 @@ class DLSSCOMP_PT_export_panel(bpy.types.Panel):
             import os
 
             path = os.path.join(
-                bpy.path.abspath(context.scene.dlsscomp_output_dir), "camera.json"
+                bpy.path.abspath(
+                    context.scene.dlsscomp_output_dir), "camera.json"
             )
             layout.label(text=f"→ {path}", icon="FILE_TICK")
 
@@ -428,6 +544,30 @@ def register():
         min=1.0,
         max=4.0,
     )
+    bpy.types.Scene.dlss_compositor_compression = bpy.props.EnumProperty(
+        name="EXR Compression",
+        description="Compression codec for exported EXR files",
+        items=[
+            ('NONE', 'None', 'No compression'),
+            ('ZIP', 'ZIP (lossless)', 'ZIP lossless compression'),
+            ('ZIPS', 'ZIPS (lossless)', 'ZIPS scanline lossless compression'),
+            ('PIZ', 'PIZ (lossless)', 'PIZ wavelet lossless compression'),
+            ('DWAA', 'DWAA (lossy)', 'DWAA lossy compression'),
+            ('DWAB', 'DWAB (lossy)', 'DWAB lossy compression'),
+        ],
+        default='ZIP',
+    )
+    bpy.types.Scene.dlss_compositor_render_scale = bpy.props.FloatProperty(
+        name="Render Scale",
+        description="Render at this fraction of the configured resolution "
+                    "(DLSS upscale input scale)",
+        default=1.0,
+        min=0.1,
+        max=2.0,
+        step=5,
+        precision=2,
+        subtype='FACTOR',
+    )
     bpy.utils.register_class(DLSSCOMP_OT_export_camera)
     bpy.utils.register_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.register_class(DLSSCOMP_OT_cleanup_legacy_aov_nodes)
@@ -439,8 +579,21 @@ def register():
     bpy.app.handlers.render_complete.append(restore_shift)
     bpy.app.handlers.render_cancel.append(restore_shift)
 
+    # Register render-scale handlers
+    bpy.app.handlers.render_init.append(apply_render_scale)
+    bpy.app.handlers.render_complete.append(restore_render_scale)
+    bpy.app.handlers.render_cancel.append(restore_render_scale)
+
 
 def unregister():
+    # Unregister render-scale handlers
+    if apply_render_scale in bpy.app.handlers.render_init:
+        bpy.app.handlers.render_init.remove(apply_render_scale)
+    if restore_render_scale in bpy.app.handlers.render_complete:
+        bpy.app.handlers.render_complete.remove(restore_render_scale)
+    if restore_render_scale in bpy.app.handlers.render_cancel:
+        bpy.app.handlers.render_cancel.remove(restore_render_scale)
+
     # Unregister jitter handlers
     if save_original_shift in bpy.app.handlers.render_init:
         bpy.app.handlers.render_init.remove(save_original_shift)
@@ -455,6 +608,8 @@ def unregister():
     bpy.utils.unregister_class(DLSSCOMP_OT_cleanup_legacy_aov_nodes)
     bpy.utils.unregister_class(DLSSCOMP_OT_configure_passes)
     bpy.utils.unregister_class(DLSSCOMP_OT_export_camera)
+    del bpy.types.Scene.dlss_compositor_render_scale
+    del bpy.types.Scene.dlss_compositor_compression
     del bpy.types.Scene.dlsscomp_output_dir
     del bpy.types.Scene.dlsscomp_output_scale
 
@@ -469,7 +624,7 @@ if __name__ == "__main__":
     try:
         args = []
         if "--" in sys.argv:
-            args = sys.argv[sys.argv.index("--") + 1 :]
+            args = sys.argv[sys.argv.index("--") + 1:]
 
         register()
 
