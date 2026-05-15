@@ -5,8 +5,8 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('dialog:openDirectory'),
   selectFile: (filters: Electron.FileFilter[]): Promise<string> =>
     ipcRenderer.invoke('dialog:openFile', filters),
-  startProcessing: (config: unknown, exePath?: string): void =>
-    ipcRenderer.send('process:start', { config, exePath: exePath ?? '' }),
+  startProcessing: (config: unknown): void =>
+    ipcRenderer.send('process:start', { config }),
   stopProcessing: (): void =>
     ipcRenderer.send('process:stop'),
   onProgress: (callback: (data: { current: number; total: number }) => void): (() => void) => {
@@ -46,8 +46,8 @@ contextBridge.exposeInMainWorld('dlssApi', {
     ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown): Promise<void> =>
     ipcRenderer.invoke('settings:save', settings),
-  validateExePath: (exePath: string): Promise<boolean> =>
-    ipcRenderer.invoke('settings:validate-exe-path', exePath),
+  getResolvedExePath: (): Promise<string | null> =>
+    ipcRenderer.invoke('exe:get-resolved-path'),
   getLatestFrame: (outputDir: string): Promise<string> =>
     ipcRenderer.invoke('frame:latest', outputDir),
   getFramePreview: (exrPath: string): Promise<string | null> =>

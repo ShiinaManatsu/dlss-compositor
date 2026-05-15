@@ -5,7 +5,7 @@ type DlssApiUnlisten = () => void
 interface DlssApi {
   selectDirectory(): Promise<string>
   selectFile(filters: { name: string; extensions: string[] }[]): Promise<string>
-  startProcessing(config: DlssConfig, exePath?: string): void
+  startProcessing(config: DlssConfig): void
   stopProcessing(): void
   onProgress(callback: (data: { current: number; total: number }) => void): DlssApiUnlisten
   onError(callback: (message: string) => void): DlssApiUnlisten
@@ -17,7 +17,7 @@ interface DlssApi {
   ): DlssApiUnlisten
   getSettings(): Promise<unknown>
   saveSettings(settings: unknown): Promise<void>
-  validateExePath(path: string): Promise<boolean>
+  getResolvedExePath(): Promise<string | null>
   getLatestFrame(outputDir: string): Promise<string>
   getFramePreview(exrPath: string): Promise<string | null>
   cameraAutoDetect(inputDir: string): Promise<{ cameraJsonPath: string | null; sourceWidth: number | null; sourceHeight: number | null }>

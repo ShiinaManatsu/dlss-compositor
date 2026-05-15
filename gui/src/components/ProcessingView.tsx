@@ -12,7 +12,7 @@ function formatElapsed(seconds: number): string {
 export default function ProcessingView() {
   const { state } = useConfig();
   const { status, progress, currentFrame, totalFrames, etaSeconds, errors, latestFramePath, start, stop } = useProcessing();
-  const [exePath, setExePath] = useState('');
+  const [exeAvailable, setExeAvailable] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [completionMsg, setCompletionMsg] = useState('');
@@ -21,10 +21,14 @@ export default function ProcessingView() {
   const startTimeRef = useRef(0);
 
   useEffect(() => {
-    window.dlssApi.getSettings().then((raw: unknown) => {
-      const s = raw as { exePath?: string };
-      if (s?.exePath) setExePath(s.exePath);
+    let cancelled = false;
+    window.dlssApi.getResolvedExePath().then((resolved) => {
+      if (cancelled) return;
+      setExeAvailable(!!resolved);
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function ProcessingView() {
   const isCustomTonemapMissingLut = state.tonemapMode === 'custom' && !state.forwardLutFile;
 
   const canStart =
-    !!exePath &&
+    exeAvailable &&
     !!state.inputDir &&
     !!state.outputDir &&
     status !== 'running' &&
@@ -82,8 +86,8 @@ export default function ProcessingView() {
 
   const handleStart = useCallback(() => {
     setCompletionMsg('');
-    start(state, exePath);
-  }, [start, state, exePath]);
+    start(state);
+  }, [start, state]);
 
   const handleStopClick = () => {
     setShowConfirm(true);

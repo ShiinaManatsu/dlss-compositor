@@ -1,9 +1,7 @@
 import Store from 'electron-store'
 import type { Settings } from '../src/types/dlss-config'
-import fs from 'node:fs'
 
 interface StoreSchema {
-  exePath: string
   lastInputDir: string
   lastOutputDir: string
   windowBounds: { x: number; y: number; width: number; height: number } | undefined
@@ -23,7 +21,6 @@ interface StoreSchema {
 const store = new Store<StoreSchema>({
   name: 'dlss-compositor-settings',
   defaults: {
-    exePath: '',
     lastInputDir: '',
     lastOutputDir: '',
     windowBounds: undefined,
@@ -43,7 +40,6 @@ const store = new Store<StoreSchema>({
 
 export function getSettings(): Settings {
   return {
-    exePath: store.get('exePath'),
     lastInputDir: store.get('lastInputDir'),
     lastOutputDir: store.get('lastOutputDir'),
     windowBounds: store.get('windowBounds'),
@@ -64,7 +60,6 @@ export function getSettings(): Settings {
 }
 
 export function saveSettings(settings: Partial<Settings>): void {
-  if (settings.exePath !== undefined) store.set('exePath', settings.exePath)
   if (settings.lastInputDir !== undefined) store.set('lastInputDir', settings.lastInputDir)
   if (settings.lastOutputDir !== undefined) store.set('lastOutputDir', settings.lastOutputDir)
   if (settings.windowBounds !== undefined) store.set('windowBounds', settings.windowBounds)
@@ -82,20 +77,4 @@ export function saveSettings(settings: Partial<Settings>): void {
     if (c.sharpness !== undefined) store.set('sharpness', c.sharpness)
     if (c.ngxLogLevel !== undefined) store.set('ngxLogLevel', c.ngxLogLevel)
   }
-}
-
-export function getExePath(): string {
-  return store.get('exePath')
-}
-
-export function setExePath(exePath: string): void {
-  if (exePath && !exePath.toLowerCase().endsWith('.exe')) {
-    throw new Error('Exe path must end with .exe')
-  }
-  store.set('exePath', exePath)
-}
-
-export function validateExePath(exePath: string): boolean {
-  if (!exePath) return false
-  return fs.existsSync(exePath)
 }

@@ -5,21 +5,22 @@ import { spawn } from 'node:child_process'
 import { IPC_CHANNELS } from './ipc-channels'
 import { parseNdjsonLine, ProgressLineBuffer } from './progress-parser'
 import { activeProcess, buildCliArgs, killProcess, startProcess } from './process-manager'
-import { getExePath, getSettings, saveSettings, setExePath, validateExePath } from './settings-store'
+import { getSettings, saveSettings } from './settings-store'
 import { findCameraJson, readSourceResolution } from './camera-detector'
 import { exrToPng, cleanupPreviewCache } from './preview-generator'
+import { getResolvedExePath, locateCliExecutable } from './exe-locator'
 import type { DlssConfig, Settings } from '../src/types/dlss-config'
 
 type ProcessStartPayload = {
-  exePath: string;
   config: DlssConfig;
 }
 
 let mainWindow: BrowserWindow | null = null
+let cliLocatorError: string | null = null
 
 function probeNgxBanner(exePath: string, win: BrowserWindow): void {
   if (!exePath || !fs.existsSync(exePath)) return;
-  
+
   const proc = spawn(exePath, ['--test-ngx', '--progress-format', 'json'], { stdio: 'pipe' });
   const lineBuffer = new ProgressLineBuffer();
   lineBuffer.onLine = (line: string) => {
@@ -71,9 +72,16 @@ function createWindow(): void {
   }
 
   win.webContents.once('did-finish-load', () => {
-    const exePath = getExePath()
-    if (exePath && fs.existsSync(exePath)) {
+    if (cliLocatorError) {
+      win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, `CLI not found: ${cliLocatorError}`)
+      return
+    }
+    try {
+      const exePath = locateCliExecutable()
       probeNgxBanner(exePath, win)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, `CLI not found: ${message}`)
     }
   })
 }
@@ -105,11 +113,18 @@ function registerIpcHandlers(): void {
       killProcess(activeProcess)
     }
 
-    const exePath = payload?.exePath ?? ''
-    const config = payload?.config
+    let exePath: string
+    try {
+      exePath = locateCliExecutable()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, `CLI not found: ${message}`)
+      return
+    }
 
-    if (!exePath || !config) {
-      win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, 'Missing executable path or config payload')
+    const config = payload?.config
+    if (!config) {
+      win.webContents.send(IPC_CHANNELS.PROCESS_ERROR, 'Missing config payload')
       return
     }
 
@@ -192,8 +207,8 @@ function registerIpcHandlers(): void {
     saveSettings(settings)
   })
 
-  ipcMain.handle(IPC_CHANNELS.VALIDATE_EXE_PATH, (_event, exePath: string) => {
-    return validateExePath(exePath)
+  ipcMain.handle(IPC_CHANNELS.EXE_GET_RESOLVED_PATH, () => {
+    return getResolvedExePath()
   })
 
   ipcMain.handle(IPC_CHANNELS.CAMERA_AUTO_DETECT, async (_event, inputDir: string) => {
@@ -241,10 +256,10 @@ function registerIpcHandlers(): void {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
 
-  const autoExePath = path.join(path.dirname(app.getPath('exe')), 'dlss-compositor.exe')
-  const currentExePath = getExePath()
-  if (!currentExePath && fs.existsSync(autoExePath) && validateExePath(autoExePath)) {
-    setExePath(autoExePath)
+  try {
+    locateCliExecutable() // caches the result inside exe-locator
+  } catch (err) {
+    cliLocatorError = err instanceof Error ? err.message : String(err)
   }
 
   registerIpcHandlers()

@@ -61,7 +61,6 @@ export const DEFAULT_CONFIG: DlssConfig = {
 }
 
 export interface Settings {
-  exePath: string;
   lastInputDir: string;
   lastOutputDir: string;
   config: Partial<DlssConfig>;

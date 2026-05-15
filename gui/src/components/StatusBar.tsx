@@ -1,17 +1,31 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useBanner } from '../state/banner-store';
 
-export default function StatusBar({ exePath }: { exePath?: string }) {
+export default function StatusBar() {
   const { banner } = useBanner();
-  
-  if (!exePath) {
+  const [exePath, setExePath] = useState<string | null>(null);
+  const [exeChecked, setExeChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.dlssApi.getResolvedExePath().then((resolved) => {
+      if (cancelled) return;
+      setExePath(resolved);
+      setExeChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (exeChecked && !exePath) {
     return (
-      <div data-testid="status-bar" className="bg-gray-900 border-b border-gray-700 px-4 py-1.5 flex items-center space-x-4 text-xs text-gray-400">
-        <span>Configure exe path to detect DLSS availability</span>
+      <div data-testid="status-bar" className="bg-gray-900 border-b border-gray-700 px-4 py-1.5 flex items-center space-x-4 text-xs text-red-400">
+        <span>dlss-compositor.exe not found — build the CLI or place it next to the GUI</span>
       </div>
     );
   }
-  
+
   if (!banner) {
     return (
       <div data-testid="status-bar" className="bg-gray-900 border-b border-gray-700 px-4 py-1.5 flex items-center space-x-4 text-xs text-gray-400">
@@ -19,7 +33,7 @@ export default function StatusBar({ exePath }: { exePath?: string }) {
       </div>
     );
   }
-  
+
   return (
     <div data-testid="status-bar" className="bg-gray-900 border-b border-gray-700 px-4 py-1.5 flex items-center space-x-4 text-xs">
       <span className="text-gray-400">DLSS SDK {banner.sdk}</span>

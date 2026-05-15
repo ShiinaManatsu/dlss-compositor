@@ -21,7 +21,7 @@ export interface ProcessingState {
   etaSeconds: number | null
   errors: string[]
   latestFramePath: string | null
-  start: (config: DlssConfig, exePath?: string) => void
+  start: (config: DlssConfig) => void
   stop: () => void
 }
 
@@ -85,7 +85,7 @@ export function useProcessing(): ProcessingState {
 
   const progress = totalFrames > 0 ? Math.round((currentFrame / totalFrames) * 100) : 0
 
-  const start = useCallback((config: DlssConfig, exePath?: string) => {
+  const start = useCallback((config: DlssConfig) => {
     setStatus('running')
     setCurrentFrame(0)
     setTotalFrames(0)
@@ -93,7 +93,7 @@ export function useProcessing(): ProcessingState {
     setStartTime(Date.now())
     setErrors([])
     setLatestFramePath(null)
-    window.dlssApi.startProcessing(config, exePath)
+    window.dlssApi.startProcessing(config)
   }, [])
 
   const stop = useCallback(() => {
