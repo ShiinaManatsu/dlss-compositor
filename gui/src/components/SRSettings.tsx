@@ -91,9 +91,10 @@ export default function SRSettings() {
               onChange={(e) => dispatch({ type: 'SET_PRESET', payload: e.target.value as DlssConfig['preset'] })}
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
             >
+              <option value="auto">Auto (NVIDIA recommended)</option>
               <option value="J">Preset J</option>
               <option value="K">Preset K</option>
-              <option value="L">Preset L (Default)</option>
+              <option value="L">Preset L</option>
               <option value="M">Preset M</option>
             </select>
           </div>
