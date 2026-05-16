@@ -60,6 +60,10 @@ gui/dlss-compositor.json
 # Release packages
 dist/
 
+# Scratch / temp test output directories
+tmp/
+gui/tmp/
+
 # Runtime logs / temp
 generation.log
 nvngx*.log
