@@ -11,8 +11,8 @@ export function locateCliExecutable(): string {
   const isDev = !app.isPackaged
 
   if (isDev) {
-    // Dev mode: look for build output relative to electron src dir
-    const devPath = path.resolve(__dirname, '../../../build/Release/dlss-compositor.exe')
+    // Dev mode: main.js lives in dist-electron/, two levels up = project root
+    const devPath = path.resolve(__dirname, '../../build/Release/dlss-compositor.exe')
     if (fs.existsSync(devPath)) {
       _resolvedPath = devPath
       return _resolvedPath
@@ -27,7 +27,7 @@ export function locateCliExecutable(): string {
   }
 
   // Last resort: dev path even in packaged mode
-  const fallback = path.resolve(__dirname, '../../../build/Release/dlss-compositor.exe')
+  const fallback = path.resolve(__dirname, '../../build/Release/dlss-compositor.exe')
   if (fs.existsSync(fallback)) {
     _resolvedPath = fallback
     return _resolvedPath

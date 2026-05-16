@@ -211,11 +211,9 @@ Write-Host "  OK  App code (dist-electron, dist, node_modules)"
 if (-not $SkipCmakeBuild) {
     Copy-Item (Join-Path $CliRelease 'dlss-compositor.exe') (Join-Path $AppDir 'dlss-compositor.exe')
 
-    foreach ($dll in @('nvngx_dlss.dll', 'nvngx_dlssg.dll')) {
-        $src = Join-Path $CliRelease $dll
-        if (Test-Path $src) {
-            Copy-Item $src (Join-Path $AppDir $dll)
-        }
+    # Copy all runtime DLLs from the Release build (DLSS DLLs + OpenEXR DLLs)
+    Get-ChildItem (Join-Path $CliRelease '*.dll') | ForEach-Object {
+        Copy-Item $_.FullName (Join-Path $AppDir $_.Name)
     }
 
     $lutsDir = Join-Path $CliRelease 'luts'
