@@ -24,18 +24,14 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 
 - 插件面板提供**最终输出分辨率**输入（Width × Height）
 - 横向 toggle 单选 **Quality Mode**：Ultra Performance → Performance → Balanced → Quality → DLAA（按 DLSS 预设顺序排列）
-- Quality Mode 选择后，自动计算 Blender 渲染分辨率：`render_res = output_res / scale`，其中 scale 由 DLSS 预设决定
-
-| Quality Mode      | 缩放比 (scale) | 解析: Target/Render |
-| ----------------- | -------------- | ------------------- |
-| DLAA              | 1.0x           | 1.0                 |
-| Quality           | 1.5x           | 1.5                 |
-| Balanced          | ~1.724x        | ~1.724              |
-| Performance       | 2.0x           | 2.0                 |
-| Ultra Performance | 3.0x           | 3.0                 |
-
-- Jitter phases 按 `8 × scale²` 自动计算
-- 渲染分辨率写入 `scene.render.resolution_x/y` 和 `scene.render.resolution_percentage`
+- 分辨率透传策略：
+  - `scene.render.resolution_x/y` = 最终输出分辨率
+  - `scene.render.resolution_percentage` = `1 / scale × 100`（如 2x → 50%）
+  - scale 由 DLSS quality mode 对应的预设决定（具体值待研究 DLSS 实现文档后确定）
+- Jitter phases 按 `1 × scale²` 计算（Blender 输出已为 AA 后结果，base = 1）
+  - 2x → 4 相位数
+  - 3x → 9 相位数
+- 所有具体算法（scale ↔ quality mode 映射、jitter phase base）**待研究 DLSS 实现文档后最终确定**
 
 ### 1.2 Pass 配置
 
@@ -52,13 +48,13 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 {
   "version": 1,
   "output_resolution": { "width": 3840, "height": 2160 },
-  "render_resolution": { "width": 1920, "height": 1080 },
+  "render_resolution": { "width": 2227, "height": 1253 },
   "quality_mode": "Balanced",
   "fps": 30,
   "color_space": "scene_linear",       // "scene_linear" | "srgb" | "pq"
   "is_hdr": true,
   "filename_pattern": "frame_\\d{4}\\.exr",
-  "jitter_phases": 24,
+  "jitter_phases": 3,                  // base=1 × scale² (Blender 已 AA，base=1; ~1.72x²≈3)
   "frames": {
     "0001": {
       "matrix_world": [[...], ...],
