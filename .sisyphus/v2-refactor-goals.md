@@ -20,10 +20,22 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 
 ## 一、Blender 插件 (blender/dlss_compositor_aov)
 
-### 1.1 分辨率控制
+### 1.1 分辨率 + 颜色空间控制
 
 - 插件面板提供**最终输出分辨率**输入（Width × Height）
-- 横向 toggle 单选 **Quality Mode**：Ultra Performance → Performance → Balanced → Quality → DLAA（按 DLSS 预设顺序排列）
+- 横向 toggle 单选 **Quality Mode**：Ultra Performance → Performance → Balanced → Quality → DLAA
+- **颜色空间**：由 Blender 色彩管理（OCIO）— `display_device` + `view_transform` 共同定义
+  - 静默读取 `bpy.context.scene.display_settings.display_device` 和 `view_settings.view_transform`
+  - 参考：[Blender 5.1 Color Management — Displays and Views](https://docs.blender.org/manual/en/latest/render/color_management/displays_views.html)
+- **EXR 默认输出 scene-linear**（Blender: "Save as Render" 选项仅对 PNG/JPEG 生效，EXR 原始输出不经 view transform）
+  - 写入 dlssconfig.json（记录用户的显示意图，管线内部自行处理颜色变换）：
+    ```json
+    "display_device": "sRGB",
+    "view_transform": "ACES 2.0",
+    "is_hdr": false,
+    ```
+  - 管线输入始终为 scene-linear EXR → SR 用 IsHDR=1
+  - FG 前按 `is_hdr` / `display_device` 应用对应 EOTF（HDR→PQ, LDR→sRGB）
 - 分辨率透传策略：
   - `scene.render.resolution_x/y` = 最终输出分辨率
   - `scene.render.resolution_percentage` = `1 / scale × 100`（如 2x → 50%）
@@ -37,12 +49,32 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 
 - 保留 "Configure All Passes" 按钮（一键配置 Combined + Depth + Vector passes 及 compositor File Output 节点）
 
-### 1.3 相机数据导出（静默）
+### 1.3 Blender Vector Pass 约定（参考）
+
+来自 StackOverflow 验证过的 Blender Cycles Vector pass 行为：
+
+> Vector.X — X displacement from **previous frame to current frame**
+> Vector.Y — Y displacement from **previous frame to current frame**
+> Values are in **pixels**. X displacement is positive to the **left**, Y displacement is positive **downwards**.
+
+**与 DLSS 文档要求的差异**：
+
+| | Blender Vector Pass | DLSS §3.6 要求 |
+|---|---|---|
+| 方向 | prev → curr | **curr → prev** |
+| 空间 | 像素空间（render resolution） | 像素空间 |
+| Y 轴 | +down（top-left origin） | +down（Vulkan top-left origin） |
+
+**转换**：Blender(prev→curr) → 取反 → DLSS(curr→prev)，无需 Y 翻转（两者均为 top-left origin）。MV 以渲染分辨率像素空间存储，MVLowRes=1 告知 DLSS 内部缩放，InMVScale=(1.0,1.0)。
+
+> ⚠️ 上述转换方向为实验结论，Blender 内置文档与社区信息存在矛盾。重构时建议以简单测试场景（物体右移 10px）再次验证符号。
+
+### 1.4 相机数据导出（静默）
 
 - 导出改为 **handler 静默执行**：每次渲染完成后自动写入，无需用户手动操作
 - 不再导出单独的 `camera.json`，改为写入总配置文件 **`dlssconfig.json`**
 
-### 1.4 dlssconfig.json 格式
+### 1.5 dlssconfig.json 格式
 
 ```jsonc
 {
@@ -50,9 +82,11 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
   "output_resolution": { "width": 3840, "height": 2160 },
   "render_resolution": { "width": 2227, "height": 1253 },
   "quality_mode": "Balanced",
+  "display_device": "sRGB",
+  "view_transform": "ACES 2.0",
+  "is_hdr": false,
+  "color_space": "aces_srgb",
   "fps": 30,
-  "color_space": "scene_linear",       // "scene_linear" | "srgb" | "pq"
-  "is_hdr": true,
   "filename_pattern": "frame_\\d{4}\\.exr",
   "jitter_phases": 3,                  // base=1 × scale² (Blender 已 AA，base=1; ~1.72x²≈3)
   "frames": {
@@ -93,44 +127,182 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 
 ### 2.3 管线架构 — 游戏管线风格
 
+**输入资源**（从 Blender AOV EXR 获取）：
+| 资源 | 来源 | 格式 | 分辨率 |
+|------|------|------|--------|
+| SceneColor | Combined.RGBA | R16G16B16A16_SFLOAT（场景线性 HDR） | 渲染分辨率 |
+| Depth | Depth.Z | R32_SFLOAT（世界空间 → NDC [0,1]） | 渲染分辨率 |
+| MotionVectors | Vector.XY | R16G16_SFLOAT（prev→curr → 取反为 curr→prev，像素空间） | 渲染分辨率 |
+
+仅此三个资源。无 GBuffer（Albedo/Normals/Roughness），DLSS-SR 的 GBufferSurface 标记 "research only"（`nvsdk_ngx_helpers_vk.h:89-90`），不传。
+
+**管线阶段**：
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│  1. AOV 加载 (预取线程)                                    │
-│     ┌── Color (Combined.RGBA)                            │
-│     └── Depth + Vector (MV)                              │
-│                                                          │
-│  2. GBuffer 生产 (Compute Shader)                         │
-│     ┌── Albedo, Normals, Roughness (从 AOV 通道重建)       │
-│     └── Motion Vectors (Blender → DLSS 格式转换)          │
-│                                                          │
-│  3. DLSS-SR Evaluate                                      │
-│     ┌── pInColor, pInDepth, pInMotionVectors              │
-│     ├── InJitterOffset (from dlssconfig.json)             │
-│     ├── InMVScale = (1.0, 1.0)                            │
-│     ├── IsHDR = true, AutoExposure = true                 │
-│     └── InFrameTimeDeltaInMsec = 1000 / fps               │
-│                                                          │
-│  4. Tone Mapping (Post-DLSS)                              │
-│     ┌── Scene-linear → display-ready (PQ or sRGB EOTF)    │
-│     └── 仅在 SR+FG 路径或输出编码需要时                    │
-│                                                          │
-│  5. DLSS-FG Evaluate (可选)                                │
-│     ┌── Display-ready backbuffer (tone-mapped)             │
-│     ├── Depth + MV (渲染分辨率)                            │
-│     ├── colorBuffersHDR = true                            │
-│     └── camera matrices from dlssconfig.json              │
-│                                                          │
-│  6. 输出 (异步写队列)                                       │
-│     └── EXR 写入不阻塞管线                                 │
-└─────────────────────────────────────────────────────────┘
+Stage 1: Frame Load + Preprocess                          [CPU + GPU]
+├── AOV 异步预取：后台线程读下一帧 EXR
+├── Depth 转换：world-space linear → NDC [0, 1]（Compute Shader）
+├── MV 转换：Blender 4ch prev→curr → DLSS 2ch curr→prev（取反）
+│     Sign: -(Blender.Vector.XY)  → DLSS 期望方向
+│     Unit: 像素空间（render resolution）
+│     MVScale: (1.0, 1.0)，MVLowRes=1，DLSS 内部缩放
+└── 全部在渲染分辨率
+
+         ↓  SceneColor + Depth + MV（渲染分辨率）+ Jitter（像素空间 [-0.5, +0.5]）
+
+Stage 2: DLSS-SR Evaluate (if --scale > 1.0)              [GPU — NGX]
+├── §3.1: SR 必须在 Tone Mapping 之前
+├── pInColor        ← SceneColor（场景线性 HDR）
+├── pInDepth        ← Depth（NDC [0,1]）
+├── pInMotionVectors← MV（curr→prev, 像素空间）
+├── InMVScale       = (1.0, 1.0)     // §3.6.3: 不需要缩放时为 1.0
+├── InJitterOffset  ← dlssconfig.json per-frame jitter
+├── InReset         ← 首帧 / gap / camera cut
+├── InFrameTimeDelta= 1000/fps
+├── IsHDR=true, AutoExposure=true     // §3.1.2: 线性空间必须 IsHDR=1
+├── Debug overlay（dev DLL）           // ⚠️ 调研：离线无窗口环境是否可用，需验证
+│     SR §4.2: dev DLL 含 overlay，release DLL 不含
+└── pInOutput       → SceneColor（输出分辨率，场景线性）
+
+         ↓  SceneColor（输出分辨率，场景线性 + 可选 debug overlay）
+
+Stage 3: CAS Sharpening (可选, if --sharpness > 0)           [GPU — Compute]
+├── DLSS 模型已训练产生清晰输出，默认不额外锐化
+├── DLSS 内置 InSharpness 参数已废弃（§3.11）→ 不设置
+├── CAS 为可选的额外空间锐化（compute shader，非 DLSS 内部）
+├── 在 DLSS-SR 之后，输出分辨率，场景线性域
+└── 默认 0.0（关闭），用户通过 CLI/GUI 显式开启
+
+         ↓
+
+Stage 4: Tone Mapping (if FG enabled)                     [GPU — Compute]
+├── 管线输入始终为 scene-linear EXR（Blender EXR 不经 view transform）
+├── 根据 dlssconfig.json 的 display_device 选择目标 EOTF：
+│   ├── sRGB / Display P3 → sRGB EOTF → [0,1] display-ready (LDR)
+│   └── Rec.2100 PQ → PQ(ST.2084) EOTF → [0,1] display-ready (HDR)
+├── FG 需要 display-ready 输入
+└── SR-only 路径：不经过此阶段
+
+         ↓  backbuffer（输出分辨率，display-ready）+ Depth/MV（渲染分辨率）
+
+Stage 5: DLSS-FG Evaluate (if FG enabled)                 [GPU — NGX]
+├── FG §HDR: FG 操作 display-ready 颜色缓冲区
+├── pBackbuffer     ← Stage 4 display-ready（sRGB 或 PQ-encoded [0,1]）
+├── pDepth          ← Stage 1 Depth（渲染分辨率，复用）
+├── pMVecs          ← Stage 1 MV（渲染分辨率，复用）
+├── cameraViewToClip/prevClipToClip ← dlssconfig.json camera matrices
+├── mvecScale       = (1/W, 1/H)    // 归一化到 [-1,1]
+├── colorBuffersHDR = true
+├── pOutputInterpFrame → display-ready 插值帧
+└── 支持 2×/3×/4× multiFrame
+
+         ↓  display-ready 插值帧（输出分辨率）
+
+Stage 6: Inverse Tone Map (if FG enabled)                 [GPU — Compute]
+├── 逆向 Stage 4 的 EOTF，恢复 scene-linear 用于 EXR 输出：
+│   ├── sRGB EOTF → inv sRGB → scene-linear (LDR)
+│   └── PQ EOTF → inv PQ → scene-linear (HDR)
+├── 可用 --no-inverse-tonemap 跳过（输出保持 display-ready）
+└── SR-only 路径：不经过此阶段
+
+> 💡 **关于过去 "~10 nit clamp" 的问题**：Blender EXR 导出不经 view transform，FG 收到的是原始 scene-linear 数据。FG 文档要求输入为 display-ready（有 EOTF），scene-linear 直接传入导致 FG 内部处理异常，表现为亮度 clamp。我们在 FG 前自己加了 PQ EOTF，恰好修正了这个问题。不是 "FG 内部有 10-nit clamp"，而是 FG 在错误颜色空间下运行的结果。
+
+Stage 7: Output Write (Async Queue)                       [CPU — I/O Thread]
+├── 输出格式由 dlssconfig.json 的 is_hdr 字段决定可用选项：
+│   HDR (is_hdr=true):                         LDR (is_hdr=false):
+│   ├── EXR (R16G16B16A16_SFLOAT, scene-linear)├── EXR (R16G16B16A16_SFLOAT, sRGB encoded)
+│   ├── ProRes 4444 XQ (12-bit, PQ encoded)    ├── PNG (16-bit)
+│   ├── ProRes 422 HQ (10-bit, PQ encoded)     ├── JPEG (8-bit)
+│   └── DNxHR HQX (12-bit, PQ encoded)         └── ProRes 422 HQ (LDR 兼容)
+├── 编码参数（前端导出 Section 控制）：
+│   ├── 格式选择（下拉框，根据 HDR/LDR 过滤选项）
+│   ├── 压缩百分比（JPEG/PNG，滑块 0-100）
+│   └── EXR 压缩算法（PIZ / ZIP / DWAA / DWAB）
+├── FFmpeg 内置编译进 CLI（静态链接常用编解码器，不依赖系统 FFmpeg）
+├── 异步写：EXR 写入或 FFmpeg 编码均不阻塞渲染线程
+└── 前端导出 Section 提供格式选择 + 参数设置
+
+                        ┌── SR-only: Stage 2 → (Sharpen) → 写输出（scene-linear EXR）
+Pipeline 分支: ──────────┤
+                        └── SR+FG: Stage 2 → (Sharpen) → 4(ToneMap) → 5(FG) → 6(InvToneMap) → 写输出
 ```
 
-**关键纠正**（基于本轮文档审计）：
-- **SR 在 TONE MAPPING 之前**（DLSS SR §3.1）
-- **FG 在 TONE MAPPING + EOTF 之后**（DLSS FG §HDR）
-- **InMVScale = (1.0, 1.0)**（MVLowRes=1 时 DLSS 内部缩放，不需要额外乘）
-- **不再传 GBuffer**（标记 "research only"，Phase 2 已删除，本次重构不恢复）
-- **无 "10-nit clamp"**（官文不存在，README 虚假信息）
+### 2.3.1 FG 集成要点（来自 FG 官方文档 §1, §5, §6）
+
+**FG 管线位置**（FG §1 第 68-78 行管线图，精简去掉我们不做的 Post Effects / UI）：
+
+```
+Render (AOV) → [DLSS-SR] → [DLSS-FG]
+     ↑                         ↑
+ 原始渲染帧                 最终输出帧
+```
+
+- SR 在 FG **之前**
+- FG 处于管线**最末端**
+- **SR 不在 FG 生成的帧上运行**——FG 在 SR 输出的帧之间插值
+
+**FG Create 参数**（FG §5 第 459-464 行）：
+
+```
+Width/Height          = 输出分辨率（backbuffer 尺寸）
+RenderWidth/Height    = 渲染分辨率（SR 输入分辨率）
+NativeBackbufferFormat= 推荐 RGB10A2 for HDR (PQ)
+```
+
+**FG Eval 输入**（FG §6 第 531-549 行）：
+
+| 输入 | 来源 | 分辨率 |
+|------|------|--------|
+| pBackbuffer | SR 输出 → tone-map → display-ready | 输出分辨率 |
+| pDepth | AOV 原始深度（与给 SR 的是同一份） | 渲染分辨率 |
+| pMVecs | AOV 原始 MV（与给 SR 的是同一份） | 渲染分辨率 |
+
+> FG §6 原文："If an upscaler such as DLSS-SR is in use, this resource should be the same depth resource that was provided to the upscaler."
+
+**FG 帧生成逻辑**（FG §1 第 86-92 行）：
+
+```
+Frame 1 (SR'd) ──→ FG interp 1.5 ──→ Frame 2 (SR'd) ──→ FG interp 2.5 ──→ Frame 3 (SR'd)
+   Rendered          Generated          Rendered          Generated          Rendered
+```
+
+- FG 在每两个连续的 SR 输出帧之间生成插值帧
+- 2x: 每对输入帧生成 1 帧 → 总输出 2x
+- 4x: 每对输入帧生成 3 帧 → 总输出 4x
+- FG 需要 current + previous backbuffer（pBackbuffer 自动保留上一帧）
+
+**对我们的意义**：
+
+```
+SR-only:   AOV帧N → SR → 输出帧N
+SR+FG:     AOV帧N → SR → ToneMap → FG(backbuffer_N, backbuffer_N-1) → 输出帧N, 插值帧N.5
+           Depth/MV 直接复用给 FG（不经 SR 处理）
+```
+
+Depth 和 MV 在渲染分辨率，同时传给 SR 和 FG，两者各取所需。SR 把它们和 SceneColor 一起用；FG 把它们和 backbuffer 一起用。**无需为 FG 额外处理或重新上传。**
+
+**与 DLSS 文档的对应关系**：
+
+| 管线决策 | 文档依据 | 章节 |
+|----------|----------|------|
+| MV 格式：per-pixel, screen-space, curr→prev | "per-pixel motion vectors (describing the screen-space displacement of each pixel from the current to the previous frame)" | SR §3.6 |
+| MV 格式：RG16_FLOAT 或 RG32_FLOAT | "Motion vectors: RG32_FLOAT or RG16_FLOAT" | SR §3.3 |
+| SR 在 Tone Mapping 前 | "must occur before tone mapping" | SR §3.1 |
+| SR 接受场景线性 HDR (IsHDR=1) | "linear space → IsHDR=1" | SR §3.1.2 |
+| InMVScale = (1.0, 1.0) | "should be set to 1.0 if motion vectors do not need to be scaled" | SR §3.6.3 |
+| MVLowRes = 1 | "MV at same resolution as input color" | SR §3.6.2 |
+| FG 在 Tone Mapping 后 | "operates on final, display-ready color buffer" | FG §HDR |
+| FG 在 SR 之后 | 管线图: Render → DLSS-SR → DLSS-FG（精简后，无 Post Effects） | FG §1 L68-78 |
+| FG depth/MV 复用 SR 的 | "same depth resource that was provided to the upscaler" | FG §6 L544-545 |
+| FG Create: Width=输出分辨率, RenderWidth=渲染分辨率 | "Width/Height: input/output color; RenderWidth/Height: pre-upscale" | FG §5 L459-464 |
+| FG 生成帧在 SR 输出之间 | Frame sequence diagram: rendered → generated → rendered | FG §1 L86-92 |
+| FG 输入需要 EOTF | "must already have tone mapping and required HDR EOTF applied" | FG §HDR |
+| FG 不支持场景线性 | "scene-referred linear data are not supported" — 直接传入导致类似 clamp 的异常，需管线内 EOTF | FG §HDR |
+| FG mvecScale 归一化 | "normalize to [-1,1] range" | FG SDK header |
+| FG backbuffer 分辨率 | output resolution; depth/MV 为 render resolution | FG Create params |
+| GBuffer 不传 | "OPTIONAL - only for research purposes" | `nvsdk_ngx_helpers_vk.h:89-90` |
+| Debug overlay 绘于 output | "DLSS Debug Overlay" / "Jitter Debugging" / "Accumulation Mode" | SR §8.2-8.4 |
+| Blender 色彩管理 | EXR 默认 scene-linear，view transform 仅影响显示预览和 PNG/JPEG 保存 | [Blender 5.1 Docs](https://docs.blender.org/manual/en/latest/render/color_management/displays_views.html) |
 
 ### 2.4 性能优化
 
@@ -139,28 +311,39 @@ Blender 插件 (配置 + 导出)  →  dlssconfig.json  →  Flutter GUI (用户
 | **Texture 池化** | VkImage 跨帧复用，避免每帧 create/destroy             |
 | **AOV 预取**     | 后台线程异步读取下一帧 EXR，GPU 处理不等待 IO         |
 | **批量 Upload**  | 单 command buffer + 单 vkQueueSubmit 上传所有 texture |
-| **异步写队列**   | EXR 写入走独立线程 + 队列，不阻塞渲染管线             |
+| **异步写队列**   | EXR 写入或 FFmpeg 编码走独立线程，不阻塞渲染管线      |
+| **FFmpeg 内置**  | 静态链接常用编解码器（ProRes/DNxHR），不依赖系统 PATH |
 | **内存预算**     | `--memory-budget` 控制 GPU 纹理预取上限               |
 
 ### 2.5 RPC 接口设计
 
 ```
 // 任务管理
-dlss/setTask          { dlssconfig_path, preset_override?, fg_enabled?, fg_multiplier? } → { ok, task_id }
+dlss/setTask          { dlssconfig_path, preset_override?, fg_enabled?, fg_multiplier?,
+                        output_format?,       // 格式由 HDR/LDR 限制可用选项
+                        output_dir?,          // 输出目录
+                        compression_quality?  // 0-100，仅 LDR JPEG/PNG
+                        exr_compression? }    // "piz"|"zip"|"dwaa"|"dwab"
+                      → { ok, task_id }
 dlss/checkReady       {} → { ready: bool, reason?: string }
 dlss/startTask        { task_id } → { ok }
 
 // 状态查询
-dlss/getStatus        {} → { dlss_version, fg_max_multiplier, gpu_name, driver_version, is_hdr_supported }
+dlss/getStatus        {} → { dlss_version, fg_max_multiplier, gpu_name, driver_version,
+                              is_hdr_supported,
+                              video_encoders: ["prores_ks", "dnxhd"],   // FFmpeg 可用编码器
+                              export_formats_hdr: ["exr", "prores_4444", "prores_422hq", "dnxhr_hqx"],
+                              export_formats_ldr: ["exr", "png", "jpeg", "prores_422hq"] }
 dlss/getTaskState     { task_id } → { state: "idle"|"running"|"done"|"error", current_frame, total_frames, eta_seconds }
 
 // 执行状态（轮询用于进度条 + 帧预览）
 dlss/getProgress      {} → { current_frame, total_frames, state }
 dlss/getPreviewFrame  { frame_index } → { width, height, format, data: base64 }
 
-// 取消
-dlss/cancelTask       {} → { ok }
-```
+// 调试（⚠️ 调研：离线无窗口环境下 dev DLL debug overlay 是否可用）
+dlss/setDebugMode     { mode: "off"|"jitter"|"accumulation"|"exposure"|"mvec" }
+                      → { ok }
+dlss/isDebugDll       {} → { available: bool, version: string }
 
 ### 2.6 CLI 配置简化
 
@@ -253,14 +436,34 @@ dlss-compositor.exe --config <dlssconfig.json>           # 从配置启动
    - FG 倍率：Toggle 按钮组 `[2x] [3x] [4x]`（最大倍率从后端查询）
    - 默认 2x
 
-5. **开始按钮**
+5. **输出配置 Section**
+   - 输出格式选择（下拉框）
+     - HDR 项目（`is_hdr=true`）：仅显示 HDR 兼容格式（EXR, ProRes 4444, ProRes 422 HQ, DNxHR HQX）
+     - LDR 项目（`is_hdr=false`）：显示 EXR, PNG, JPEG, ProRes 422 HQ
+     - 可用列表从 `dlss/getStatus` RPC 查询（`export_formats_hdr` / `export_formats_ldr`）
+   - 压缩设置（条件显示）：
+     - JPEG/PNG：滑块 0-100 压缩百分比
+     - EXR：下拉框选择压缩算法（PIZ / ZIP / DWAA / DWAB）
+     - ProRes/DNxHR：无压缩选项（编码器内置）
+   - 输出目录选择（调用 Win32 文件夹对话框）
+   - 默认值从 dlssconfig.json 继承，用户可覆盖
+
+6. **开始按钮**
    - 点击后通过 RPC 设置任务 + 启动
 
-### 3.6 右侧容器 — 详情 + 预览
+### 3.6 右侧容器 — 详情 + 预览 + 调试
 
-- 任务执行中显示实时帧预览
+- 任务执行中显示实时帧预览（`dlss/getPreviewFrame` RPC）
+- 预览帧含 DLSS debug overlay（如启用），直接呈现在前端
+- **调试模式**（⚠️ 调研：离线无窗口环境下 dev DLL debug overlay 是否可用）
+  - 若可行：通过 `dlss/isDebugDll` RPC 检测，dev DLL → 显示调试工具栏
+  - 工具栏 Toggle：Jitter / Accumulation / Exposure / MV 可视化
+  - 通过 `dlss/setDebugMode` RPC 切换，DLSS 直接绘制到 output buffer
+  - 若不可行：降级为纯 shader 自绘 debug pass，或标记为 release DLL 不支持
+  - 预览帧自动反映调试信息，无需额外渲染
+- 导出进度：当前编码帧 / 总帧数
 - 日志/错误信息
-- 完成后显示统计（耗时、帧数）
+- 完成后显示统计（耗时、帧数、输出格式、文件大小）
 
 ### 3.7 状态栏
 
@@ -365,4 +568,4 @@ dlss cli这块, 我们这次不适用stdio的输出, 参考`Language Server Prot
 - [ ] DX12 迁移是否值得（Vulkan compute-only 当前够用，但 DX12 NGX 路径更主流）
 - [ ] GBuffer 生产：从 AOV 通道重建（Albedo/Normals/Roughness）是否恢复？（当前 Phase 2 已删，文档标记 "research only"）
 - [ ] FG backbuffer 格式：保持 R16G16B16A16_SFLOAT 还是改为 FG 推荐的 RGB10A2
-- [ ] 主题/UI 设计（Flutter 端，本轮不讨论）
+- [ ] **视频输出格式**：ProRes 4444 XQ vs 422 HQ vs DNxHR — 需调研各格式的 HDR 支持、色彩精度、文件大小、编码性能、跨平台兼容性
