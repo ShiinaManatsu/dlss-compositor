@@ -120,12 +120,15 @@ endif()
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
     src/core/stub.cpp
+    src/dlss/dlss_fg.cpp
+    src/dlss/dlss_sr.cpp
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pool.cpp
     src/gpu/passes/depth_pass.cpp
     src/gpu/passes/mv_pass.cpp
     src/gpu/passes/tonemap_pass.cpp
+    src/gpu/passes/inverse_tonemap_pass.cpp
     src/io/frame_prefetcher.cpp
     src/io/channel_mapper.cpp
     src/io/async_writer.cpp)
@@ -235,6 +238,13 @@ endif()
 # -----------------------------------------------------------------------------
 if(GLSLC_EXECUTABLE)
     dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
+endif()
+
+# -----------------------------------------------------------------------------
+# Shader compilation — Stage 6 inverse tonemap + EOTF
+# -----------------------------------------------------------------------------
+if(GLSLC_EXECUTABLE)
+    dlss_add_shader(dlss_engine_lib src/shaders/inverse_tonemap_eotf.comp)
 endif()
 
 # -----------------------------------------------------------------------------

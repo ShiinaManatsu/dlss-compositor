@@ -1,0 +1,61 @@
+T28: Stage 6 — Inverse Tonemap + EOTF round-trip evidence
+Generated: 2026-06-02
+Branch: v2/main
+
+=== T28 Round-trip Evidence: inverse_tonemap_eotf ===
+
+--- LDR sRGB Round-trip (threshold: abs < 0.01) ---
+  sRGB(0.000) -> 0.0000 -> 0.0000   abs_err=0.000000 PASS
+  sRGB(0.100) -> 0.3492 -> 0.1000   abs_err=0.000000 PASS
+  sRGB(0.250) -> 0.5371 -> 0.2500   abs_err=0.000000 PASS
+  sRGB(0.500) -> 0.7354 -> 0.5000   abs_err=0.000000 PASS
+  sRGB(0.750) -> 0.8808 -> 0.7500   abs_err=0.000000 PASS
+  sRGB(1.000) -> 1.0000 -> 1.0000   abs_err=0.000000 PASS
+  LDR sRGB: PASS
+
+--- HDR ACES Round-trip (threshold: rel < 0.05) ---
+  ACES(0.10) -> 0.1258 -> 0.1000  rel_err=0.0000 PASS
+  ACES(0.18) -> 0.2669 -> 0.1800  rel_err=0.0000 PASS
+  ACES(0.50) -> 0.6163 -> 0.5000  rel_err=0.0000 PASS
+  ACES(1.00) -> 0.8038 -> 1.0000  rel_err=0.0000 PASS
+  ACES(2.00) -> 0.9149 -> 2.0000  rel_err=0.0000 PASS
+  HDR ACES: PASS
+
+--- HDR PQ Round-trip (threshold: rel < 0.02) ---
+  PQ(0.010) -> 0.1499 -> 0.0100  rel_err=0.000000 PASS
+  PQ(0.180) -> 0.3480 -> 0.1800  rel_err=0.000000 PASS
+  PQ(1.000) -> 0.5081 -> 1.0000  rel_err=0.000000 PASS
+  PQ(2.000) -> 0.5791 -> 2.0000  rel_err=0.000000 PASS
+  PQ(4.000) -> 0.6526 -> 4.0000  rel_err=0.000000 PASS
+  HDR PQ: PASS
+
+--- HDR Full Round-trip ACES+PQ -> inv PQ+inv ACES (threshold: rel < 0.05) ---
+  v=0.18 ACES=0.2669 PQ=0.3824 invPQ=0.2669 invACES=0.1800  rel=0.0000 PASS
+  v=1.00 ACES=0.8038 PQ=0.4863 invPQ=0.8038 invACES=1.0000  rel=0.0000 PASS
+  v=2.00 ACES=0.9149 PQ=0.4992 invPQ=0.9149 invACES=2.0000  rel=0.0000 PASS
+  HDR Full: PASS
+
+--- NaN/Inf Safety ---
+  pq=0.00 tm=0.0000 scene=0.0000 PASS
+  pq=0.10 tm=0.0032 scene=0.0090 PASS
+  pq=0.30 tm=0.1004 scene=0.0855 PASS
+  pq=0.50 tm=0.9225 scene=2.1405 PASS
+  pq=0.70 tm=1.0000 scene=7.2417 PASS
+  pq=0.90 tm=1.0000 scene=7.2417 PASS
+  pq=1.00 tm=1.0000 scene=7.2417 PASS
+  NaN/Inf Safety: PASS
+
+=== OVERALL: ALL PASS ===
+
+Files created:
+  src/shaders/inverse_tonemap_eotf.comp   — Stage 6 GLSL compute shader
+  src/gpu/passes/inverse_tonemap_pass.h   — InverseTonemapPass class header
+  src/gpu/passes/inverse_tonemap_pass.cpp — InverseTonemapPass implementation
+  tests/test_inverse_tonemap.cpp          — Catch2 round-trip tests (10 cases)
+  CMakeLists.txt                          — Updated: inverse_tonemap_pass.cpp + shader
+
+Key properties verified:
+  - LDR round-trip abs error: 0.000000 (threshold: 0.01) PASS
+  - HDR ACES+PQ round-trip rel error: 0.0000 (threshold: 0.02) PASS
+  - No NaN/Inf in HDR inverse PASS
+  - ACES inverse discriminant guard (disc = max(disc, 0)) prevents sqrt(negative) PASS

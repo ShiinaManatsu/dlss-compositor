@@ -14,7 +14,9 @@ add_executable(dlss_engine_tests
     test_channel_mapper.cpp
     test_texture_pool.cpp
     test_depth_pass.cpp
+    test_dlss_sr.cpp
     test_tonemap_pass.cpp
+    test_inverse_tonemap.cpp
     test_mv_conversion_sanity.cpp
     test_async_writer.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE

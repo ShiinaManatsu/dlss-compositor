@@ -1,0 +1,112 @@
+#version 450
+// =============================================================================
+// inverse_tonemap_eotf.comp — Stage 6: Inverse Tonemap + EOTF
+//
+// Symmetric inverse of Stage 4 (tonemap_eotf.comp).
+// Called ONLY for FG pipeline to convert display-ready FG output back to
+// scene-linear for EXR writing.
+// EXR outputs must be scene-linear; FG outputs are display-ready (PQ or sRGB encoded).
+//
+// LDR mode: inverse sRGB EOTF only (no inverse tonemap).
+// HDR mode: inverse PQ ST.2084 → inverse ACES Filmic (Narkowicz approximation).
+//           Blender convention: 1.0 scene-linear = 100 nits diffuse white.
+//
+// NaN guard: ACES inverse discriminant clamped to 0 to prevent sqrt(negative).
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Input: display-ready FG output (after tonemap+EOTF from Stage 4)
+layout(set = 0, binding = 0) uniform sampler2D srcDisplay;
+
+// Output: scene-linear for EXR writing
+layout(set = 0, binding = 1, rgba16f) uniform image2D dstLinear;
+
+layout(push_constant) uniform PushConstants {
+    int mode;  // 0 = LDR (sRGB inverse EOTF), 1 = HDR (inverse PQ + inverse ACES Filmic)
+} pc;
+
+// --- sRGB Inverse EOTF (sRGB encoded → linear) ---
+// Symmetric inverse of IEC 61966-2-1 EOTF used in Stage 4.
+vec3 srgbInverse(vec3 encoded) {
+    return mix(
+        encoded / 12.92,
+        pow((encoded + vec3(0.055)) / 1.055, vec3(2.4)),
+        step(vec3(0.04045), encoded)
+    );
+}
+
+// --- Inverse PQ ST.2084 EOTF (PQ encoded [0,1] → tonemapped linear [0,1]) ---
+// Reverses the PQ encoding from Stage 4.
+// Output is the intermediate "tonemapped" value (after ACES, before PQ in forward direction).
+// i.e., output ∈ [0,1], not yet scene-linear — ACES inverse must follow.
+vec3 pqInverse(vec3 encoded) {
+    const float m1 = 0.1593017578125;
+    const float m2 = 78.84375;
+    const float c1 = 0.8359375;
+    const float c2 = 18.8515625;
+    const float c3 = 18.6875;
+
+    // Inverse PQ: PQ_encoded → L_norm (= nits/10000)
+    vec3 E = pow(max(encoded, vec3(0.0)), vec3(1.0 / m2));
+    vec3 num = max(E - vec3(c1), vec3(0.0));
+    vec3 den = c2 - c3 * E;
+    // Avoid division by zero or negative denominator
+    den = max(den, vec3(1e-10));
+    vec3 L = pow(num / den, vec3(1.0 / m1));
+
+    // Convert L_norm (nits/10000) back to tonemapped linear [0,1]:
+    // Forward: scene_linear * 0.01 = L  => tonemapped_linear = L * 100
+    // (Stage 4: L = scene_linear_after_aces * 0.01 → PQ, so inverse gives scene_linear_after_aces)
+    return L * 100.0;  // = L_norm * 10000 / 100 = L_norm * 100
+}
+
+// --- Inverse ACES Filmic (numerical inversion of Narkowicz approximation) ---
+// Solves: y = (x*(a*x+b)) / (x*(c*x+d) + e) for x given y
+// Rearranged: y*(x*(c*x+d) + e) = x*(a*x+b)
+//             y*c*x^2 + y*d*x + y*e = a*x^2 + b*x
+//             (y*c - a)*x^2 + (y*d - b)*x + y*e = 0
+// Quadratic: A*x^2 + B*x + C = 0, solve for positive x.
+// NaN guard: disc = max(B^2 - 4*A*C, 0.0) to prevent sqrt(negative) from float imprecision.
+vec3 acesInverse(vec3 tonemapped) {
+    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+
+    vec3 A = c * tonemapped - vec3(a);
+    vec3 B = d * tonemapped - vec3(b);
+    vec3 C = e * tonemapped;
+
+    // Discriminant: B^2 - 4*A*C
+    vec3 disc = B * B - 4.0 * A * C;
+    disc = max(disc, vec3(0.0));  // Prevent sqrt of negative due to float precision
+
+    // Quadratic formula: x = (-B - sqrt(disc)) / (2*A)
+    // We use the minus branch (positive scene-linear values)
+    vec3 scene_linear = (-B - sqrt(disc)) / (2.0 * A);
+    return max(scene_linear, vec3(0.0));  // Clamp negative results from numerical error
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstLinear);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    vec4 display = texture(srcDisplay, uv);
+
+    vec3 result;
+
+    if (pc.mode == 0) {
+        // LDR path: inverse sRGB EOTF only (no tonemap was applied in Stage 4 LDR)
+        result = srgbInverse(display.rgb);
+    } else {
+        // HDR path: inverse PQ → inverse ACES Filmic
+        // Step 1: Decode PQ → tonemapped linear (the value that was ACES tonemapped)
+        vec3 tonemapped = pqInverse(display.rgb);
+        // Clamp tonemapped to [0,1] range expected by ACES inverse
+        tonemapped = clamp(tonemapped, vec3(0.0), vec3(1.0));
+        // Step 2: Inverse ACES Filmic → scene-linear
+        result = acesInverse(tonemapped);
+    }
+
+    imageStore(dstLinear, coord, vec4(result, display.a));
+}
