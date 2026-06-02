@@ -33,3 +33,7 @@ QA Notes:
 - flutter analyze runs on every PR (not skippable)
 - vcpkg manifest mode driven by vcpkg.json in repo root
 - DLSS submodule checked out via submodules: recursive
+
+Git Commit:
+- Committed as: ci: GitHub Actions Windows build + ctest + flutter test
+- CI files were finalized and committed on 2026-06-02
