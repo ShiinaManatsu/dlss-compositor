@@ -1,6 +1,4 @@
 import bpy
-from . import aov_register
-from .quality_mapping import DLSS_RATIO, JITTER_PHASES
 
 class DLSS_OT_ApplySettings(bpy.types.Operator):
     """Configure render passes, compositor nodes, denoise, and OCIO for DLSS."""
@@ -9,24 +7,7 @@ class DLSS_OT_ApplySettings(bpy.types.Operator):
     bl_description = "Configure passes, compositor File Output nodes, Cycles denoise, and OCIO Raw for DLSS pipeline"
 
     def execute(self, context):
-        scene = context.scene
-        props = scene.dlss_compositor
-
-        # 1. Configure AOV passes (Z + Vector)
-        aov_register.configure_aov_passes(context)
-
-        # 2. Force Cycles denoise
-        aov_register.configure_cycles_denoise(scene)
-
-        # 3. Configure compositor File Output nodes
-        self._setup_compositor(scene, props)
-
-        # NOTE: Do NOT modify scene.render.resolution_percentage here!
-        # That is handled transparently by the render_init handler (T14)
-        # at render time: save → override → restore
-
-        self.report({'INFO'}, f"DLSS Compositor configured for {props.quality_mode}")
-        return {'FINISHED'}
+        return bpy.ops.dlss.configure_all_passes()
 
     def _setup_compositor(self, scene, props):
         """Create/update File Output nodes in compositor for Combined/Depth/Vector."""
@@ -93,8 +74,80 @@ class DLSS_OT_ApplySettings(bpy.types.Operator):
             links.new(render_layers.outputs['Vector'], fo_vector.inputs[0])
 
 
+class DLSS_OT_ConfigureAllPasses(bpy.types.Operator):
+    """Configure all render passes and compositor nodes for DLSS pipeline.
+
+    This is the implementation backend called by Apply Settings button.
+    Also available for direct API/scripted use.
+    """
+    bl_idname = "dlss.configure_all_passes"
+    bl_label = "Configure All Passes"
+    bl_description = "Enable Combined/Depth/Vector passes, configure compositor File Output nodes with Raw OCIO"
+
+    def execute(self, context):
+        scene = context.scene
+        props = scene.dlss_compositor
+
+        # 1. Enable required passes
+        view_layer = context.view_layer
+        view_layer.use_pass_z = True
+        view_layer.use_pass_vector = True
+
+        # 2. Force Cycles denoise
+        if hasattr(scene, 'cycles'):
+            scene.cycles.use_denoising = True
+
+        # 3. Set up compositor File Output nodes
+        self._setup_file_output_nodes(scene, props)
+
+        self.report({'INFO'}, "DLSS passes and compositor configured")
+        return {'FINISHED'}
+
+    def _setup_file_output_nodes(self, scene, props):
+        """Create File Output nodes for Combined, Depth, Vector with Raw OCIO."""
+        scene.use_nodes = True
+        tree = scene.node_tree
+        nodes = tree.nodes
+        links = tree.links
+
+        output_dir = props.output_dir if props.output_dir else "/tmp/dlss/"
+
+        # Find RenderLayers node
+        rl_node = next((n for n in nodes if n.type == 'R_LAYERS'), None)
+        if rl_node is None:
+            rl_node = nodes.new('CompositorNodeRLayers')
+            rl_node.location = (-300, 0)
+
+        # Remove existing DLSS output nodes
+        for node in [n for n in nodes if n.label and n.label.startswith('DLSS_')]:
+            nodes.remove(node)
+
+        def make_output_node(label, x, y, slot_name, output_socket):
+            fo = nodes.new('CompositorNodeOutputFile')
+            fo.label = label
+            fo.location = (x, y)
+            fo.base_path = output_dir
+            fo.format.file_format = 'OPEN_EXR'
+            fo.format.color_management = 'OVERRIDE'
+            fo.format.view_settings.view_transform = 'Raw'
+            if fo.file_slots:
+                fo.file_slots[0].path = slot_name
+            else:
+                fo.file_slots.new(slot_name)
+            sock = rl_node.outputs.get(output_socket)
+            if sock:
+                links.new(sock, fo.inputs[0])
+            return fo
+
+        make_output_node('DLSS_Combined', 200, 100, '####', 'Image')
+        make_output_node('DLSS_Depth', 200, -100, '####.depth', 'Depth')
+        make_output_node('DLSS_Vector', 200, -300, '####.vector', 'Vector')
+
+
 def register():
     bpy.utils.register_class(DLSS_OT_ApplySettings)
+    bpy.utils.register_class(DLSS_OT_ConfigureAllPasses)
 
 def unregister():
+    bpy.utils.unregister_class(DLSS_OT_ConfigureAllPasses)
     bpy.utils.unregister_class(DLSS_OT_ApplySettings)
