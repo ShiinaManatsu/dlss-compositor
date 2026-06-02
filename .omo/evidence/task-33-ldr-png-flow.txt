@@ -1,0 +1,1 @@
+Task 33 Completed. TaskConfigPanel dynamically filters output formats for HDR/LDR, validates fgMaxMultiplier, formatting UI correctly. Test task_config_panel_test.dart passing.
