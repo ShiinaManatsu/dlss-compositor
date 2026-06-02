@@ -1,0 +1,42 @@
+﻿T29: Stage 7 — Async frame writer with multi-format encoder
+Date: 2026-06-02 21:27:18
+Branch: v2/main
+
+=== Files Created ===
+  src\io\encoder_registry.h                   2107 bytes    56 lines
+  src\io\async_writer.h                       4414 bytes   122 lines
+  src\io\async_writer.cpp                    16191 bytes   474 lines
+  tests\test_async_writer.cpp                 3239 bytes    89 lines
+
+=== EncoderRegistry: registered formats (v2) ===
+  ExrLinear   (encodeExrLinear   - OpenEXR HALF RGBA)
+  Png16       (encodePng16Stub   - placeholder, libpng TODO)
+  ProRes422HQ (encodeProRes422HQStub - placeholder, FFmpeg TODO)
+
+=== EncoderRegistry: NOT registered (enum placeholders) ===
+  Jpeg, H264Mp4, H265Mp4, Av1Mp4, Avif, ProRes4444XQ, DNxHR
+
+=== Critical guards ===
+  - HDR + PNG → throws std::runtime_error at enqueue() time
+  - Thread count: ctor param > DLSS_COMPOSITOR_WRITER_THREADS env > 4
+  - enqueue() pushes to queue + atomic m_pending, returns immediately
+  - flush() waits on m_pending == 0 via cv predicate
+  - resolveOutputPath handles Skip / Overwrite / AutoVersion
+  - formatPath handles #### and {frame:0Nd}
+
+=== Tests added ===
+  AsyncFrameWriter - format path template ####
+  AsyncFrameWriter - format path {frame:04d}
+  AsyncFrameWriter - HDR + PNG rejected
+  EncoderRegistry  - only v2 formats registered (3 in / 7 out)
+  AsyncFrameWriter - flush waits for all jobs
+
+=== CMake wiring ===
+  + dlss_engine_lib  src/io/async_writer.cpp
+  + dlss_engine_tests tests/test_async_writer.cpp
+
+Note: full build verification deferred — vcpkg install incomplete in
+current build dir (independent of T29 changes). Code matches existing
+style (frame_prefetcher.cpp / channel_mapper.cpp) and uses only OpenEXR
+API surfaces already exercised by FramePrefetcher (Imf::Slice, Imf::FrameBuffer,
+Imf::OutputFile, Imf::Channel, Imf::HALF).
