@@ -1,0 +1,27 @@
+﻿Task T37: FG-only end-to-end pipeline (Stage 1->4->5->6->7)
+Date: 2026-06-02
+
+Files changed:
+- src/pipeline/fg_only_pipeline.h
+- src/pipeline/fg_only_pipeline.cpp
+- tests/test_fg_only_pipeline.cpp
+- CMakeLists.txt
+- tests/CMakeLists.txt
+
+Static verification:
+- DlssSrPass grep in src/pipeline/fg_only_pipeline.cpp: 0 matches
+- Tests assert Stage order: ChannelMapper::map -> tonemapPass.execute -> fgPass.evaluate -> inversePass.execute -> writer.enqueue
+- Tests assert 5 input frames at 2x => 9 outputs, frame_0001.exr through frame_0009.exr
+- Source uses outputFrames = config.multiplier * totalFrames - (config.multiplier - 1)
+- Source increments ++outputFrameIdx and formats output with AsyncFrameWriter::formatPath(config.filenameTemplate, outputFrameIdx)
+- Last real input frame is written without extra FG interpolation, producing 2N-1 / 4N-3 output counts.
+
+Build/test attempt:
+- Command: cmake --build build --config Release --target dlss_engine_tests; .\build\Release\dlss_engine_tests.exe "[pipeline]"
+- Result: blocked in this shell because cmake/ctest/msbuild/ninja are not on PATH:
+  cmake : The term 'cmake' is not recognized as the name of a cmdlet, function, script file, or operable program.
+- Follow-up: where.exe cmake/ninja/msbuild/ctest all returned not found.
+
+LSP diagnostics attempt:
+- lsp_diagnostics on src/pipeline/fg_only_pipeline.cpp and tests/test_fg_only_pipeline.cpp
+- Result: blocked because clangd is configured but not installed.

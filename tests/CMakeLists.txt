@@ -21,6 +21,7 @@ add_executable(dlss_engine_tests
     test_mv_conversion_sanity.cpp
     test_async_writer.cpp
     test_rpc_dispatcher.cpp
+    test_fg_only_pipeline.cpp
     test_sr_only_pipeline.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
