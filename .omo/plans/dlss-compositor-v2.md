@@ -394,7 +394,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `chore: v2 greenfield branch initialized`
   - Files: 大量删除 + 空目录骨架 + cherry-picked dlss-refs 与通用 fixtures
 
-- [ ] 2. DLSS submodule 升级 v310.5.3 → v310.6.0
+- [x] 2. DLSS submodule 升级 v310.5.3 → v310.6.0
 
   **What to do**:
   - `cd DLSS && git fetch origin && git checkout v310.6.0 && cd ..`
@@ -460,7 +460,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `build(dlss): upgrade submodule to v310.6.0`
   - Files: `DLSS`(submodule pointer)+ `docs/dlss-refs/CHANGELOG-310.6.0.md`
 
-- [ ] 3. 根 CMakeLists.txt + vcpkg 依赖配置
+- [x] 3. 根 CMakeLists.txt + vcpkg 依赖配置
 
   **What to do**:
   - 写根 `CMakeLists.txt`:
@@ -541,7 +541,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `build: introduce vcpkg + dual-target CMake (engine lib + cli exe)`
   - Files: `CMakeLists.txt`、`vcpkg.json`、`vcpkg-configuration.json`、`CMakePresets.json`、`src/main_smoke.cpp`
 
-- [ ] 4. spdlog 集成(stderr + 文件 sink)
+- [x] 4. spdlog 集成(stderr + 文件 sink)
 
   **What to do**:
   - 写 `src/core/log.h` + `log.cpp`:封装 spdlog 单例 logger
@@ -616,7 +616,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(core): spdlog logger to stderr + rotating file (stdout reserved for RPC)`
   - Files: `src/core/log.h`、`src/core/log.cpp`、`tests/test_log.cpp`、`CMakeLists.txt`(链 spdlog)
 
-- [ ] 5. core types + dlssconfig.schema.json(single source of truth)
+- [x] 5. core types + dlssconfig.schema.json(single source of truth)
 
   **What to do**:
   - 写 `src/core/types.h`:
@@ -701,7 +701,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(core): types + dlssconfig.schema.json single source of truth`
   - Files: `src/core/types.h`、`src/core/dlssconfig.schema.json`、`tests/test_core_constants.cpp`、`tests/fixtures/sample-dlssconfig.json`
 
-- [ ] 6. core/ dlssconfig 加载 + validate(C++ side)
+- [x] 6. core/ dlssconfig 加载 + validate(C++ side)
 
   **What to do**:
   - 写 `src/core/dlssconfig.h` + `dlssconfig.cpp`:
@@ -781,7 +781,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(core): dlssconfig loader with schema + invariant validation`
   - Files: `src/core/dlssconfig.h`、`src/core/dlssconfig.cpp`、`tests/test_dlssconfig_loader.cpp`、`tests/fixtures/dlssconfig-bad-*.json`(6 个 error fixture)
 
-- [ ] 7. Blender 插件 v2 骨架(__init__ / manifest / AOV register)
+- [x] 7. Blender 插件 v2 骨架(__init__ / manifest / AOV register)
 
   **What to do**:
   - 创建 `blender/dlss_compositor/` 目录:
@@ -855,7 +855,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(blender): v2 extension scaffold (manifest 5.1+, register, AOV passes)`
   - Files: `blender/dlss_compositor/__init__.py`、`blender_manifest.toml`、`aov_register.py`、`properties.py`、`panel.py`、`blender/tests/test_register.py`、`blender/INSTALL.md`
 
-- [ ] 8. Flutter app + plugin_ffi 脚手架(Win32 file dialog FFI)
+- [x] 8. Flutter app + plugin_ffi 脚手架(Win32 file dialog FFI)
 
   **What to do**:
   - `cd gui && flutter create --template=app --platforms=windows dlss_compositor_gui`
@@ -930,7 +930,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): Flutter Windows app scaffold + Win32 FileOpenDialog FFI`
   - Files: `gui/pubspec.yaml`、`gui/lib/main.dart`、`gui/lib/util/win_file_dialog.dart`、`gui/test/win_file_dialog_test.dart`、`gui/integration_test/launch_test.dart`、`gui/dlss_compositor_plugin/*`(plugin_ffi 脚手架)
 
-- [ ] 9. .vscode/launch.json compound 双调试(Flutter Dart + C++ attach)
+- [x] 9. .vscode/launch.json compound 双调试(Flutter Dart + C++ attach)
 
   **What to do**:
   - 写 `.vscode/launch.json` 三个 configurations + 一个 compound:
@@ -1002,7 +1002,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `chore(vscode): compound launch.json for Flutter + C++ dual debug`
   - Files: `.vscode/launch.json`、`.vscode/tasks.json`、`.vscode/settings.json`、`docs/debug_setup.md`
 
-- [ ] 10. GitHub Actions CI workflow
+- [x] 10. GitHub Actions CI workflow
 
   **What to do**:
   - 写 `.github/workflows/build-test.yml`:
