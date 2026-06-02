@@ -3735,7 +3735,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(pipeline): SR-only end-to-end pipeline (Stage 1→2→7)`
   - Files: `src/pipeline/sr_only_pipeline.h`、`sr_only_pipeline.cpp`、`tests/test_sr_only_pipeline.cpp`
 
-- [ ] 37. FG-only 主流程拼装(Stage 1 → 4 → 5 → 6 → 7)
+- [x] 37. FG-only 主流程拼装(Stage 1 → 4 → 5 → 6 → 7)
 
   **What to do**:
   - 写 `src/pipeline/fg_only_pipeline.h` + `fg_only_pipeline.cpp`:
