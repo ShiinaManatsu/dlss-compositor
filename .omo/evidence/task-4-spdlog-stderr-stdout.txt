@@ -1,0 +1,30 @@
+Task: T4 spdlog logger integration (stderr + rotating file sink)
+
+Changed files:
+- src/core/log.h
+- src/core/log.cpp
+- tests/test_log.cpp
+
+Requirements check:
+- CMakeLists.txt modified: no
+- Public macros added: LOG_TRACE/LOG_DEBUG/LOG_INFO/LOG_WARN/LOG_ERROR
+- Named logger: dlss
+- Sinks: stderr_color_sink + rotating_file_sink("dlss-compositor.log", 5MB, 3)
+- Env override: DLSS_COMPOSITOR_LOG
+- Pattern: [%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%t] %v
+- stdout reserved: implementation routes logs to stderr/file only
+
+Verification evidence:
+1. LSP diagnostics attempted for changed C++ files.
+   Result: clangd not installed in environment, so LSP verification could not run.
+
+2. Build/configure attempted with:
+   cmake -S . -B build-t4
+   Result: cmake not installed in environment, so build verification could not run.
+
+3. Git diff inspected for logger files only.
+   Result: changes confined to requested code files plus this evidence file.
+
+Notes:
+- Header intentionally avoids spdlog includes.
+- Test resets the named logger via spdlog::drop("dlss") to avoid singleton reuse across runs.
