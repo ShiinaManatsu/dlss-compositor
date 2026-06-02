@@ -1,0 +1,35 @@
+Task T10: GitHub Actions CI Workflow
+Created: 2026-06-02
+
+Files Created:
+---
+1. .github/workflows/build-test.yml  (81 lines)
+   - Trigger: push + PR to v2/main
+   - Runner: windows-2022
+   - Steps: checkout (submodules recursive), setup-msbuild, vcpkg cache,
+     bootstrap vcpkg, install Vulkan SDK 1.3.296.0, setup Flutter 3.22.x,
+     cmake configure (x64-windows-msvc-release preset), cmake build,
+     ctest --output-on-failure, flutter pub get, flutter analyze,
+     flutter test, upload-artifact (exe + dlls + Flutter Release dir)
+   - NOTE: Blender pytest intentionally skipped (too heavy for CI runner)
+   - NOTE: GPU-dependent tests NOT run (no NVIDIA GPU on GitHub runners)
+
+2. .github/workflows/release.yml  (96 lines)
+   - Trigger: push tag matching v*
+   - Runner: windows-2022
+   - Steps: all build-test steps + flutter build windows --release +
+     Compress-Archive to dlss-compositor-{version}-windows.zip +
+     softprops/action-gh-release@v2 with generate_release_notes
+   - Packages: build/Release/*.exe, build/Release/*.dll,
+     gui/build/windows/x64/runner/Release/
+
+3. .github/CODEOWNERS  (3 lines)
+   - Placeholder: * @dlss-compositor-team
+
+QA Notes:
+- happy path: push to v2/main → build-test.yml triggers → CI green
+- failure path: intentional C++ syntax error → MSVC reports error in build step
+- release path: git tag v0.1.0 → push tag → release.yml triggers → GitHub Release created
+- flutter analyze runs on every PR (not skippable)
+- vcpkg manifest mode driven by vcpkg.json in repo root
+- DLSS submodule checked out via submodules: recursive

@@ -1,0 +1,81 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ "v2/main" ]
+  pull_request:
+    branches: [ "v2/main" ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout with submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Cache vcpkg
+      uses: actions/cache@v4
+      with:
+        path: C:/vcpkg/installed
+        key: vcpkg-${{ hashFiles('vcpkg.json') }}-windows-x64
+        restore-keys: |
+          vcpkg-windows-x64-
+
+    - name: Bootstrap vcpkg
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git C:/vcpkg --depth 1 || true
+        C:/vcpkg/bootstrap-vcpkg.bat
+      shell: cmd
+
+    - name: Install Vulkan SDK
+      run: |
+        $url = "https://sdk.lunarg.com/sdk/download/1.3.296.0/windows/VulkanSDK-1.3.296.0-Installer.exe"
+        $installer = "$env:TEMP\VulkanSDK.exe"
+        Invoke-WebRequest -Uri $url -OutFile $installer
+        Start-Process $installer -Args "/S" -Wait
+        echo "VULKAN_SDK=C:/VulkanSDK/1.3.296.0" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.22.x'
+        channel: 'stable'
+
+    - name: Configure CMake
+      run: cmake -B build --preset x64-windows-msvc-release -DDLSS_SDK_ROOT=DLSS -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+      env:
+        VCPKG_ROOT: C:/vcpkg
+
+    - name: Build
+      run: cmake --build build --config Release --parallel
+
+    - name: Run C++ Tests
+      run: ctest --test-dir build --config Release --output-on-failure
+
+    - name: Flutter pub get
+      run: flutter pub get
+      working-directory: gui
+
+    - name: Flutter analyze
+      run: flutter analyze
+      working-directory: gui
+
+    - name: Flutter test
+      run: flutter test
+      working-directory: gui
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dlss-compositor-windows
+        path: |
+          build/Release/dlss-compositor-cli.exe
+          build/Release/*.dll
+          gui/build/windows/x64/runner/Release/
