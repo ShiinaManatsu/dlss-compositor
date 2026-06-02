@@ -152,6 +152,9 @@ if(Vulkan_FOUND)
     target_link_libraries(dlss_engine_lib PUBLIC Vulkan::Headers)
 endif()
 
+target_compile_definitions(dlss_engine_lib PRIVATE
+    DLSS_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders")
+
 # -----------------------------------------------------------------------------
 # CLI executable (smoke entry — replaced by full CLI in T31).
 # -----------------------------------------------------------------------------
