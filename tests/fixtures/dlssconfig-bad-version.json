@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "output_resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "render_resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "quality_mode": "quality",
+  "display_device": "sRGB",
+  "view_transform": "Filmic",
+  "is_hdr": false,
+  "fps": 30,
+  "filename_pattern": "frame_####.png",
+  "jitter_phases": 18,
+  "frames": {
+    "0001": {
+      "matrix_world": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 5.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "projection": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0, -0.2],
+        [0.0, 0.0, -1.0, 0.0]
+      ],
+      "fov": 0.6911,
+      "aspect_ratio": 1.7777778,
+      "near_clip": 0.1,
+      "far_clip": 100.0,
+      "jitter_x": 0.0,
+      "jitter_y": 0.0
+    }
+  }
+}
