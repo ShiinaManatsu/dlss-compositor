@@ -1,0 +1,7 @@
+Command: C:\Users\HESHIY~1\AppData\Local\Temp\codemaker\dlssconfig_loader_tests.exe "Load valid config" --reporter compact
+Working directory: D:\Github\dlss-compositor-opus-rework
+
+Output:
+Filters: "Load valid config"
+RNG seed: 4133903031
+All tests passed (3 assertions in 1 test case)

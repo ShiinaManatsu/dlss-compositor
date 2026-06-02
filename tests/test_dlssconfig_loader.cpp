@@ -31,20 +31,20 @@ TEST_CASE("Load valid config", "[dlssconfig]") {
     auto result = dlss::DlssConfigLoader::Load("tests/fixtures/sample-dlssconfig.json");
     REQUIRE(result.has_value());
     REQUIRE(result->version == 1);
-    REQUIRE(result->fps == 24);
+    REQUIRE(result->fps == 30);
 }
 
 TEST_CASE("Load valid config maps metadata", "[dlssconfig]") {
     auto result = dlss::DlssConfigLoader::Load("tests/fixtures/sample-dlssconfig.json");
     REQUIRE(result.has_value());
-    REQUIRE(result->output_resolution.width == 3840);
-    REQUIRE(result->output_resolution.height == 2160);
-    REQUIRE(result->render_resolution.width == 2560);
-    REQUIRE(result->render_resolution.height == 1440);
+    REQUIRE(result->output_resolution.width == 1920);
+    REQUIRE(result->output_resolution.height == 1080);
+    REQUIRE(result->render_resolution.width == 1280);
+    REQUIRE(result->render_resolution.height == 720);
     REQUIRE(result->quality == dlss::QualityMode::Quality);
     REQUIRE(result->display_device == "sRGB");
     REQUIRE(result->view_transform == "Filmic");
-    REQUIRE(result->filename_pattern == "frame_####.exr");
+    REQUIRE(result->filename_pattern == "frame_####.png");
     REQUIRE(result->jitter_phases == 18);
 }
 
@@ -54,12 +54,12 @@ TEST_CASE("Load valid config maps frame payload", "[dlssconfig]") {
     REQUIRE(result->frames.size() == 5);
 
     const auto& frame = result->frames.at("0001");
-    REQUIRE(frame.matrix_world[2][3] == Catch::Approx(0.0f));
-    REQUIRE(frame.projection[2][3] == Catch::Approx(-1.0f));
-    REQUIRE(frame.fov == Catch::Approx(0.785398f));
-    REQUIRE(frame.aspect_ratio == Catch::Approx(1.777778f));
-    REQUIRE(frame.jitter.x == Catch::Approx(-0.25f));
-    REQUIRE(frame.jitter.y == Catch::Approx(0.25f));
+    REQUIRE(frame.matrix_world[2][3] == Catch::Approx(5.0f));
+    REQUIRE(frame.projection[2][3] == Catch::Approx(-0.2f));
+    REQUIRE(frame.fov == Catch::Approx(0.6911f));
+    REQUIRE(frame.aspect_ratio == Catch::Approx(1.7777778f));
+    REQUIRE(frame.jitter.x == Catch::Approx(0.125f));
+    REQUIRE(frame.jitter.y == Catch::Approx(-0.125f));
 }
 
 TEST_CASE("Jitter clamp edge tolerance is silent", "[dlssconfig]") {
