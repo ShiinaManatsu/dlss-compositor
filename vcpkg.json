@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "dlss-compositor",
+  "version": "2.0.0",
+  "description": "Headless DLSS Super-Resolution + Frame-Generation compute compositor.",
+  "homepage": "https://github.com/heshiyu/dlss-compositor",
+  "dependencies": [
+    "nlohmann-json",
+    "openexr",
+    "catch2",
+    "spdlog",
+    "volk",
+    "vulkan-memory-allocator",
+    "ffmpeg"
+  ]
+}

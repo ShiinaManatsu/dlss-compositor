@@ -1,0 +1,79 @@
+{
+  "version": 4,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "_msvc-base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja Multi-Config",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_HOST_TRIPLET":   "x64-windows-static-md",
+        "DLSS_SDK_ROOT":        "${sourceDir}/DLSS",
+        "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+      },
+      "environment": {
+        "VCPKG_FEATURE_FLAGS": "manifests,versions,binarycaching"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "x64-windows-msvc-release",
+      "displayName": "x64 Windows MSVC (Release)",
+      "inherits": "_msvc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "x64-windows-msvc-debug",
+      "displayName": "x64 Windows MSVC (Debug)",
+      "inherits": "_msvc-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-windows-msvc-release",
+      "displayName": "Build x64 Windows MSVC Release",
+      "configurePreset": "x64-windows-msvc-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "x64-windows-msvc-debug",
+      "displayName": "Build x64 Windows MSVC Debug",
+      "configurePreset": "x64-windows-msvc-debug",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "x64-windows-msvc-release",
+      "configurePreset": "x64-windows-msvc-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-windows-msvc-debug",
+      "configurePreset": "x64-windows-msvc-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
