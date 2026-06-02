@@ -14,6 +14,7 @@ add_executable(dlss_engine_tests
     test_channel_mapper.cpp
     test_texture_pool.cpp
     test_depth_pass.cpp
+    test_dlss_fg.cpp
     test_dlss_sr.cpp
     test_tonemap_pass.cpp
     test_inverse_tonemap.cpp
