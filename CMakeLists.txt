@@ -131,7 +131,10 @@ add_library(dlss_engine_lib STATIC
     src/gpu/passes/inverse_tonemap_pass.cpp
     src/io/frame_prefetcher.cpp
     src/io/channel_mapper.cpp
-    src/io/async_writer.cpp)
+    src/io/async_writer.cpp
+    src/rpc/dispatcher.cpp
+    src/rpc/transport_stdio.cpp
+    src/rpc/transport_native.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC
@@ -160,9 +163,9 @@ target_compile_definitions(dlss_engine_lib PRIVATE
     DLSS_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders")
 
 # -----------------------------------------------------------------------------
-# CLI executable (smoke entry — replaced by full CLI in T31).
+# CLI executable — full CLI front-end (T31): JSON-RPC stdio + --self-check + --config.
 # -----------------------------------------------------------------------------
-add_executable(dlss-compositor-cli src/main_smoke.cpp)
+add_executable(dlss-compositor-cli src/main_cli.cpp)
 target_link_libraries(dlss-compositor-cli PRIVATE dlss_engine_lib dlss_warnings)
 
 # Copy DLSS runtime DLLs next to the exe so it can launch out-of-box.
