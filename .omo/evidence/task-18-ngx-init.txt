@@ -1,0 +1,21 @@
+T18 NGX initialization wrapper evidence
+Date: 2026-06-02
+Branch: v2/main
+
+Implemented:
+- src/dlss/ngx_wrapper.h: NgxContext declaration with SR/FG capability accessors, DLL version info, raw NGX params access.
+- src/dlss/ngx_wrapper.cpp: Vulkan NGX Init_with_ProjectID, GetCapabilityParameters, SR availability, FG availability, FG max multiplier, DLL version banner, non-throwing DestroyParameters/Shutdown1 cleanup.
+- tests/test_ngx_init.cpp: [gpu] Catch2 tests for init/capability query, repeated init/destroy, params non-null.
+- scripts/verify_ngx_doc_refs.py: verifier for NVSDK_NGX_* calls requiring nearby // DLSS § citations.
+- CMakeLists.txt and tests/CMakeLists.txt: added wrapper source/test, linked Windows Version.lib for DLL version query, and switched runtime DLL copy source to dev DLLs for Debug and release DLLs for non-Debug.
+- src/gpu/vulkan_context.cpp and src/gpu/vulkan_context.h: defined VK_NO_PROTOTYPES before Vulkan headers for T17 build issue.
+- tests/test_vulkan_context.cpp: replaced obsolete vmaGetStatistics smoke call with vmaCalculateStatistics + VmaTotalStatistics.
+
+Verification:
+- LSP diagnostics attempted for changed C++ files: blocked because clangd is not installed (tool output: Command not found: clangd).
+- Citation verifier: PASS
+  Command: python scripts/verify_ngx_doc_refs.py src/dlss
+  Output: All NVSDK_NGX_* calls have DLSS § citations ✓
+- Build: BLOCKED
+  Command: cmake --build build\\x64-windows-msvc-release --config Release
+  Output: The term 'cmake' is not recognized as the name of a cmdlet, function, script file, or operable program.

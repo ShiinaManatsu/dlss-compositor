@@ -1,3 +1,7 @@
+#ifndef VK_NO_PROTOTYPES
+#define VK_NO_PROTOTYPES
+#endif
+
 #include "vulkan_context.h"
 #include "../core/log.h"
 

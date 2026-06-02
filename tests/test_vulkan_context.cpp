@@ -41,8 +41,8 @@ TEST_CASE("VulkanContext - VMA no leak on destroy", "[gpu]") {
     // Create and immediately destroy — VMA should report no allocations
     {
         dlss::VulkanContext ctx;
-        VmaStatistics stats;
-        vmaGetStatistics(ctx.allocator(), nullptr);  // just ensure it doesn't crash
+        VmaTotalStatistics stats{};
+        vmaCalculateStatistics(ctx.allocator(), &stats);  // just ensure it doesn't crash
     }
     // If we reach here without crash/ASAN, VMA was properly cleaned up
     SUCCEED("VulkanContext destroyed without crash");

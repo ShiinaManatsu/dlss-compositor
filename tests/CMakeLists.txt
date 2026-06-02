@@ -17,5 +17,19 @@ target_link_libraries(dlss_engine_tests PRIVATE
     dlss_warnings
     Catch2::Catch2WithMain)
 
+# GPU NGX tests need the same runtime DLL side-by-side layout as the CLI.
+foreach(_dll_name nvngx_dlss.dll nvngx_dlssg.dll)
+    set(_dev_dll "${DLSS_DLL_DEV_DIR}/${_dll_name}")
+    set(_rel_dll "${DLSS_DLL_REL_DIR}/${_dll_name}")
+    if(EXISTS "${_dev_dll}" AND EXISTS "${_rel_dll}")
+        add_custom_command(TARGET dlss_engine_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<$<CONFIG:Debug>:${_dev_dll}>$<$<NOT:$<CONFIG:Debug>>:${_rel_dll}>"
+                "$<TARGET_FILE_DIR:dlss_engine_tests>"
+            COMMENT "Copying DLSS runtime DLL for tests (${_dll_name}; Debug=dev, non-Debug=rel)"
+            VERBATIM)
+    endif()
+endforeach()
+
 include(Catch)
 catch_discover_tests(dlss_engine_tests)
