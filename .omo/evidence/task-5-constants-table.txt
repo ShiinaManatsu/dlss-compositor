@@ -1,0 +1,25 @@
+﻿Task 5 evidence — core constants + dlssconfig schema
+
+Created files:
+- src/core/types.h
+- src/core/dlssconfig.schema.json
+- tests/test_core_constants.cpp
+- tests/fixtures/sample-dlssconfig.json
+
+Implemented constant tables:
+- DLSS_RATIO = {1.0, 1.0, 1.5, 1.724, 2.0, 3.0}
+- JITTER_PHASES = {8, 8, 18, 24, 32, 72}
+- DEFAULT_PRESET = {K, K, K, K, M, L}
+
+Schema checks:
+- sample-dlssconfig.json validates against src/core/dlssconfig.schema.json
+- additionalProperties:false rejects unknown top-level field cut_after
+- output_format enum rejects unsupported value dnxhr
+
+Verification notes:
+- python -m jsonschema -i tests/fixtures/sample-dlssconfig.json src/core/dlssconfig.schema.json -> PASS
+- reject-cut_after=True
+- reject-dnxhr=True
+- lsp_diagnostics for C++ files unavailable because clangd is not installed in environment
+- lsp_diagnostics for JSON unavailable because biome server exits with code -4058 in environment
+- build/test execution unavailable because cmake is not installed in environment

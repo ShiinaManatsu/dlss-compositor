@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dlss-compositor/schema/dlssconfig.schema.json",
+  "title": "DLSS Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "output_resolution",
+    "render_resolution",
+    "quality_mode",
+    "display_device",
+    "view_transform",
+    "is_hdr",
+    "fps",
+    "filename_pattern",
+    "jitter_phases"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "output_resolution": {
+      "$ref": "#/$defs/resolution"
+    },
+    "render_resolution": {
+      "$ref": "#/$defs/resolution"
+    },
+    "quality_mode": {
+      "type": "string",
+      "enum": [
+        "dlaa",
+        "ultra_quality",
+        "quality",
+        "balanced",
+        "performance",
+        "ultra_performance"
+      ]
+    },
+    "display_device": {
+      "type": "string"
+    },
+    "view_transform": {
+      "type": "string"
+    },
+    "is_hdr": {
+      "type": "boolean"
+    },
+    "fps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "filename_pattern": {
+      "type": "string"
+    },
+    "jitter_phases": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "output_format": {
+      "type": "string",
+      "enum": [
+        "exr_linear",
+        "png_16",
+        "prores_422hq"
+      ]
+    },
+    "frames": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/frame"
+      }
+    }
+  },
+  "$defs": {
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "height": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "vec4": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "mat4": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/vec4"
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "matrix_world",
+        "projection",
+        "fov",
+        "aspect_ratio",
+        "near_clip",
+        "far_clip",
+        "jitter_x",
+        "jitter_y"
+      ],
+      "properties": {
+        "matrix_world": {
+          "$ref": "#/$defs/mat4"
+        },
+        "projection": {
+          "$ref": "#/$defs/mat4"
+        },
+        "fov": {
+          "type": "number"
+        },
+        "aspect_ratio": {
+          "type": "number"
+        },
+        "near_clip": {
+          "type": "number"
+        },
+        "far_clip": {
+          "type": "number"
+        },
+        "jitter_x": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        },
+        "jitter_y": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        }
+      }
+    }
+  }
+}
