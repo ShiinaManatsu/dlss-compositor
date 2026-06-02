@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter (Debug)",
+      "type": "dart",
+      "request": "launch",
+      "program": "gui/lib/main.dart",
+      "cwd": "${workspaceFolder}/gui",
+      "args": [
+        "--enable-vm-service"
+      ]
+    },
+    {
+      "name": "C++ Attach to Flutter",
+      "type": "cppvsdbg",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "symbolSearchPath": "${workspaceFolder}/gui/build/windows/x64/runner/Release;${workspaceFolder}/build/Release"
+    },
+    {
+      "name": "C++ Launch CLI",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Release/dlss-compositor-cli.exe",
+      "args": [
+        "--config",
+        "${workspaceFolder}/tests/fixtures/sample-dlssconfig.json"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "DLSS_COMPOSITOR_LOG",
+          "value": "debug"
+        }
+      ],
+      "preLaunchTask": "build-cli"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Flutter + C++ (Plugin Debug)",
+      "configurations": [
+        "Flutter (Debug)",
+        "C++ Attach to Flutter"
+      ],
+      "preLaunchTask": "build-flutter",
+      "stopAll": true
+    }
+  ]
+}

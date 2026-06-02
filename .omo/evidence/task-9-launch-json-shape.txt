@@ -1,0 +1,2 @@
+﻿configurations=3
+compounds=1
