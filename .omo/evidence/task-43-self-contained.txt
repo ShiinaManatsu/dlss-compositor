@@ -1,0 +1,83 @@
+Task 43: Bilingual Single-File User Manual — Self-Contained Check
+================================================================
+Date: 2026-06-02
+File: docs/user_manual.html
+
+FILE SIZE
+---------
+Size bytes : 30145
+Size KB    : 29.44 KB
+Limit      : 500 KB
+PASS       : yes (well under limit)
+
+CONTENT CHECKS
+--------------
+Chinese chapters (h2 id="zh-ch*")  : 7  PASS (required ≥7)
+English chapters (h2 id="en-ch*")  : 7  PASS (required ≥7)
+Gotcha items (class="gotcha")      : 14 PASS (required ≥5, 7 per language)
+Has <details> tag                  : yes PASS
+Has lang switcher (switchLang JS)  : yes PASS
+Has dark mode (prefers-color-scheme: dark) : yes PASS
+Self-contained (no CDN / external href) : yes PASS
+
+10-NIT CLAIM CHECK
+------------------
+"10-nit clamp" appears : yes
+Context: 'There is no "10-nit clamp" — that was a v1 bug.'
+         'NO "10-nit clamp"' (embedded markdown refutation)
+Result  : PASS — mentioned only as refutation, not as a claim
+
+CHAPTER LIST
+------------
+Chinese:
+  第一章：什么是 DLSS Compositor？
+  第二章：快速开始
+  第三章：工作流程
+  第四章：设置说明
+  第五章：注意事项（Gotchas）
+  第六章：常见问题 FAQ
+  第七章：故障排查
+
+English:
+  Chapter 1: What is DLSS Compositor?
+  Chapter 2: Quick Start
+  Chapter 3: Workflow
+  Chapter 4: Settings Explained
+  Chapter 5: Notes & Gotchas
+  Chapter 6: FAQ
+  Chapter 7: Troubleshooting
+
+GOTCHA ITEMS (7 per language, 14 total)
+----------------------------------------
+CN: 1. 质量模式与分辨率强绑定
+    2. Cycles 降噪必须开启
+    3. OCIO 必须保持 Raw
+    4. HDR 项目需要正确的显示设备（并驳斥"10 nit 裁剪"谣言）
+    5. 不需要手动导出相机数据
+    6. 运动矢量映射规则 DLSS_MV = (Blender.X, -Blender.Y)
+    7. InReset 仅用于首帧/跳帧/镜头切换
+
+EN: 1. Quality mode and resolution are locked together
+    2. Cycles denoising must be ON
+    3. OCIO must stay at Raw
+    4. HDR projects need the correct display device (refutes 10-nit clamp myth)
+    5. No manual camera export step
+    6. Motion vector mapping DLSS_MV = (Blender.X, -Blender.Y)
+    7. InReset on first frame and cuts only
+
+EMBEDDED MARKDOWN
+-----------------
+Location : <details id="embedded-md"> at bottom of file
+Contents : Quality mode table, pipeline order, gotcha summary, 
+           DLSS technical facts, NOT-in-v2 codec list, schema note
+AI-readable: yes
+
+CONVENTIONS COMPLIANCE
+----------------------
+No external CSS/JS CDN         : PASS
+No 10-nit false claim          : PASS (refutation only)
+DNxHR/H264 not listed as impl. : PASS (listed under "NOT in v2" only)
+No build tools used            : PASS (hand-authored HTML)
+Vulkan-only statement present  : PASS
+Flutter GUI (not Electron)     : PASS
+stdout = RPC only note         : PASS

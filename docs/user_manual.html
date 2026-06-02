@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DLSS Compositor v2 — 用户手册 / User Manual</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1a1a1a; --accent: #2563eb;
+  --card-bg: #f8f9fa; --border: #e5e7eb; --code-bg: #f1f5f9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a; --fg: #e2e8f0; --accent: #60a5fa;
+    --card-bg: #1e293b; --border: #334155; --code-bg: #0f172a;
+  }
+}
+body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg);
+       max-width: 900px; margin: 0 auto; padding: 20px 20px 60px; line-height: 1.6; }
+h1, h2, h3 { color: var(--accent); }
+h1 { margin-top: 40px; }
+.lang-tabs { position: fixed; top: 10px; right: 20px; z-index: 100; }
+.lang-tabs button { padding: 4px 12px; margin-left: 4px; border-radius: 4px;
+                    border: 1px solid var(--border); cursor: pointer;
+                    background: var(--card-bg); color: var(--fg); font-size: 0.9em; }
+.lang-tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.lang-en, .lang-zh { display: none; }
+.lang-en.active, .lang-zh.active { display: block; }
+code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px; font-size: 0.9em; font-family: monospace; }
+pre { background: var(--code-bg); padding: 12px; overflow-x: auto; border-radius: 6px; font-size: 0.9em; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+th { background: var(--card-bg); font-weight: 600; }
+tr:nth-child(even) td { background: var(--card-bg); }
+.gotcha { border-left: 4px solid #f59e0b; padding: 10px 14px; margin: 14px 0;
+          background: var(--card-bg); border-radius: 0 6px 6px 0; }
+.note   { border-left: 4px solid var(--accent); padding: 10px 14px; margin: 14px 0;
+          background: var(--card-bg); border-radius: 0 6px 6px 0; }
+dl dt { font-weight: 600; margin-top: 14px; color: var(--accent); }
+dl dd { margin-left: 20px; }
+details { margin-top: 40px; border: 1px solid var(--border); border-radius: 6px; padding: 10px 16px; }
+details pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; }
+summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
+.chapter-nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0 30px; }
+.chapter-nav a { text-decoration: none; color: var(--accent); border: 1px solid var(--border);
+                 padding: 4px 10px; border-radius: 4px; font-size: 0.85em; background: var(--card-bg); }
+.chapter-nav a:hover { background: var(--accent); color: white; border-color: var(--accent); }
+hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+</style>
+</head>
+<body>
+
+<div class="lang-tabs">
+  <button onclick="switchLang('zh')" id="btn-zh" class="active">中文</button>
+  <button onclick="switchLang('en')" id="btn-en">English</button>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CHINESE CONTENT
+     ═══════════════════════════════════════════ -->
+<div class="lang-zh active">
+  <h1>DLSS Compositor v2 用户手册</h1>
+  <p style="color: var(--fg); opacity: 0.6; font-size: 0.85em;">版本 2.0 · Vulkan · DLSS SDK 3.10.6.0</p>
+
+  <div class="chapter-nav">
+    <a href="#zh-ch1">第一章：概述</a>
+    <a href="#zh-ch2">第二章：快速开始</a>
+    <a href="#zh-ch3">第三章：工作流程</a>
+    <a href="#zh-ch4">第四章：设置说明</a>
+    <a href="#zh-ch5">第五章：注意事项</a>
+    <a href="#zh-ch6">第六章：常见问题</a>
+    <a href="#zh-ch7">第七章：故障排查</a>
+  </div>
+
+  <hr>
+
+  <!-- CH1 -->
+  <h2 id="zh-ch1">第一章：什么是 DLSS Compositor？</h2>
+  <p>DLSS Compositor v2 是一个将 Blender Cycles 离线渲染序列通过 NVIDIA DLSS 超分辨率（SR）和帧生成（FG）处理的开源工具。它读取 Blender 渲染的多通道 EXR 序列，在 GPU 上使用 DLSS AI 提升画质和帧率，输出场景线性 EXR 或 ProRes 422 HQ 序列。</p>
+  <p>整个系统由三层组成：</p>
+  <ul>
+    <li><strong>Blender 扩展</strong>：配置渲染通道、自动导出相机数据（静默进行）</li>
+    <li><strong>Flutter GUI</strong>：任务配置、实时预览、进度监控</li>
+    <li><strong>C++ 引擎</strong>：Vulkan + NGX 驱动的 SR+FG 管线，负责实际处理和输出</li>
+  </ul>
+  <div class="note">ℹ️ v2 仅支持 <strong>Vulkan 输出</strong>。不支持 DirectX 12。GPU 界面为 Flutter on Windows，不是 Electron。</div>
+
+  <!-- CH2 -->
+  <h2 id="zh-ch2">第二章：快速开始</h2>
+  <h3>前提条件</h3>
+  <ul>
+    <li>NVIDIA RTX GPU（SR 需要 RTX 20 以上；FG 需要 RTX 40 以上）</li>
+    <li>NVIDIA 驱动 535 或更新版本</li>
+    <li>Blender 5.1 或更新版本</li>
+    <li>Windows 10/11（64位）</li>
+  </ul>
+  <h3>五步流程</h3>
+  <ol>
+    <li>安装 Blender 扩展：打开 Blender → 编辑 → 首选项 → 扩展 → 从本地安装 <code>blender/dlss_compositor/</code></li>
+    <li>在 Blender 中打开你的场景，在 N 面板找到 <strong>DLSS Compositor</strong> 选项卡</li>
+    <li>设置输出分辨率 → 选择质量模式 → 点击 <strong>Apply Settings</strong> → 渲染动画（Ctrl+F12）</li>
+    <li>渲染完成后，EXR 序列与 <code>dlssconfig.json</code> 已自动生成</li>
+    <li>启动 <code>dlss_compositor_gui.exe</code> → 打开 <code>dlssconfig.json</code> → 配置参数 → 点击 <strong>Start</strong></li>
+  </ol>
+  <div class="note">ℹ️ 每次修改 Blender 场景中影响分辨率或质量模式的设置后，需要重新点击 <strong>Apply Settings</strong>。</div>
+
+  <!-- CH3 -->
+  <h2 id="zh-ch3">第三章：工作流程</h2>
+  <p>完整数据流如下：</p>
+  <pre>Blender 渲染（EXR 序列 + 运动矢量 + 深度）
+         ↓
+  dlssconfig.json（Schema 单一来源）
+         ↓
+  dlss-compositor-cli.exe（C++ 引擎）
+     ├── DLSS SR（场景线性输入，调色前）
+     ├── Tonemap（ACES Filmic + PQ ST.2084）
+     └── DLSS FG（调色后，显示就绪输入）
+         ↓
+  输出：EXR（场景线性）/ ProRes 422 HQ</pre>
+  <table>
+    <tr><th>层次</th><th>组件</th><th>职责</th></tr>
+    <tr><td>Blender 扩展</td><td><code>blender/dlss_compositor/</code></td><td>配置渲染通道、自动导出相机数据、生成 dlssconfig.json</td></tr>
+    <tr><td>Flutter GUI</td><td><code>dlss_compositor_gui.exe</code></td><td>任务配置、实时预览、进度监控、日志查看</td></tr>
+    <tr><td>C++ 引擎</td><td><code>dlss-compositor-cli.exe</code></td><td>Vulkan + NGX SR+FG 管线、EXR/ProRes 输出</td></tr>
+  </table>
+  <h3>管线顺序</h3>
+  <p>这个顺序是 DLSS SDK 规定的，不能改变：</p>
+  <ol>
+    <li><strong>SR 输入必须为场景线性</strong>（EOTF 尚未应用）</li>
+    <li><strong>调色（Tonemap）</strong>在 SR 之后进行</li>
+    <li><strong>FG 输入必须为显示就绪</strong>（调色 + EOTF 之后）</li>
+  </ol>
+
+  <!-- CH4 -->
+  <h2 id="zh-ch4">第四章：设置说明</h2>
+  <h3>质量模式</h3>
+  <table>
+    <tr><th>模式</th><th>放大倍数</th><th>渲染分辨率</th><th>Jitter 相位数</th><th>推荐场景</th></tr>
+    <tr><td>DLAA</td><td>1×</td><td>100%</td><td>8</td><td>最高质量，无放大，纯抗锯齿</td></tr>
+    <tr><td>Quality</td><td>1.5×</td><td>67%</td><td>18</td><td>高质量放大，视觉接近原生</td></tr>
+    <tr><td>Balanced</td><td>1.724×</td><td>58%</td><td>24</td><td>质量与渲染时间均衡</td></tr>
+    <tr><td>Performance</td><td>2×</td><td>50%</td><td>32</td><td>速度优先，渲染量减半</td></tr>
+    <tr><td>Ultra Performance</td><td>3×</td><td>33%</td><td>72</td><td>最快渲染速度，动画量大时使用</td></tr>
+  </table>
+  <div class="note">ℹ️ Jitter 序列使用 Halton 低差异序列（X 轴基数 2，Y 轴基数 3）。"base=8"指 DLAA/UQ 的最小相位数，不是 Halton 的基数。</div>
+
+  <h3>帧生成倍率</h3>
+  <table>
+    <tr><th>倍率</th><th>插值帧数</th><th>GPU 要求</th></tr>
+    <tr><td>2×</td><td>每帧插入 1 帧</td><td>RTX 40 系列</td></tr>
+    <tr><td>3×</td><td>每帧插入 2 帧</td><td>RTX 40 系列</td></tr>
+    <tr><td>4×</td><td>每帧插入 3 帧</td><td>RTX 40 系列（Ada 架构）</td></tr>
+  </table>
+
+  <h3>SR 与 FG 与 SR+FG</h3>
+  <ul>
+    <li><strong>仅 SR</strong>：提升输出分辨率，输出帧数不变</li>
+    <li><strong>仅 FG</strong>：不放大分辨率，输出帧数成倍增加</li>
+    <li><strong>SR+FG</strong>：同时提升分辨率和帧数，效果最大</li>
+  </ul>
+
+  <h3>输出格式</h3>
+  <table>
+    <tr><th>格式</th><th>颜色空间</th><th>适用场景</th></tr>
+    <tr><td>EXR（16位半精度）</td><td>场景线性</td><td>后期合成、进一步处理</td></tr>
+    <tr><td>PNG（16位）</td><td>取决于 OCIO 配置</td><td>LDR 最终输出</td></tr>
+    <tr><td>ProRes 422 HQ</td><td>场景线性（HDR）</td><td>视频后期、交付</td></tr>
+  </table>
+
+  <!-- CH5 -->
+  <h2 id="zh-ch5">第五章：注意事项（Gotchas）</h2>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 1：质量模式与分辨率强绑定</strong><br>
+  质量模式决定了 <code>resolution_percentage</code>、Jitter 序列长度和相位数。渲染期间或渲染后修改质量模式，需要<strong>完全重渲所有帧</strong>。已渲染的帧与新设置不匹配，会导致 SR 输出退化、时序抖动。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 2：Cycles 降噪必须开启</strong><br>
+  DLSS SR 依赖降噪后的干净帧。Apply Settings 会自动强制开启 Cycles 降噪，请勿手动关闭。未降噪的含噪 EXR 会让 SR 的 AI 推断出错误的时序信息。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 3：OCIO 必须保持 Raw</strong><br>
+  File Output 节点的 <code>color_management</code> 必须是 <code>OVERRIDE</code> 且 <code>view_transform = Raw</code>，才能输出未编码的场景线性 EXR。如果在 Apply Settings 之后手动修改了这些设置，需重新点击 Apply Settings。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 4：HDR 项目需要正确的显示设备</strong><br>
+  在 Blender 颜色管理中将 Display Device 设为 <code>Rec.2100-PQ</code> 或 <code>Rec.2100-HLG</code>，<code>is_hdr</code> 标志将自动推导为 <code>true</code>。HDR 管线使用 ACES Filmic + PQ ST.2084，输出完整的 HDR 范围。<strong>不存在"10 nit 裁剪"</strong>——这是 v1 的错误说法。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 5：不需要手动导出相机数据</strong><br>
+  v2 在渲染期间静默地自动导出相机矩阵和运动矢量数据，不需要单独的导出步骤。如果你在 GUI 中看到"相机数据缺失"错误，说明渲染时扩展未正确加载。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 6：运动矢量映射规则</strong><br>
+  DLSS 坐标系要求：<code>DLSS_MV = (Blender.X, -Blender.Y)</code>。只有 Y 轴取反，X 轴直接传入（两次符号翻转相互抵消）。不要用 <code>-blenderMv</code>（整体取反）——这是 v1 的隐藏 bug。</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 7：InReset 仅用于首帧/跳帧/镜头切换</strong><br>
+  <code>InReset = true</code> 只能在以下三种情况下设置：第一帧、序列中存在帧间隔、或摄像机发生不连续跳切。<strong>绝对不要每帧都设置为 true</strong>——这会清空时序历史，完全抵消 DLSS 的效果。</div>
+
+  <!-- CH6 -->
+  <h2 id="zh-ch6">第六章：常见问题 FAQ</h2>
+  <dl>
+    <dt>"NGX feature unavailable" 错误</dt>
+    <dd>将 NVIDIA 驱动更新到 535+ 版本。RTX 30 系列及更早的 GPU 不支持帧生成（FG）。</dd>
+
+    <dt>"dlssconfig schema invalid" 错误</dt>
+    <dd>确保 Blender 扩展已启用，然后重新渲染。错误信息中会指出具体的非法字段名称。</dd>
+
+    <dt>FG 倍率按钮显示为灰色</dt>
+    <dd>当前 GPU 不支持该倍率选项。RTX 40 系列（Ada 架构）支持最高 4×；RTX 30 系列不支持 FG。</dd>
+
+    <dt>输出的 EXR 颜色看起来不正确</dt>
+    <dd>检查 Blender 中的 OCIO 设置是否被修改为非 Raw。重新点击 Apply Settings 后再次渲染。</dd>
+
+    <dt>GUI 预览帧不更新</dt>
+    <dd>查看 GUI 底部日志面板中的错误信息。FFmpeg 报错或引擎崩溃都可能导致预览停止。</dd>
+
+    <dt>渲染速度比预期慢很多</dt>
+    <dd>确认已选择正确的质量模式（例如 Ultra Performance 用于草稿），并检查 GPU 是否被其他应用程序占用。</dd>
+
+    <dt>输出文件大小异常</dt>
+    <dd>EXR（16 位半精度）是预期的大文件格式。如果需要更小的文件，选择 ProRes 422 HQ 或 PNG。</dd>
+  </dl>
+
+  <!-- CH7 -->
+  <h2 id="zh-ch7">第七章：故障排查</h2>
+  <h3>自检命令</h3>
+  <p>在命令行运行自检，它会验证 NGX 状态、Vulkan 设备能力和 FFmpeg 可用性：</p>
+  <pre>dlss-compositor-cli.exe --self-check</pre>
+
+  <h3>日志文件</h3>
+  <p>所有诊断信息写入 <code>dlss-compositor.log</code>（与 exe 文件同目录）。日志使用轮转文件策略，最大 10MB × 3 个文件。</p>
+  <div class="note">ℹ️ <code>stdout</code> 仅用于 JSON-RPC 协议帧（GUI 通信）。诊断输出只在日志文件和 <code>stderr</code> 中。不要将 stdout 重定向到文件——这会破坏 GUI 通信。</div>
+
+  <h3>常见报错对照</h3>
+  <table>
+    <tr><th>错误信息</th><th>原因</th><th>解决方法</th></tr>
+    <tr><td><code>NVSDK_NGX_Result_FAIL_FeatureNotSupported</code></td><td>驱动版本过低或 GPU 不支持</td><td>更新驱动到 535+</td></tr>
+    <tr><td><code>VK_ERROR_DEVICE_LOST</code></td><td>GPU 超时或驱动崩溃</td><td>检查 GPU 温度和驱动稳定性</td></tr>
+    <tr><td><code>EXR_CHANNEL_MISSING: CryptoMatte</code></td><td>未启用 CryptoMatte 通道</td><td>如不需要 CryptoMatte，在配置中禁用它</td></tr>
+    <tr><td><code>Schema validation failed</code></td><td>dlssconfig.json 格式错误</td><td>重新运行 Apply Settings + 渲染</td></tr>
+  </table>
+
+  <h3>如何报告 Bug</h3>
+  <p>提交 issue 时请附带：</p>
+  <ul>
+    <li><code>dlss-compositor.log</code> 完整文件</li>
+    <li><code>dlssconfig.json</code>（可以脱敏）</li>
+    <li>GPU 型号和驱动版本</li>
+    <li><code>--self-check</code> 输出结果</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     ENGLISH CONTENT
+     ═══════════════════════════════════════════ -->
+<div class="lang-en">
+  <h1>DLSS Compositor v2 — User Manual</h1>
+  <p style="color: var(--fg); opacity: 0.6; font-size: 0.85em;">Version 2.0 · Vulkan · DLSS SDK 3.10.6.0</p>
+
+  <div class="chapter-nav">
+    <a href="#en-ch1">Ch 1: Overview</a>
+    <a href="#en-ch2">Ch 2: Quick Start</a>
+    <a href="#en-ch3">Ch 3: Workflow</a>
+    <a href="#en-ch4">Ch 4: Settings</a>
+    <a href="#en-ch5">Ch 5: Gotchas</a>
+    <a href="#en-ch6">Ch 6: FAQ</a>
+    <a href="#en-ch7">Ch 7: Troubleshooting</a>
+  </div>
+
+  <hr>
+
+  <!-- CH1 -->
+  <h2 id="en-ch1">Chapter 1: What is DLSS Compositor?</h2>
+  <p>DLSS Compositor v2 processes offline Blender Cycles renders through NVIDIA DLSS Super Resolution (SR) and Frame Generation (FG). It reads multi-channel EXR sequences from Blender, upscales and/or interpolates frames using DLSS AI on your GPU, then outputs scene-linear EXR or ProRes 422 HQ sequences.</p>
+  <p>The system has three layers:</p>
+  <ul>
+    <li><strong>Blender extension</strong>: configures render passes, exports camera data silently during render</li>
+    <li><strong>Flutter GUI</strong>: task configuration, live preview, progress monitoring</li>
+    <li><strong>C++ engine</strong>: Vulkan + NGX SR+FG pipeline, handles processing and output</li>
+  </ul>
+  <div class="note">ℹ️ v2 supports <strong>Vulkan output only</strong>. DirectX 12 is not supported. The GUI is Flutter on Windows, not Electron.</div>
+
+  <!-- CH2 -->
+  <h2 id="en-ch2">Chapter 2: Quick Start</h2>
+  <h3>Prerequisites</h3>
+  <ul>
+    <li>NVIDIA RTX GPU (SR requires RTX 20 series or newer; FG requires RTX 40 series)</li>
+    <li>NVIDIA driver 535 or newer</li>
+    <li>Blender 5.1 or newer</li>
+    <li>Windows 10/11 (64-bit)</li>
+  </ul>
+  <h3>Five-step workflow</h3>
+  <ol>
+    <li>Install the Blender extension: Edit → Preferences → Extensions → Install from Local → select <code>blender/dlss_compositor/</code></li>
+    <li>Open your scene in Blender, find the <strong>DLSS Compositor</strong> tab in the N panel</li>
+    <li>Set output resolution → pick a quality mode → click <strong>Apply Settings</strong> → render animation (Ctrl+F12)</li>
+    <li>After render: EXR sequences and <code>dlssconfig.json</code> are generated automatically</li>
+    <li>Launch <code>dlss_compositor_gui.exe</code> → open <code>dlssconfig.json</code> → configure → click <strong>Start</strong></li>
+  </ol>
+  <div class="note">ℹ️ Re-click <strong>Apply Settings</strong> after any change to resolution or quality mode in your Blender scene.</div>
+
+  <!-- CH3 -->
+  <h2 id="en-ch3">Chapter 3: Workflow</h2>
+  <pre>Blender render (EXR sequences + motion vectors + depth)
+         ↓
+  dlssconfig.json  (schema single source of truth)
+         ↓
+  dlss-compositor-cli.exe (C++ engine)
+     ├── DLSS SR  (scene-linear input, before tonemap)
+     ├── Tonemap  (ACES Filmic + PQ ST.2084)
+     └── DLSS FG  (display-ready input, after tonemap)
+         ↓
+  Output: EXR (scene-linear) / ProRes 422 HQ</pre>
+
+  <table>
+    <tr><th>Layer</th><th>Component</th><th>Responsibility</th></tr>
+    <tr><td>Blender Extension</td><td><code>blender/dlss_compositor/</code></td><td>Configure render passes, export camera data, generate dlssconfig.json</td></tr>
+    <tr><td>Flutter GUI</td><td><code>dlss_compositor_gui.exe</code></td><td>Task config, live preview, progress monitoring, log viewer</td></tr>
+    <tr><td>C++ Engine</td><td><code>dlss-compositor-cli.exe</code></td><td>Vulkan + NGX SR+FG pipeline, EXR/ProRes output</td></tr>
+  </table>
+
+  <h3>Pipeline order</h3>
+  <p>This order is mandated by the DLSS SDK and cannot change:</p>
+  <ol>
+    <li><strong>SR input must be scene-linear</strong> (no EOTF applied yet)</li>
+    <li><strong>Tonemap</strong> runs after SR</li>
+    <li><strong>FG input must be display-ready</strong> (after tonemap + EOTF)</li>
+  </ol>
+
+  <!-- CH4 -->
+  <h2 id="en-ch4">Chapter 4: Settings Explained</h2>
+  <h3>Quality Modes</h3>
+  <table>
+    <tr><th>Mode</th><th>Scale</th><th>Render %</th><th>Jitter Phases</th><th>Best For</th></tr>
+    <tr><td>DLAA</td><td>1×</td><td>100%</td><td>8</td><td>Maximum quality, no upscale, pure anti-aliasing</td></tr>
+    <tr><td>Quality</td><td>1.5×</td><td>67%</td><td>18</td><td>High quality upscaling, near-native appearance</td></tr>
+    <tr><td>Balanced</td><td>1.724×</td><td>58%</td><td>24</td><td>Balance between quality and render time</td></tr>
+    <tr><td>Performance</td><td>2×</td><td>50%</td><td>32</td><td>Speed priority, half the render samples</td></tr>
+    <tr><td>Ultra Performance</td><td>3×</td><td>33%</td><td>72</td><td>Fastest renders, large animation batches</td></tr>
+  </table>
+  <div class="note">ℹ️ Jitter uses a Halton low-discrepancy sequence (radix 2 for X, radix 3 for Y). "base=8" refers to the minimum phase count for DLAA/UQ, not the Halton radix.</div>
+
+  <h3>Frame Generation Multipliers</h3>
+  <table>
+    <tr><th>Multiplier</th><th>Interpolated Frames</th><th>GPU Requirement</th></tr>
+    <tr><td>2×</td><td>1 frame inserted per source frame</td><td>RTX 40 series</td></tr>
+    <tr><td>3×</td><td>2 frames inserted per source frame</td><td>RTX 40 series</td></tr>
+    <tr><td>4×</td><td>3 frames inserted per source frame</td><td>RTX 40 series (Ada architecture)</td></tr>
+  </table>
+
+  <h3>SR vs FG vs SR+FG</h3>
+  <ul>
+    <li><strong>SR only</strong>: higher output resolution, same frame count</li>
+    <li><strong>FG only</strong>: same output resolution, frame count multiplied</li>
+    <li><strong>SR+FG</strong>: both resolution and frame count increase, maximum effect</li>
+  </ul>
+
+  <h3>Output Formats</h3>
+  <table>
+    <tr><th>Format</th><th>Color Space</th><th>Use Case</th></tr>
+    <tr><td>EXR (16-bit half-float)</td><td>Scene-linear</td><td>VFX compositing, further processing</td></tr>
+    <tr><td>PNG (16-bit)</td><td>Depends on OCIO config</td><td>LDR final output</td></tr>
+    <tr><td>ProRes 422 HQ</td><td>Scene-linear (HDR)</td><td>Video post, delivery</td></tr>
+  </table>
+
+  <!-- CH5 -->
+  <h2 id="en-ch5">Chapter 5: Notes &amp; Gotchas</h2>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 1: Quality mode and resolution are locked together</strong><br>
+  Quality mode determines <code>resolution_percentage</code>, jitter sequence length, and phase count. Changing quality mode after rendering requires a <strong>full re-render of all frames</strong>. Mismatched frames cause degraded SR output and temporal artifacts.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 2: Cycles denoising must be ON</strong><br>
+  DLSS SR relies on clean, denoised frames. Apply Settings forces Cycles denoising on. Don't disable it manually. Noisy EXR input causes DLSS to infer incorrect temporal information.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 3: OCIO must stay at Raw</strong><br>
+  File Output nodes require <code>color_management = OVERRIDE</code> and <code>view_transform = Raw</code> to produce unclamped scene-linear EXR. If you change this after Apply Settings, re-click Apply Settings before rendering.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 4: HDR projects need the correct display device</strong><br>
+  Set Blender's Display Device to <code>Rec.2100-PQ</code> or <code>Rec.2100-HLG</code> for HDR. The <code>is_hdr</code> flag is auto-derived from this setting. The HDR pipeline uses ACES Filmic + PQ ST.2084, preserving full range. <strong>There is no "10-nit clamp"</strong> — that was a v1 bug.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 5: No manual camera export step</strong><br>
+  v2 exports camera matrices and motion vector data silently during render. There's no separate "Export Camera Data" button. If the GUI reports missing camera data, the extension wasn't loaded correctly when you rendered.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 6: Motion vector mapping</strong><br>
+  DLSS coordinate convention requires: <code>DLSS_MV = (Blender.X, -Blender.Y)</code>. Only Y is negated — X passes through (two sign flips cancel). Don't apply <code>-blenderMv</code> as a whole-vector negation; that was a hidden v1 bug masked by a wrong <code>InMVScale</code> value.</div>
+
+  <div class="gotcha">⚠️ <strong>Gotcha 7: InReset on first frame and cuts only</strong><br>
+  Set <code>InReset = true</code> only on: the first frame, a frame gap in the sequence, or a camera discontinuity (cut). <strong>Never set it every frame</strong> — that destroys temporal history and eliminates DLSS's entire benefit.</div>
+
+  <!-- CH6 -->
+  <h2 id="en-ch6">Chapter 6: FAQ</h2>
+  <dl>
+    <dt>"NGX feature unavailable"</dt>
+    <dd>Update NVIDIA drivers to 535 or newer. RTX 30 series and earlier GPUs don't support Frame Generation.</dd>
+
+    <dt>"dlssconfig schema invalid"</dt>
+    <dd>Make sure the Blender extension is enabled, then re-render. The error message names the specific invalid field.</dd>
+
+    <dt>FG multiplier buttons are grayed out</dt>
+    <dd>Your GPU doesn't support that multiplier. RTX 40 series (Ada architecture) supports up to 4×. RTX 30 series doesn't support FG at all.</dd>
+
+    <dt>Output EXR has wrong colors</dt>
+    <dd>The OCIO setting in Blender was changed after Apply Settings. Set it back to Raw and re-click Apply Settings, then re-render.</dd>
+
+    <dt>GUI preview frame not updating</dt>
+    <dd>Check the log panel at the bottom of the GUI for error messages. FFmpeg errors or engine crashes both prevent preview updates.</dd>
+
+    <dt>Render is much slower than expected</dt>
+    <dd>Confirm you've selected the right quality mode for your task (Ultra Performance for drafts). Check whether another application is competing for the GPU.</dd>
+
+    <dt>Output files are very large</dt>
+    <dd>EXR (16-bit half-float) is inherently large. Choose ProRes 422 HQ or PNG for more compact output.</dd>
+  </dl>
+
+  <!-- CH7 -->
+  <h2 id="en-ch7">Chapter 7: Troubleshooting</h2>
+  <h3>Self-check command</h3>
+  <p>Run the self-check from a terminal to validate NGX status, Vulkan device capabilities, and FFmpeg availability:</p>
+  <pre>dlss-compositor-cli.exe --self-check</pre>
+
+  <h3>Log file</h3>
+  <p>All diagnostics go to <code>dlss-compositor.log</code> in the same directory as the exe. Logs rotate at 10 MB with 3 retained files.</p>
+  <div class="note">ℹ️ <code>stdout</code> is reserved exclusively for the JSON-RPC Content-Length protocol (GUI communication). Diagnostic output only appears in the log file and <code>stderr</code>. Don't redirect stdout to a file — it breaks GUI communication.</div>
+
+  <h3>Common errors at a glance</h3>
+  <table>
+    <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td><code>NVSDK_NGX_Result_FAIL_FeatureNotSupported</code></td><td>Driver too old or GPU unsupported</td><td>Update driver to 535+</td></tr>
+    <tr><td><code>VK_ERROR_DEVICE_LOST</code></td><td>GPU timeout or driver crash</td><td>Check GPU temperature and driver stability</td></tr>
+    <tr><td><code>EXR_CHANNEL_MISSING: CryptoMatte</code></td><td>CryptoMatte pass not enabled</td><td>Disable CryptoMatte in config if not needed</td></tr>
+    <tr><td><code>Schema validation failed</code></td><td>Malformed dlssconfig.json</td><td>Re-run Apply Settings + render</td></tr>
+  </table>
+
+  <h3>Reporting a bug</h3>
+  <p>When filing an issue, include:</p>
+  <ul>
+    <li>Full <code>dlss-compositor.log</code></li>
+    <li><code>dlssconfig.json</code> (redact paths if needed)</li>
+    <li>GPU model and driver version</li>
+    <li><code>--self-check</code> output</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     AI-READABLE EMBEDDED MARKDOWN
+     ═══════════════════════════════════════════ -->
+<details>
+<summary>AI-readable markdown (for programmatic extraction)</summary>
+<pre id="embedded-md">
+# DLSS Compositor v2 User Manual — Embedded Reference
+
+## What It Does
+Processes Blender Cycles EXR renders through NVIDIA DLSS SR (upscaling) and FG (frame generation).
+Three-layer architecture: Blender extension + Flutter GUI + C++ Vulkan/NGX engine.
+Output: Vulkan only. No DirectX 12. GUI is Flutter on Windows, not Electron.
+
+## Quality Modes (DLSS SR §3.7.1.1)
+| Mode             | Scale  | Render % | Jitter Phases |
+|------------------|--------|----------|---------------|
+| DLAA             | 1×     | 100%     | 8             |
+| Quality          | 1.5×   | 67%      | 18            |
+| Balanced         | 1.724× | 58%      | 24            |
+| Performance      | 2×     | 50%      | 32            |
+| UltraPerformance | 3×     | 33%      | 72            |
+
+Jitter: Halton sequence, radix 2 (X), radix 3 (Y).
+"base=8" = minimum phase count for DLAA/UQ. NOT the Halton radix.
+
+## Frame Generation Multipliers
+- 2×, 3×, 4× — RTX 40 series (Ada) only
+- RTX 30 series: FG not supported
+
+## Pipeline Order (mandatory)
+1. SR input: scene-linear (no EOTF)
+2. Tonemap: ACES Filmic + PQ ST.2084
+3. FG input: display-ready (after tonemap + EOTF)
+
+## Output Formats (v2)
+- EXR (16-bit half-float, scene-linear)
+- PNG (16-bit)
+- ProRes 422 HQ
+
+NOT in v2 (enum placeholders only, not registered):
+- DNxHR, H.264, H.265, AV1, AVIF, JPEG, WebP
+
+## Key Gotchas (7 items)
+1. Quality mode + resolution locked — changing requires full re-render
+2. Cycles denoising must be ON (Apply Settings forces this)
+3. OCIO must be Raw (Apply Settings forces this)
+4. HDR: use Rec.2100-PQ display device → is_hdr=true auto-derived
+5. Camera export is automatic — no separate export step in v2
+6. MV mapping: DLSS_MV = (Blender.X, -Blender.Y) — Y only negated
+7. InReset = true on first frame / frame gap / camera cut ONLY — never every frame
+
+## DLSS Technical Facts (no myths)
+- FG uses ACES Filmic + PQ ST.2084 — full HDR range, NO "10-nit clamp"
+- SR before tonemap (scene-linear input) — §3.1
+- FG after tonemap (display-ready input) — FG §HDR
+- InMVScaleX = InMVScaleY = 1.0 — MVs in pixel units (§3.6.3)
+- stdout is JSON-RPC only — diagnostics to spdlog stderr + rotating file
+
+## Schema
+src/core/dlssconfig.schema.json is the single source of truth.
+Do NOT copy it to blender/ or gui/assets/ — reference via relative path.
+
+## Self-Check
+  dlss-compositor-cli.exe --self-check
+Log: dlss-compositor.log (same dir as exe), 10MB × 3 rotating files.
+</pre>
+</details>
+
+<script>
+function switchLang(lang) {
+  document.querySelectorAll('.lang-zh, .lang-en').forEach(function(el) {
+    el.classList.remove('active');
+  });
+  document.querySelectorAll('.lang-tabs button').forEach(function(el) {
+    el.classList.remove('active');
+  });
+  document.querySelector('.lang-' + lang).classList.add('active');
+  document.querySelector('#btn-' + lang).classList.add('active');
+  document.documentElement.lang = lang;
+}
+// Default to Chinese on load
+switchLang('zh');
+</script>
+
+</body>
+</html>
