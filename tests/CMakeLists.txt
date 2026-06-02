@@ -6,7 +6,7 @@
 # =============================================================================
 
 # Catch2 v3 is found at the top-level CMakeLists.txt scope.
-add_executable(dlss_engine_tests test_smoke.cpp)
+add_executable(dlss_engine_tests test_smoke.cpp test_vulkan_context.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
     dlss_warnings

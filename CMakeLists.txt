@@ -119,7 +119,8 @@ endif()
 # Engine static library — populated incrementally by later tasks (T4..T30).
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
-    src/core/stub.cpp)
+    src/core/stub.cpp
+    src/gpu/vulkan_context.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC
