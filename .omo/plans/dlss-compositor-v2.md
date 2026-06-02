@@ -2340,7 +2340,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): MV Blender(4ch)→DLSS(2ch) shader anchored on T13 empirical mapping`
   - Files: `src/shaders/mv_blender_to_dlss.comp`、`src/gpu/passes/mv_pass.h`、`mv_pass.cpp`、`tests/test_mv_conversion_sanity.cpp`
 
-- [ ] 24. Stage 2 — DLSS-SR Eval 封装(NGX-direct)
+- [x] 24. Stage 2 — DLSS-SR Eval 封装(NGX-direct)
 
   **What to do**:
   - 写 `src/dlss/dlss_sr.h` + `dlss_sr.cpp`:
@@ -2619,7 +2619,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): tonemap+EOTF (LDR sRGB-only / HDR ACES Filmic + PQ ST.2084)`
   - Files: `src/shaders/tonemap_eotf.comp`、`src/gpu/passes/tonemap_pass.h`、`tonemap_pass.cpp`、`tests/test_tonemap_pass.cpp`
 
-- [ ] 27. Stage 5 — DLSS-FG Eval 封装(NGX-direct)+ multi-frame 循环
+- [x] 27. Stage 5 — DLSS-FG Eval 封装(NGX-direct)+ multi-frame 循环
 
   **What to do**:
   - 写 `src/dlss/dlss_fg.h` + `dlss_fg.cpp`:
@@ -2785,7 +2785,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(dlss): FG Eval pass with multi-frame loop, ResourceNeverProvided, §-citations`
   - Files: `src/dlss/dlss_fg.h`、`dlss_fg.cpp`、`tests/test_dlss_fg.cpp`
 
-- [ ] 28. Stage 6 — Inverse Tonemap compute shader(对称 T26)
+- [x] 28. Stage 6 — Inverse Tonemap compute shader(对称 T26)
 
   **What to do**:
   - 写 `src/shaders/inverse_tonemap_eotf.comp`(GLSL compute,与 T26 对称),push constant `int mode`:
@@ -3028,7 +3028,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(io): async writer (EXR/PNG/ProRes 422 HQ) with template + overwrite UX`
   - Files: `src/io/async_writer.h`、`async_writer.cpp`、`src/io/encoder_registry.h`、`tests/test_async_writer.cpp`、`CMakeLists.txt`(链 ffmpeg + libpng)
 
-- [ ] 30. Flutter native plugin bridge(MethodChannel + EventChannel + FFI Pointer + 共享内存)
+- [x] 30. Flutter native plugin bridge(MethodChannel + EventChannel + FFI Pointer + 共享内存)
 
   **What to do**:
   - 在 `gui/dlss_compositor_plugin/` 实现 plugin bridge:
