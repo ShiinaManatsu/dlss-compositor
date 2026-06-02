@@ -1639,7 +1639,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(blender): dlssconfig writer with schema validation + jitter clamping`
   - Files: `blender/dlss_compositor/dlssconfig_writer.py`、`blender/tests/test_dlssconfig_writer.py`
 
-- [ ] 16. pytest + bpy mock infrastructure 完整搭建
+- [x] 16. pytest + bpy mock infrastructure 完整搭建
 
   **What to do**:
   - 写 `blender/tests/conftest.py`:
@@ -2168,7 +2168,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(io): channel mapper Combined/Depth/Vector → GPU-ready packed buffers`
   - Files: `src/io/channel_mapper.h`、`channel_mapper.cpp`、`tests/test_channel_mapper.cpp`
 
-- [ ] 22. Depth 转换 compute shader(world-linear → NDC [0,1])
+- [x] 22. Depth 转换 compute shader(world-linear → NDC [0,1])
 
   **What to do**:
   - 写 `src/shaders/depth_world_to_ndc.comp`(GLSL compute shader):
@@ -2242,7 +2242,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): depth world-linear→NDC compute shader`
   - Files: `src/shaders/depth_world_to_ndc.comp`、`src/gpu/passes/depth_pass.h`、`depth_pass.cpp`、`tests/test_depth_pass.cpp`
 
-- [ ] 23. MV 转换 compute shader + 实证 sanity test
+- [x] 23. MV 转换 compute shader + 实证 sanity test
 
   **What to do**:
   - 写 `src/shaders/mv_blender_to_dlss.comp`(GLSL compute):
@@ -2506,7 +2506,7 @@ Parallel Speedup: ~65% vs sequential
 - ~~25.~~ **REMOVED** — CAS sharpen compute shader 删除(per 用户决议 2026-06-02 round 2):DLSS SR §3.11 原文 "The deep learning model used in DLSS is **trained to produce sharp images**",外部锐化仅作为"想再锐一点"的开发者 escape hatch,v2 默认管线不需要。`src/shaders/cas_sharpen.comp`、`src/gpu/passes/cas_pass.*`、`tests/test_cas_pass.cpp` **不实现**;CLI 无 `--sharpness` flag。任务编号 25 留 gap(F4 reviewer 不验证此号位)。如未来需求重启,从此 commit history 复活。
 
 
-- [ ] 26. Stage 4 — Tonemap + EOTF compute shader(HDR ACES Filmic + LDR no-tonemap)
+- [x] 26. Stage 4 — Tonemap + EOTF compute shader(HDR ACES Filmic + LDR no-tonemap)
 
   **What to do**:
   - 写 `src/shaders/tonemap_eotf.comp`(GLSL compute,push constant `int mode`):
@@ -2886,7 +2886,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): inverse tonemap+EOTF (LDR sRGB / HDR PQ + ACES inverse)`
   - Files: `src/shaders/inverse_tonemap_eotf.comp`、`src/gpu/passes/inverse_tonemap_pass.h`、`.cpp`、`tests/test_inverse_tonemap.cpp`
 
-- [ ] 29. Stage 7 — Async writer + multi-format encoder(LDR PNG/EXR/ProRes;HDR EXR/ProRes)
+- [x] 29. Stage 7 — Async writer + multi-format encoder(LDR PNG/EXR/ProRes;HDR EXR/ProRes)
 
   **What to do**:
   - 写 `src/io/async_writer.h` + `async_writer.cpp`:
