@@ -1,0 +1,32 @@
+task-40 doc completeness evidence
+generated: 2026-06-02
+
+file: docs/build_guide.md
+  line_count: 389  (requirement: >=200 — PASS)
+  sections:   9    (requirement: >=9  — PASS)
+  powershell_fence_occurrences: 23
+
+sections found:
+  ## 1. Prerequisites
+  ## 2. Clone the Repository
+  ## 3. vcpkg Setup
+  ## 4. CMake Configure + Build
+  ## 5. CLI Smoke Test
+  ## 6. Flutter GUI Build
+  ## 7. Run the Application
+  ## 8. VSCode F5 Debugging
+  ## 9. Troubleshooting
+
+coverage checklist:
+  [x] prerequisites (VS2022, CMake, Vulkan SDK, vcpkg, Flutter, Python, Git LFS, GPU req)
+  [x] clone (--recurse-submodules, submodule update, LFS pull)
+  [x] vcpkg (bootstrap, VCPKG_ROOT, manifest mode explanation)
+  [x] cmake configure + build (release + debug presets, partial targets, cache variables table)
+  [x] CLI smoke test (--version, --self-check, --rpc-stdio)
+  [x] flutter (pub get, analyze, test, build windows, run)
+  [x] run the application (GUI release path + CLI config invocation)
+  [x] VSCode F5 debug (compound config, extension list)
+  [x] troubleshooting (8 named failure modes with PowerShell fix commands)
+  [x] mermaid build flow diagram
+
+all requirements met.
