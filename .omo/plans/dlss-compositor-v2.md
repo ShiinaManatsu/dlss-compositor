@@ -1530,7 +1530,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(blender): silent render handlers + atomic dlssconfig merge`
   - Files: `blender/dlss_compositor/handlers.py`、`blender/tests/test_handlers.py`
 
-- [ ] 15. dlssconfig.json writer + schema validation(Blender side)
+- [x] 15. dlssconfig.json writer + schema validation(Blender side)
 
   **What to do**:
   - 写 `blender/dlss_compositor/dlssconfig_writer.py`:
@@ -1722,7 +1722,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `test(blender): pytest + bpy-mock test suite + cross-language constant check`
   - Files: `blender/tests/conftest.py`、`test_integration.py`、`cross_check_constants.py`、`README.md`
 
-- [ ] 17. Vulkan context(volk + VMA, compute-only,无 swapchain)
+- [x] 17. Vulkan context(volk + VMA, compute-only,无 swapchain)
 
   **What to do**:
   - 写 `src/gpu/vulkan_context.h` + `vulkan_context.cpp`:
@@ -2008,7 +2008,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): TexturePool with LRU + UploadBatch single-submit pattern`
   - Files: `src/gpu/texture_pool.h`、`texture_pool.cpp`、`tests/test_texture_pool.cpp`
 
-- [ ] 20. FramePrefetcher(async EXR read)
+- [x] 20. FramePrefetcher(async EXR read)
 
   **What to do**:
   - 写 `src/io/frame_prefetcher.h` + `frame_prefetcher.cpp`:
