@@ -1084,7 +1084,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `ci: GitHub Actions Windows build + ctest + flutter test`
   - Files: `.github/workflows/build-test.yml`、`.github/workflows/release.yml`、`.github/CODEOWNERS`
 
-- [ ] 11. Blender Resolution + Quality Mode UI 面板
+- [x] 11. Blender Resolution + Quality Mode UI 面板
 
   **What to do**:
   - 在 `blender/dlss_compositor/panel.py` 完成 `DLSS_PT_Main` panel(在 `Render Properties` tab):
@@ -1195,7 +1195,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(blender): quality panel (header toggle + quality + dir + apply for pass/compositor/denoise)`
   - Files: `blender/dlss_compositor/panel.py`、`operators.py`、`quality_mapping.py`、`blender/tests/test_quality_apply.py`
 
-- [ ] 12. Halton(2,3) jitter sequence,base=8,quality-mode 对应 phase 数
+- [x] 12. Halton(2,3) jitter sequence,base=8,quality-mode 对应 phase 数
 
   **What to do**:
   - 写 `blender/dlss_compositor/jitter.py`:
@@ -1295,7 +1295,7 @@ Parallel Speedup: ~65% vs sequential
   - Files: `blender/dlss_compositor/jitter.py`、`blender/tests/test_jitter.py`
 
   > **重要**:T11 panel "Apply Settings" 按钮 内部直接调用 T13 的 `DLSS_OT_ConfigureAllPasses` operator(两者**统一为同一动作**;UI 上以 "Apply Settings" 标签呈现给用户,内部实现复用 T13 operator)。T13 的 operator 单独存在以便:(a) 解耦 panel UI 与 operator 实现;(b) 提供给 Blender Python API 直接调用。**用户视角:只点 "Apply Settings",不暴露独立的 "Configure All Passes" 按钮**(per T41 docs "Configure All Passes 已合并入 Apply Settings")。
-- [ ] 13. Configure All Passes operator + Vector pass 通道 sanity 实证
+- [x] 13. Configure All Passes operator + Vector pass 通道 sanity 实证
 
   **What to do**:
   - 写 `blender/dlss_compositor/operators.py` 加 `DLSS_OT_ConfigureAllPasses` operator:
