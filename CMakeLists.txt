@@ -120,8 +120,10 @@ endif()
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
     src/core/stub.cpp
+    src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
-    src/io/frame_prefetcher.cpp)
+    src/io/frame_prefetcher.cpp
+    src/io/channel_mapper.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC

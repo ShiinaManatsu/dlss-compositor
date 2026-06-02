@@ -9,7 +9,9 @@
 add_executable(dlss_engine_tests
     test_smoke.cpp
     test_vulkan_context.cpp
-    test_frame_prefetcher.cpp)
+    test_ngx_init.cpp
+    test_frame_prefetcher.cpp
+    test_channel_mapper.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
     dlss_warnings

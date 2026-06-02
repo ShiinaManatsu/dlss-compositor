@@ -1,0 +1,41 @@
+Task T21 — AOV Channel Mapper Evidence
+========================================
+Date: 2026-06-02
+
+Files created:
+  src/io/channel_mapper.h       — ChannelMapper class with MappedBuffers, MapError, MapResult
+  src/io/channel_mapper.cpp     — fp32→fp16 conversion + map() implementation
+  tests/test_channel_mapper.cpp — 6 Catch2 unit tests
+
+Files modified:
+  CMakeLists.txt                — added src/io/channel_mapper.cpp to dlss_engine_lib STATIC
+  tests/CMakeLists.txt          — added test_channel_mapper.cpp to dlss_engine_tests
+
+Design decisions:
+  - sceneColor: R16G16B16A16_SFLOAT (fp16), 4×2 bytes/pixel
+      Input:  DecodedFrame::combined (fp32 RGBA, pixelCount×4 floats)
+      Output: sceneColor (uint16_t, pixelCount×4 half-floats)
+      Precision: <0.001 error for values in [0,1]
+
+  - depth: R32_SFLOAT (fp32 passthrough), 1×4 bytes/pixel
+      Input:  DecodedFrame::depth (fp32, pixelCount floats)
+      Output: depth (float, pixelCount floats)
+      Note:   world-linear, NOT NDC — T22 GPU compute shader handles NDC conversion
+
+  - motionVector: R16G16B16A16_SFLOAT (fp16), 4×2 bytes/pixel
+      Input:  DecodedFrame::vector (fp32 WXYZ, pixelCount×4 floats)
+      Output: motionVector (uint16_t, pixelCount×4 half-floats)
+      Note:   all 4 Blender channels preserved; T23 shader selects X,Y and applies -Y
+
+  - Missing vector → fills zeros (no motion), not an error
+  - Missing depth  → MapErrorCode::MissingDepthChannel error (hard fail)
+  - Missing combined → MapErrorCode::MissingColorChannel error (hard fail)
+  - Zero dimensions → MapErrorCode::InvalidDimensions error
+
+4K buffer sizes (3840×2160):
+  sceneColor:   3840 × 2160 × 4 × 2 = 66,355,200 bytes (~63.3 MiB)
+  depth:        3840 × 2160 × 1 × 4 = 33,177,600 bytes (~31.6 MiB)
+  motionVector: 3840 × 2160 × 4 × 2 = 66,355,200 bytes (~63.3 MiB)
+  Total per frame: ~158 MiB (CPU-side staging, transferred to GPU by T19 UploadBatch)
+
+No Vulkan calls in this unit (pure CPU).
