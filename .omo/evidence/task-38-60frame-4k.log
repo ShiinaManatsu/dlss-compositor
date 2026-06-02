@@ -1,0 +1,47 @@
+T38 SR+FG combined pipeline evidence
+====================================
+
+Task: Implement SR+FG combined main pipeline (Stage 1 -> 2 -> 4 -> 5 -> 6 -> 7)
+Date: 2026-06-02
+Branch: v2/main
+
+Implemented files:
+- src/pipeline/sr_fg_pipeline.h
+- src/pipeline/sr_fg_pipeline.cpp
+- tests/test_sr_fg_integration.cpp
+
+Build registration:
+- CMakeLists.txt adds src/pipeline/sr_fg_pipeline.cpp to dlss_engine_lib.
+- tests/CMakeLists.txt adds test_sr_fg_integration.cpp to dlss_engine_tests.
+
+Invariant evidence:
+- Stage 1 acquires depthNdc and mvDlss once per input frame.
+- The same depthNdc PooledTextureHandle feeds SrInputs::depthNdc and FgInputs::depthNdcRenderRes.
+- The same mvDlss PooledTextureHandle feeds SrInputs::motionVecDlss and FgInputs::motionVecDlssRenderRes.
+- No separate FG depth/MV handles are introduced.
+
+Stage-order evidence:
+- Stage 1: FramePrefetcher + ChannelMapper + UploadBatch + DepthConversionPass + MvConversionPass.
+- Stage 2: srPass.evaluate() consumes scene-linear render-res color and shared render-res depth/MV.
+- Stage 4: tonemapPass.execute() runs after SR and produces display-ready output-res backbuffer.
+- Stage 5: fgPass.evaluate() runs after tonemap and consumes display-ready backbuffer plus shared depth/MV.
+- Stage 6: inversePass.execute() converts real and interpolated display-ready frames back to scene-linear.
+- Stage 7: AsyncFrameWriter enqueues sequential output frames.
+
+Frame timing evidence:
+- frameTimeMs is derived as 1000.0f / static_cast<float>(dlssCfg.fps).
+- No 33.3f hardcoded frame-time delta appears in sr_fg_pipeline.cpp.
+
+4K/60-frame expectation:
+- For N=60 and fgMultiplier=2, outputFrames = 2 * 60 - 1 = 119.
+- For N=60 and fgMultiplier=3, outputFrames = 3 * 60 - 2 = 178.
+- For N=60 and fgMultiplier=4, outputFrames = 4 * 60 - 3 = 237.
+
+Verification commands and results are appended below during the verification step.
+
+Verification:
+- lsp_diagnostics src/pipeline/sr_fg_pipeline.cpp: blocked; clangd configured but not installed.
+- cmake --build build --config Release: blocked; cmake command not found in PATH.
+
+- lsp_diagnostics src/pipeline/sr_fg_pipeline.cpp (second attempt): blocked; clangd configured but not installed.
+- cmake --build build --config Release (second attempt): blocked; cmake command not found in PATH.

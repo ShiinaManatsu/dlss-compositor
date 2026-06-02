@@ -179,6 +179,8 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
     for (int i = 0; i < frameCount; ++i) {
         NVSDK_NGX_VK_DLSSG_Eval_Params evalParams = {};
         NVSDK_NGX_DLSSG_Opt_Eval_Params optParams = {};
+        const uint32_t depthMotionWidth = (in.depthMotionWidth != 0) ? in.depthMotionWidth : in.width;
+        const uint32_t depthMotionHeight = (in.depthMotionHeight != 0) ? in.depthMotionHeight : in.height;
         auto backbufferResource = makeImageViewResource(
             in.backbufferDisplayReady,
             in.backbufferImage,
@@ -192,16 +194,16 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
             in.depthImage,
             VK_IMAGE_ASPECT_DEPTH_BIT,
             in.depthFormat,
-            in.width,
-            in.height,
+            depthMotionWidth,
+            depthMotionHeight,
             false);
         auto motionVectorResource = makeImageViewResource(
             in.motionVecDlssRenderRes,
             in.motionVecImage,
             VK_IMAGE_ASPECT_COLOR_BIT,
             in.motionVecFormat,
-            in.width,
-            in.height,
+            depthMotionWidth,
+            depthMotionHeight,
             false);
         auto outputInterpResource = makeImageViewResource(
             in.outputInterp[static_cast<size_t>(i)],

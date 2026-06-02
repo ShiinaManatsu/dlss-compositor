@@ -1,0 +1,59 @@
+#pragma once
+
+#include "../core/dlssconfig.h"
+#include "../dlss/dlss_sr.h"
+#include "../dlss/dlss_fg.h"
+#include "../gpu/vulkan_context.h"
+#include "../gpu/texture_pool.h"
+#include "../gpu/passes/depth_pass.h"
+#include "../gpu/passes/mv_pass.h"
+#include "../gpu/passes/tonemap_pass.h"
+#include "../gpu/passes/inverse_tonemap_pass.h"
+#include "../io/frame_prefetcher.h"
+#include "../io/channel_mapper.h"
+#include "../io/async_writer.h"
+#include "../rpc/dispatcher.h"
+
+#include <atomic>
+#include <string>
+
+namespace dlss {
+
+struct SrFgConfig {
+    DlssConfig dlssConfig;
+    OutputFormat outputFormat = OutputFormat::ExrLinear;
+    std::string outputDir;
+    std::string filenameTemplate = "frame_####.exr";
+    OverwriteMode overwriteMode = OverwriteMode::Overwrite;
+    int fgMultiplier = 2;  // 2/3/4 for FG 2x/3x/4x
+};
+
+/// SR+FG combined pipeline — all 7 stages.
+/// Stage order: 1(prefetch) → 2(SR) → 4(tonemap) → 5(FG) → 6(inverse tonemap) → 7(write)
+///
+/// CRITICAL INVARIANT: depth/MV textures are acquired ONCE in Stage 1 and shared
+/// by BOTH Stage 2 (SR) AND Stage 5 (FG). They must be the SAME PooledTextureHandle.
+/// Per DLSS FG §6 L545: depth shared; §6 L555: motion vectors shared.
+///
+/// CRITICAL ORDER:
+/// - SR (Stage 2) runs BEFORE tonemap (§3.1 — SR input must be scene-linear, before EOTF)
+/// - Tonemap (Stage 4) runs BEFORE FG (§HDR — FG requires display-ready backbuffer)
+/// - Inverse tonemap (Stage 6) runs AFTER FG (EXR output must be scene-linear)
+class SrFgPipeline {
+public:
+    SrFgPipeline(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher);
+    ~SrFgPipeline();
+
+    void run(const SrFgConfig& config);
+    void stop() { m_stop.store(true); }
+
+private:
+    bool shouldReset(int frameIdx, const DecodedFrame& frame) const;
+
+    VulkanContext* m_ctx;
+    NgxContext*    m_ngx;
+    RpcDispatcher* m_dispatcher;
+    std::atomic<bool> m_stop{false};
+};
+
+} // namespace dlss

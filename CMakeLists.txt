@@ -133,6 +133,7 @@ add_library(dlss_engine_lib STATIC
     src/io/channel_mapper.cpp
     src/io/async_writer.cpp
     src/pipeline/fg_only_pipeline.cpp
+    src/pipeline/sr_fg_pipeline.cpp
     src/pipeline/sr_only_pipeline.cpp
     src/rpc/dispatcher.cpp
     src/rpc/transport_stdio.cpp

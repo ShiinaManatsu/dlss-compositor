@@ -29,6 +29,8 @@ struct FgInputs {
     VkFormat motionVecFormat = VK_FORMAT_R16G16_SFLOAT;
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t depthMotionWidth = 0;
+    uint32_t depthMotionHeight = 0;
 
     // Camera matrices from dlssconfig per-frame data
     float viewToClip[4][4];
