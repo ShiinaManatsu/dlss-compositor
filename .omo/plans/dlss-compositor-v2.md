@@ -4330,7 +4330,7 @@ Parallel Speedup: ~65% vs sequential
 
 > 4 review agents 并行执行。**全部 APPROVE** 才能向用户呈递。**用户必须明确 "okay" 才完成,Prometheus 不自动标完成 F1-F4**。
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
 
   **What to do**: 端到端读 `.omo/plans/dlss-compositor-v2.md`。对每个 Must Have:验证实现存在(读文件 / curl / 跑命令)。对每个 Must NOT Have:全 codebase 搜禁用模式 — 找到则 REJECT 并附 file:line。验证 `.omo/evidence/task-{N}-*.{ext}` evidence 文件齐全。对照 plan 检查所有 deliverables 是否产出。
 
@@ -4383,7 +4383,7 @@ Parallel Speedup: ~65% vs sequential
 
   **Output**: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | Evidence [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
 
   **What to do**: 跑 `cmake --build build --config Release`(0 warning)、`ctest --output-on-failure`(全过)、`cd gui && flutter analyze && flutter test && flutter test integration_test`(全过)、`cd blender && python -m pytest`(全过)。审查所有改动文件:`as any` / `@ts-ignore` / 空 catch / `console.log` / 注释掉的代码 / 未用 import。AI slop check:过度注释、过度抽象、generic 命名(data/result/item/temp)、过度 docstring。
 
@@ -4426,7 +4426,7 @@ Parallel Speedup: ~65% vs sequential
 
   **Output**: `Build [PASS/FAIL] | Lint [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real End-to-End QA(agent-executed)** — `unspecified-high` (+ `playwright` skill if needed for headless screenshot capture)
+- [x] F3. **Real End-to-End QA(agent-executed)** — `unspecified-high` (+ `playwright` skill if needed for headless screenshot capture)
 
   > **命名澄清**:F3 名字"Real Manual QA"是历史遗留 — 实际是 **agent-executed 端到端 QA**(per Verification Strategy "ZERO HUMAN INTERVENTION"),agent 用 playwright / chrome-devtools-mcp / Bash 自动跑全流程 + 截图 evidence,**不需要人工点击**。任何"Manual via VSCode"步骤都是 agent 用 GUI automation tool 模拟。
 
@@ -4484,7 +4484,7 @@ Parallel Speedup: ~65% vs sequential
 
   **Output**: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | Debug [PASS/FAIL] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
 
   **What to do**:
   对每个 1-43 task(T25 已删,留 gap):读 "What to do"、读实际 git diff(`git log v2/main --oneline` + `git diff base..HEAD`)。验证 1:1 对齐 — spec 列的全建了(无遗漏);spec 没列的没建(无 scope creep)。检查 "Must NOT do" 合规。检测 cross-task 污染(task N 改了 task M 的文件)。标记 unaccounted changes。
