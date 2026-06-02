@@ -3236,7 +3236,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(rpc): RpcDispatcher with MethodChannel + JSON-RPC stdio dual transport`
   - Files: `src/rpc/dispatcher.h`、`dispatcher.cpp`、`transport_native.cpp`、`transport_stdio.cpp`、`src/main_cli.cpp`、`tests/test_rpc_dispatcher.cpp`、`tests/test_rpc_stdio.cpp`
 
-- [ ] 32. Flutter 状态栏 + dlssconfig 选择器
+- [x] 32. Flutter 状态栏 + dlssconfig 选择器
 
   **What to do**:
   - 写 `gui/lib/widgets/status_bar.dart`:
@@ -3323,7 +3323,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): status bar + dlssconfig picker with schema validation`
   - Files: `gui/lib/widgets/status_bar.dart`、`dlssconfig_picker.dart`、`gui/lib/state/app_state.dart`、`gui/lib/main.dart`、`gui/test/*`
 
-- [ ] 33. Flutter 任务配置面板(扩展 output formats + filename template + overwrite UX)
+- [x] 33. Flutter 任务配置面板(扩展 output formats + filename template + overwrite UX)
 
   **What to do**:
   - 写 `gui/lib/widgets/task_config_panel.dart`:左侧容器(可拖拽分隔栏),含:
@@ -3475,7 +3475,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): task configuration panel with quality/preset/FG/output options`
   - Files: `gui/lib/widgets/task_config_panel.dart`、`gui/test/task_config_test.dart`
 
-- [ ] 34. Flutter 详情面板(实时预览帧 + 进度 + 日志 + 完成统计)
+- [x] 34. Flutter 详情面板(实时预览帧 + 进度 + 日志 + 完成统计)
 
   **What to do**:
   - 写 `gui/lib/widgets/detail_panel.dart`:右侧容器(可拖拽分隔栏)
@@ -3562,7 +3562,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): detail panel with live preview + progress + log + completion stats`
   - Files: `gui/lib/widgets/detail_panel.dart`、`gui/test/detail_panel_test.dart`
 
-- [ ] 35. SharedPreferences 持久化 + debug/release 配置分离
+- [x] 35. SharedPreferences 持久化 + debug/release 配置分离
 
   **What to do**:
   - 写 `gui/lib/state/preferences.dart`:
@@ -3645,7 +3645,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): SharedPreferences with debug/release isolation`
   - Files: `gui/lib/state/preferences.dart`、`gui/test/preferences_test.dart`
 
-- [ ] 36. SR-only 主流程拼装(Stage 1 → 2 → 7)
+- [x] 36. SR-only 主流程拼装(Stage 1 → 2 → 7)
 
   **What to do**:
   - 写 `src/pipeline/sr_only_pipeline.h` + `sr_only_pipeline.cpp`:
