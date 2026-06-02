@@ -38,6 +38,8 @@ dependencies:
   win32: ^5.5.4
   shared_preferences: ^2.3.2
   provider: ^6.1.2
+  dlss_compositor_plugin:
+    path: dlss_compositor_plugin
 
 dev_dependencies:
   flutter_test:

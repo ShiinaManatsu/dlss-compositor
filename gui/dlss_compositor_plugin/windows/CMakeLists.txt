@@ -6,11 +6,26 @@ cmake_minimum_required(VERSION 3.14)
 
 # Project-level configuration.
 set(PROJECT_NAME "dlss_compositor_plugin")
-project(${PROJECT_NAME} LANGUAGES CXX)
+project(${PROJECT_NAME} LANGUAGES C CXX)
 
-# Invoke the build for native code shared with the other target platforms.
-# This can be changed to accommodate different builds.
+# Invoke the build for native FFI code shared with other target platforms.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
+
+# Native Windows plugin registrar target. Flutter links this target into the
+# runner when pluginClass is declared in pubspec.yaml.
+add_library(${PROJECT_NAME}_plugin STATIC
+  "dlss_compositor_plugin.cpp"
+)
+
+apply_standard_settings(${PROJECT_NAME}_plugin)
+set_target_properties(${PROJECT_NAME}_plugin PROPERTIES
+  CXX_VISIBILITY_PRESET hidden
+)
+target_compile_definitions(${PROJECT_NAME}_plugin PRIVATE FLUTTER_PLUGIN_IMPL)
+target_include_directories(${PROJECT_NAME}_plugin INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_link_libraries(${PROJECT_NAME}_plugin PRIVATE flutter flutter_wrapper_plugin)
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
