@@ -3138,7 +3138,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gui): native plugin bridge with MethodChannel + EventChannel + FFI shared memory`
   - Files: `gui/dlss_compositor_plugin/windows/*.cpp`、`*.h`、`gui/lib/plugin/dlss_compositor.dart`、tests, CMake
 
-- [ ] 31. dlss/* RPC 接口实现(双 transport 共用 RpcDispatcher)
+- [x] 31. dlss/* RPC 接口实现(双 transport 共用 RpcDispatcher)
 
   **What to do**:
   - 写 `src/rpc/dispatcher.h` + `dispatcher.cpp`:
