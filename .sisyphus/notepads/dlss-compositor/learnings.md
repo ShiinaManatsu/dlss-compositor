@@ -1,2 +1,0 @@
-- 2026-04-12: Electron progress parsing must handle all CLI stdout variants; FG and RR+FG emit `Processing frame pair X/Y`, which does not match a regex limited to `Processing frame X/Y`.
-- 2026-04-12: Renderer IPC subscriptions need explicit unlisten callbacks from preload to stay correct under React StrictMode and dev reload cycles.
