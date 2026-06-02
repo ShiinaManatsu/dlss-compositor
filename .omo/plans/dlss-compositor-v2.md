@@ -3810,7 +3810,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(pipeline): FG-only end-to-end pipeline (Stage 1→4→5→6→7)`
   - Files: `src/pipeline/fg_only_pipeline.h`、`fg_only_pipeline.cpp`、`tests/test_fg_only_pipeline.cpp`
 
-- [ ] 38. SR+FG 主流程拼装(Stage 1 → 2 → 4 → 5 → 6 → 7)
+- [x] 38. SR+FG 主流程拼装(Stage 1 → 2 → 4 → 5 → 6 → 7)
 
   **What to do**:
   - 写 `src/pipeline/sr_fg_pipeline.h` + `sr_fg_pipeline.cpp`:
