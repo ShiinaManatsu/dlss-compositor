@@ -1389,7 +1389,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(blender): one-click pass configuration + Vector channel empirical sanity`
   - Files: `blender/dlss_compositor/operators.py`(updated)、`panel.py`(updated)、`blender/tests/test_vector_pass_sanity.py`、`blender/tests/MV_SANITY_RESULT.md`(测试 produced)
 
-- [ ] 14. render handler 静默 + atomic merge
+- [x] 14. render handler 静默 + atomic merge
 
   **What to do**:
   - 写 `blender/dlss_compositor/handlers.py`:
@@ -1815,7 +1815,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(gpu): Vulkan compute-only context with NGX-required extensions`
   - Files: `src/gpu/vulkan_context.h`、`src/gpu/vulkan_context.cpp`、`tests/test_vulkan_context.cpp`、`CMakeLists.txt`(链 volk/vma)
 
-- [ ] 18. NGX 初始化封装(SR + FG, dev/release DLL switch)
+- [x] 18. NGX 初始化封装(SR + FG, dev/release DLL switch)
 
   **What to do**:
   - 写 `src/dlss/ngx_wrapper.h` + `ngx_wrapper.cpp`:
@@ -1910,7 +1910,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(dlss): NGX init wrapper with capability query + version banner + dev/release DLL switch`
   - Files: `src/dlss/ngx_wrapper.h`、`ngx_wrapper.cpp`、`tests/test_ngx_init.cpp`、`scripts/verify_ngx_doc_refs.py`
 
-- [ ] 19. TexturePool + uploadBatch(单 cmdbuf 单 submit 多 texture)
+- [x] 19. TexturePool + uploadBatch(单 cmdbuf 单 submit 多 texture)
 
   **What to do**:
   - 写 `src/gpu/texture_pool.h` + `texture_pool.cpp`:
@@ -2093,7 +2093,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(io): async EXR FramePrefetcher with gap detection`
   - Files: `src/io/frame_prefetcher.h`、`frame_prefetcher.cpp`、`tests/test_frame_prefetcher.cpp`
 
-- [ ] 21. AOV channel mapper
+- [x] 21. AOV channel mapper
 
   **What to do**:
   - 写 `src/io/channel_mapper.h` + `channel_mapper.cpp`:
