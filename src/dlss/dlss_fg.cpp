@@ -274,8 +274,7 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
 
         // DLSS FG §HDR L1506 - HDR mode (1 = PQ encoded backbuffer). // FG §HDR L1506
         optParams.colorBuffersHDR = in.is_hdr;
-        // DLSS FG §6 L590 - Blender NDC is non-inverted (0=near, 1=far). // FG §6 L590
-        optParams.depthInverted = false;
+        // DLSS FG §6 L590 - DepthInverted NOT set (Blender NDC non-inverted, zero default covers this)
         // DLSS FG §6 - MV includes camera motion and does not include jitter. // FG §6
         optParams.cameraMotionIncluded = true;
         optParams.motionVectorsDilated = false;

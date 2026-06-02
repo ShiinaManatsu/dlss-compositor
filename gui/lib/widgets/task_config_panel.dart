@@ -78,9 +78,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       // LDR: PNG + EXR + ProRes (LDR gets PNG per user round 2 decision)
       return [OutputFormat.png16, OutputFormat.exrLinear, OutputFormat.prores422hq];
     }
-    // NOTE: DNxHR, H264, H265, AV1, AVIF, JPEG, WebP are NOT listed here.
-    // They are enum placeholders in the C++ codebase, not implemented in v2.
-    // See docs/cli_reference.md "Future Extensions" section.
+    // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
   }
 
   Future<void> _onStartPressed(BuildContext context) async {
@@ -264,8 +262,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Output format dropdown — ONLY shows v2 implemented formats
-        // DNxHR/H264/H265/AV1/AVIF/JPEG/WebP are NOT listed (see Future Extensions in docs)
+        // Output format dropdown — ONLY shows v2 implemented formats.
+        // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
         Row(
           children: [
             const Text('Format:', style: TextStyle(fontSize: 12)),

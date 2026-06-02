@@ -40,7 +40,7 @@ std::string getArg(const std::vector<std::string>& args,
 }
 
 void printHelp() {
-    std::cout
+    std::cerr
         << "dlss-compositor-cli v2.0.0\n"
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
     const std::vector<std::string> args(argv + 1, argv + argc);
 
     if (hasArg(args, "--version")) {
-        std::cout << "dlss-compositor-cli v2.0.0 (DLSS SDK 310.6.0)\n";
+        std::cerr << "dlss-compositor-cli v2.0.0 (DLSS SDK 310.6.0)\n";
         return 0;
     }
 
