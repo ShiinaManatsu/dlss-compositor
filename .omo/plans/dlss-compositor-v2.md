@@ -316,7 +316,7 @@ Parallel Speedup: ~65% vs sequential
 > **FORMAT**: Task labels MUST use bare numbers: `1.`, `2.`, `3.` — NOT `T1.`, `Task 1.`, `Phase 1:`.
 > Final Wave labels MUST use `F1.`, `F2.`, etc.
 
-- [ ] 1. v2 分支创建 + greenfield 清空
+- [x] 1. v2 分支创建 + greenfield 清空
 
   **What to do**:
   - 在当前 repo 新建分支 `v2/main`(`git checkout -b v2/main`)

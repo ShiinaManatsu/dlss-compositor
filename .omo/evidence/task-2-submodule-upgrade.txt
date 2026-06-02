@@ -1,0 +1,19 @@
+Task T2 evidence: DLSS submodule upgrade to v310.6.0
+
+Command: git -C DLSS describe --tags
+Output:
+v310.6.0
+
+Command: grep -r "pNoPostProcessingColor" DLSS/include/
+Output:
+0 matches
+
+Command: grep -r "ResourceAlwaysProvided_Flags" DLSS/include/
+Output:
+1 match
+D:\Github\dlss-compositor-opus-rework\DLSS\include\nvsdk_ngx_defs_dlssg.h:109:#define NVSDK_NGX_DLSSG_Parameter_ResourceAlwaysProvided_Flags "DLSSG.ResourceAlwaysProvidedFlags"
+
+Supporting observations from v310.5.3..v310.6.0 header diff:
+- nvsdk_ngx_helpers_dlssg_vk.h: pNoPostProcessingColor replaced with pUIAlpha
+- nvsdk_ngx_helpers_dlssg.h: D3D12 helper made the same pUIAlpha replacement
+- nvsdk_ngx_defs.h: Preset E restored as enum value 5 and marked Deprecated
