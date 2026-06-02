@@ -123,6 +123,7 @@ add_library(dlss_engine_lib STATIC
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pool.cpp
+    src/gpu/passes/depth_pass.cpp
     src/gpu/passes/mv_pass.cpp
     src/gpu/passes/tonemap_pass.cpp
     src/io/frame_prefetcher.cpp

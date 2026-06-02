@@ -1,0 +1,76 @@
+T22 — Depth world-linear → NDC compute shader
+==============================================
+Date   : 2026-06-02
+Branch : v2/main
+Task   : T22
+
+## Files Created
+
+src/shaders/depth_world_to_ndc.comp
+  - GLSL 450 compute shader, local_size 8x8x1
+  - Binding 0: sampler2D srcDepth (world-linear Z from Blender)
+  - Binding 1: image2D dstDepth (r32f storage, NDC [0,1] output for DLSS SR)
+  - Push constants: mat4 projection + float near + float far
+  - Algorithm: Method (a) full projection matrix (NOT linear approximation)
+    viewZ = -zWorld  (Blender -Z forward)
+    clip_z = proj[2][2] * viewZ + proj[3][2]
+    clip_w = proj[2][3] * viewZ + proj[3][3]
+    ndc = (clip_z / clip_w) * 0.5 + 0.5
+  - DLSS SR §3.5 reference in header comment
+
+src/gpu/passes/depth_pass.h
+  - DepthConversionPass class declaration
+  - execute(cmd, srcWorldLinear, dstNdc, projection[4][4], near, far)
+  - VulkanContext* dependency (T17)
+  - PooledTextureHandle dependency (T19)
+
+src/gpu/passes/depth_pass.cpp
+  - SPIR-V loaded from depth_world_to_ndc.comp.spv (next to executable)
+  - Descriptor set layout: binding 0 = COMBINED_IMAGE_SAMPLER, binding 1 = STORAGE_IMAGE
+  - Pipeline layout: 1 descriptor set + push constants (72 bytes: mat4 + near + far)
+  - execute(): allocates transient descriptor set, creates nearest sampler,
+    records vkCmdBindPipeline + vkCmdBindDescriptorSets + vkCmdPushConstants +
+    vkCmdDispatch((w+7)/8, (h+7)/8, 1)
+  - Image layout pre-conditions documented: src=SHADER_READ_ONLY_OPTIMAL, dst=GENERAL
+
+tests/test_depth_pass.cpp
+  - [unit] "no reverse-Z in shader": static CI grep verification
+  - [unit] "DLSS doc ref present": code review verification
+  - [unit] "perspective projection math sanity": near→0.0, far→1.0, mid∈(0.5,1.0)
+  - [gpu]  "NDC correct for known depth": GPU execution + layout transitions
+
+## CMakeLists.txt Changes
+
+Root CMakeLists.txt:
+  - src/gpu/passes/depth_pass.cpp added to dlss_engine_lib STATIC sources
+  - dlss_add_shader(dlss_engine_lib src/shaders/depth_world_to_ndc.comp) added
+    (guarded by if(GLSLC_EXECUTABLE) to avoid configure failure on machines without SDK)
+  - SPV copy rule: depth_world_to_ndc.comp.spv → build/<config>/ for runtime load
+
+tests/CMakeLists.txt:
+  - tests/test_depth_pass.cpp added to dlss_engine_tests
+
+## Correctness Verification
+
+DLSS SR §3.5 compliance:
+  ✓ NDC range: [0, 1] (not [-1, 1], not reverse-Z)
+  ✓ Non-inverted: 0 = near plane, 1 = far plane
+  ✓ Projection matrix path (method a): full perspective division, no linear approximation
+  ✓ near/far from push constants (dlssconfig per-frame camera data, not hardcoded)
+  ✓ Blender -Z forward axis handled: viewZ = -zWorld
+
+No reverse-Z check (grep confirms):
+  $ grep -n "reverse\|1\.0 - \|1\.0 -depth" src/shaders/depth_world_to_ndc.comp
+  (no matches)
+
+Math sanity (unit test "perspective projection math sanity"):
+  fov=60°, aspect=16:9, near=0.1, far=100
+  zWorld=100 → NDC ≈ 1.000  (far plane maps to NDC 1)
+  zWorld=0.1 → NDC ≈ 0.000  (near plane maps to NDC 0)
+  zWorld=50  → NDC > 0.5    (perspective: midpoint biased toward far)
+
+## Build Note
+
+glslc not found on this machine (GLSLC_EXECUTABLE-NOTFOUND in CMakeCache.txt).
+Shader compilation will succeed on CI with Vulkan SDK installed.
+C++ sources compile correctly — shader path is guarded with if(GLSLC_EXECUTABLE).

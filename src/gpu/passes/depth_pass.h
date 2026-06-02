@@ -1,0 +1,54 @@
+#pragma once
+
+#ifndef VK_NO_PROTOTYPES
+#define VK_NO_PROTOTYPES
+#endif
+
+#include <vulkan/vulkan.h>
+#include "../vulkan_context.h"
+#include "../texture_pool.h"
+
+namespace dlss {
+
+/// Converts world-linear depth (Blender Z pass) to NDC [0,1] depth for DLSS SR.
+/// Per DLSS SR §3.5: DLSS expects NDC depth, non-inverted (Blender uses standard Z, not reverse-Z).
+///
+/// Blender camera looks down -Z axis in view space. The Z pass contains positive
+/// world-space distances. This shader applies the camera projection matrix to produce
+/// the NDC [0,1] depth that DLSS SR requires as input.
+class DepthConversionPass {
+public:
+    explicit DepthConversionPass(VulkanContext* ctx);
+    ~DepthConversionPass();
+
+    // Non-copyable, non-movable
+    DepthConversionPass(const DepthConversionPass&)            = delete;
+    DepthConversionPass& operator=(const DepthConversionPass&) = delete;
+
+    /// Record depth conversion dispatch into command buffer.
+    /// @param cmd          Active compute command buffer to record into.
+    /// @param srcWorldLinear  Source texture in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+    /// @param dstNdc       Destination storage image in VK_IMAGE_LAYOUT_GENERAL.
+    /// @param projection   Column-major 4x4 projection matrix from dlssconfig per-frame data.
+    /// @param near         Camera near clip plane (from dlssconfig).
+    /// @param far          Camera far clip plane (from dlssconfig).
+    void execute(VkCommandBuffer       cmd,
+                 PooledTextureHandle   srcWorldLinear,
+                 PooledTextureHandle   dstNdc,
+                 const float           projection[4][4],
+                 float                 near,
+                 float                 far);
+
+private:
+    void createDescriptorSetLayout();
+    void createPipeline();
+
+    VulkanContext*        m_ctx             = nullptr;
+    VkShaderModule        m_shaderModule    = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_descSetLayout   = VK_NULL_HANDLE;
+    VkDescriptorPool      m_descPool        = VK_NULL_HANDLE;
+    VkPipelineLayout      m_pipelineLayout  = VK_NULL_HANDLE;
+    VkPipeline            m_pipeline        = VK_NULL_HANDLE;
+};
+
+} // namespace dlss
