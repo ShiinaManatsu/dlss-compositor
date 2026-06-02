@@ -3917,7 +3917,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `feat(pipeline): SR+FG end-to-end (Stage 1→2→4→5→6→7) with shared depth/MV`
   - Files: `src/pipeline/sr_fg_pipeline.h`、`sr_fg_pipeline.cpp`、`tests/test_sr_fg_integration.cpp`
 
-- [ ] 39. README.md v2
+- [x] 39. README.md v2
 
   **What to do**:
   - 写根目录 `README.md`(英文为主,简短中文摘要):
@@ -3996,7 +3996,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `docs: README v2 + LICENSE + AGENTS.md`
   - Files: `README.md`、`LICENSE`、`AGENTS.md`
 
-- [ ] 40. docs/build_guide.md(完整 build flow)
+- [x] 40. docs/build_guide.md(完整 build flow)
 
   **What to do**:
   - 写 `docs/build_guide.md`:
@@ -4061,7 +4061,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `docs: build guide with vcpkg + flutter + VS2022 step-by-step`
   - Files: `docs/build_guide.md`
 
-- [ ] 41. docs/blender_export_guide.md(新插件操作流程)
+- [x] 41. docs/blender_export_guide.md(新插件操作流程)
 
   **What to do**:
   - 写 `docs/blender_export_guide.md`(英文 + 关键截图):
@@ -4135,7 +4135,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `docs: blender export guide with quality/OCIO/denoise gotchas`
   - Files: `docs/blender_export_guide.md`、`docs/img/blender_*.png`
 
-- [ ] 42. docs/gui_guide.md + docs/cli_reference.md
+- [x] 42. docs/gui_guide.md + docs/cli_reference.md
 
   **What to do**:
   - 写 `docs/gui_guide.md`:
@@ -4211,7 +4211,7 @@ Parallel Speedup: ~65% vs sequential
   - Message: `docs: GUI guide + CLI reference (simplified flags)`
   - Files: `docs/gui_guide.md`、`docs/cli_reference.md`、`docs/img/gui_*.png`
 
-- [ ] 43. docs/user_manual.html(中英双语单文件)
+- [x] 43. docs/user_manual.html(中英双语单文件)
 
   **What to do**:
   - 写 `docs/user_manual.html` — **单 HTML 文件**,内嵌 CSS,无构建依赖,双击浏览器打开
