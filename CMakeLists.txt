@@ -122,6 +122,7 @@ add_library(dlss_engine_lib STATIC
     src/core/stub.cpp
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
+    src/gpu/texture_pool.cpp
     src/io/frame_prefetcher.cpp
     src/io/channel_mapper.cpp)
 

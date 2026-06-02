@@ -11,7 +11,8 @@ add_executable(dlss_engine_tests
     test_vulkan_context.cpp
     test_ngx_init.cpp
     test_frame_prefetcher.cpp
-    test_channel_mapper.cpp)
+    test_channel_mapper.cpp
+    test_texture_pool.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
     dlss_warnings
