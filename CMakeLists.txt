@@ -17,7 +17,7 @@ project(DlssCompositor
 # -----------------------------------------------------------------------------
 # Global C++ settings
 # -----------------------------------------------------------------------------
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -120,7 +120,8 @@ endif()
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
     src/core/stub.cpp
-    src/gpu/vulkan_context.cpp)
+    src/gpu/vulkan_context.cpp
+    src/io/frame_prefetcher.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC
