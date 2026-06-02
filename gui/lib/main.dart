@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import 'util/win_file_dialog.dart';
+import 'state/app_state.dart';
+import 'widgets/dlssconfig_picker.dart';
+import 'widgets/status_bar.dart';
 
 void main() {
-  runApp(const DlssCompositorApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AppState()..loadStatus(),
+      child: const DlssCompositorApp(),
+    ),
+  );
 }
 
 class DlssCompositorApp extends StatelessWidget {
@@ -13,52 +21,33 @@ class DlssCompositorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'DLSS Compositor v2',
-      theme: ThemeData(colorSchemeSeed: Colors.green, useMaterial3: true),
+      theme: ThemeData(
+        colorSchemeSeed: Colors.green,
+        useMaterial3: true,
+      ),
       home: const HomePage(),
     );
   }
 }
 
-class HomePage extends StatefulWidget {
+class HomePage extends StatelessWidget {
   const HomePage({super.key});
-
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  String? _selectedPath;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('DLSS Compositor v2')),
-      body: Center(
+      body: const Padding(
+        padding: EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ElevatedButton(
-              onPressed: _openFile,
-              child: const Text('Open dlssconfig.json'),
-            ),
-            if (_selectedPath != null)
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text('Selected: $_selectedPath'),
-              ),
+            DlssConfigPicker(),
           ],
         ),
       ),
+      bottomNavigationBar: const DlssStatusBar(),
     );
-  }
-
-  void _openFile() {
-    final path = selectFile(
-      filterDescription: 'DLSS Config',
-      filterPattern: '*.json',
-    );
-    if (path != null) {
-      setState(() => _selectedPath = path);
-    }
   }
 }
+
