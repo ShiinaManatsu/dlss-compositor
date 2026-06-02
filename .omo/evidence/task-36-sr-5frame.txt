@@ -1,0 +1,24 @@
+﻿T36 SR-only pipeline evidence
+Date: 2026-06-02
+Branch: v2/main
+
+Implementation:
+- Added src/pipeline/sr_only_pipeline.h with SrOnlyPipeline and SrOnlyConfig.
+- Added src/pipeline/sr_only_pipeline.cpp orchestrating Stage 1 (FramePrefetcher + ChannelMapper + UploadBatch + Depth/MV conversion) -> Stage 2 (DlssSrPass) -> Stage 7 (AsyncFrameWriter).
+- Stage 4/5/6 are not referenced in SR-only pipeline source: TonemapPass, DlssFgPass, InverseTonemapPass absent.
+- InReset logic: first frame, DecodedFrame::has_gap_after, and camera matrix discontinuity hook with INFINITY sentinel threshold.
+- Frame delta is derived as 1000.0f / dlssCfg.fps.
+- Pipeline loop uses TexturePool::acquire/release; no vkCreateImage appears in src/pipeline/sr_only_pipeline.cpp.
+- Added tests/test_sr_only_pipeline.cpp with [unit][pipeline] static guards and [gpu][pipeline] five-frame integration test.
+- Updated root CMakeLists.txt and tests/CMakeLists.txt.
+
+Verification:
+- lsp_diagnostics src/pipeline/sr_only_pipeline.cpp: blocked; clangd configured but not installed (command not found).
+- Build command attempted: cmake --build "D:\Github\dlss-compositor-opus-rework\build" --config Release --target dlss_engine_tests
+- Build result: blocked; cmake is not recognized in PATH.
+
+Manual acceptance checks:
+- Stage 4/5/6 NOT called: PASS by source inspection/static test.
+- InReset first frame + gap + camera cut hook: PASS by shouldReset implementation/static test.
+- No vkCreateImage in pipeline loop: PASS by source inspection/static test.
+- TexturePool used in loop: PASS (pool.acquire/release for color/depth/MV textures).
