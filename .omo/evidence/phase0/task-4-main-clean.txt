@@ -1,0 +1,19 @@
+Task 4: Simplify src/main.cpp — UI include and GUI block removed
+===============================================================
+Verification: grep for ui/|launchGui|testGui|testGuiProcess|testGuiLoad
+Result: Zero matches (all UI/GUI references removed)
+
+File: src/main.cpp
+Removed:
+  - #include "ui/app.h"           (line 12)
+  - if (config.testGui || config.launchGui) { ... } block (lines 77-93)
+
+Preserved branches:
+  - showHelp
+  - showVersion
+  - testVulkan
+  - testNgx
+  - batch processing (inputDir/outputDir)
+  - fallback "no action specified" message
+
+Date: 2026-05-07

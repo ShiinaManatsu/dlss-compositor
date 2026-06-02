@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "active_work_id": "dlss-compositor-v2-5b340dfe",
+  "works": {
+    "dlss-compositor-v2-5b340dfe": {
+      "work_id": "dlss-compositor-v2-5b340dfe",
+      "active_plan": "D:\\Github\\dlss-compositor-opus-rework\\.omo\\plans\\dlss-compositor-v2.md",
+      "plan_name": "dlss-compositor-v2",
+      "status": "active",
+      "started_at": "2026-06-02T10:25:24.939Z",
+      "updated_at": "2026-06-02T10:25:24.939Z",
+      "session_ids": [
+        "ses_17822224cffe5qy4L0rKhRkvNx"
+      ],
+      "session_origins": {
+        "ses_17822224cffe5qy4L0rKhRkvNx": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {}
+    }
+  },
+  "active_plan": "D:\\Github\\dlss-compositor-opus-rework\\.omo\\plans\\dlss-compositor-v2.md",
+  "started_at": "2026-06-02T10:25:24.939Z",
+  "status": "active",
+  "updated_at": "2026-06-02T10:25:24.939Z",
+  "session_ids": [
+    "ses_17822224cffe5qy4L0rKhRkvNx"
+  ],
+  "session_origins": {
+    "ses_17822224cffe5qy4L0rKhRkvNx": "direct"
+  },
+  "plan_name": "dlss-compositor-v2",
+  "task_sessions": {},
+  "agent": "atlas"
+}

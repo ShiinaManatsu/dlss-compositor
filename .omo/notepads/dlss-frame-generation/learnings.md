@@ -1,0 +1,101 @@
+# Learnings — dlss-frame-generation
+
+## 2026-04-11 — Initial Session: ses_28485e441ffezka9bCSXgP2ZD3
+
+### CMake Patterns
+- `CMakeLists.txt:155-163`: DLL copy uses `file(GLOB ...)` + `foreach` loop with `add_custom_command POST_BUILD copy_if_different`
+- `dlss_compositor_core` static lib (lines 100-128) contains all source files — new cpp files must be added here
+- No nlohmann/json in CMakeLists.txt — need to add FetchContent for it or use a simple hand-rolled parser
+- `tests/CMakeLists.txt:34-40`: Same DLL copy pattern for test target
+
+### DLSS SDK Layout (already confirmed present)
+- `DLSS/include/nvsdk_ngx_helpers_dlssg_vk.h` — NGX_VK_CREATE_DLSSG, NGX_VK_EVALUATE_DLSSG
+- `DLSS/include/nvsdk_ngx_params_dlssg.h` — NVSDK_NGX_DLSSG_Create_Params, NVSDK_NGX_DLSSG_Opt_Eval_Params
+- `DLSS/include/nvsdk_ngx_defs_dlssg.h` — NVSDK_NGX_Parameter_FrameGeneration_Available
+- `DLSS/lib/Windows_x86_64/rel/nvngx_dlssg.dll` — DLL to copy (alongside nvngx_dlssd.dll)
+
+### Build
+- MSVC, C++17, cmake --build build --config Release
+- build directory: `F:/Projects/GitRepos/dlss-compositor/build`
+- Test binary: `build\Release\dlss-compositor-tests.exe`
+- Release output now also copies `nvngx_dlssg.dll` alongside `nvngx_dlssd.dll` for both app and tests.
+- Stub FG/camera files were added so CMake source registration stays buildable until the real implementations land.
+
+### Key Constraints
+- NO Streamline SDK — raw NGX API only
+- NO modifications to DlssRRProcessor
+- mvecScale for DLSS-G = [1/W, 1/H] — NOT 1.0 like DLSS-RR
+- colorBuffersHDR=1 for scene-linear
+- First frame: reset=true
+- 4x MFG: call evaluate 3 times with multiFrameIndex=1,2,3
+
+### CLI Notes
+- `--interpolate` now parses `2x`/`4x` into `AppConfig::interpolateFactor`.
+- `--camera-data` stores a camera metadata JSON path in `AppConfig::cameraDataFile`.
+- Interpolation requests are rejected unless camera data is also provided.
+
+### Blender Export Script (Task 6)
+- `blender/export_camera_data.py` — standalone headless script, no UI panels/operators
+- Argument parsing: `sys.argv` with `--` separator, manual parsing (no argparse) — matches aov_export_preset.py pattern
+- Matrix conversion: `[list(row) for row in cam_obj.matrix_world]` for row-major list-of-lists
+- Projection matrix: `cam_obj.calc_matrix_camera(depsgraph, x=W, y=H)` requires evaluated depsgraph
+- `--test` flag: imports bpy, prints "OK", exits 0
+- `.sisyphus/evidence/` is gitignored — evidence files written but not committed
+- blender not on PATH in this environment — live test skipped
+
+### Task 3 — CameraDataLoader Implementation
+- nlohmann/json added via FetchContent (v3.11.3), linked to `dlss_compositor_core` via `nlohmann_json::nlohmann_json`
+- JSON_BuildTests=OFF, JSON_Install=OFF to minimize build scope
+- Matrix inverse: Gauss-Jordan with partial pivoting, singular → returns identity + false
+- Basis vectors: column extraction from row-major 4x4 (matrix_world[row][col]): col0=right, col1=up, col2=forward, col3=position
+- clipToPrevClip formula: prevProj * prevView * currWorld * currProjInv (view = inverse(matrix_world))
+- Frame keys: zero-padded 4-digit strings ("0001"), padFrameNumber() uses std::setw(4)/setfill('0')
+- 232 assertions across 7 test cases: valid parse, malformed rejection, derived params including identity/inverse checks
+- Test binary location: `build\tests\Release\dlss-compositor-tests.exe`
+
+## 2026-04-11 — Task 2: NgxContext FG Lifecycle
+- `NVSDK_NGX_DLSSG_Create_Params` fields are `Width`, `Height`, `NativeBackbufferFormat`, `RenderWidth`, `RenderHeight`, and `DynamicResolutionScaling`.
+- `NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax` is the capability constant used for max generated-frame count.
+- `DynamicResolutionScaling` in `nvsdk_ngx_params_dlssg.h` is a `bool`, so the create path disables it with `false`.
+- Build result: `cmake --build build --config Release` succeeded with no new warnings surfaced in the captured output.
+
+## 2026-04-11 — Task 5: DlssFgProcessor
+- `NVSDK_NGX_VK_DLSSG_Eval_Params` optional inputs were left null: `pHudless`, `pUI`, `pNoPostProcessingColor`, `pBidirectionalDistortionField`, `pOutputRealFrame`, and `pOutputDisableInterpolation`.
+- Build issue: no compile/build failures; LSP diagnostics could not run because `clangd` is not installed in this environment.
+- Final mvecScale formula confirmed: `mvecScale[0] = 1.0f / width`, `mvecScale[1] = 1.0f / height`.
+
+## 2026-04-11 — Task 8: Catch2 Test Suite
+
+### FG Processor Tests (`test_dlss_fg_processor.cpp`)
+- Followed exact GPU test pattern from `test_dlss_rr_processor.cpp`: anonymous namespace with TextureGuard, allocateCommandBuffer, beginCommandBuffer, submitAndWait, makeData helpers.
+- SKIP idiom: `if (!ctx.init(errorMsg)) { SKIP("No compatible GPU"); }` — Catch2 SKIP macro cleanly exits test without failure.
+- `createDlssFG` signature: `bool createDlssFG(unsigned int width, unsigned int height, unsigned int backbufferFormat, VkCommandBuffer cmdBuf, std::string& errorMsg)`.
+- `DlssFgFrameInput` fields: backbuffer/depth/motionVectors/outputInterp (VkImage+VkImageView), width, height, reset, cameraParams, multiFrameCount, multiFrameIndex.
+- `DlssFgCameraParams`: 5 float[4][4] matrices (jitterCurrProjection, jitterPrevProjection, matrixWorldCurr, matrixWorldPrev, clipToPrevClip) + position/up/right/forward float[3] + nearPlane/farPlane/fov/aspectRatio.
+- Test confirmed DLSS-FG available on RTX 50-series (maxMultiFrameCount >= 1), feature creation at 64x64, and single evaluation producing non-zero output.
+- 31 assertions across 3 test cases all passing.
+
+### CLI Tests (appended to `test_cli.cpp`)
+- Used existing `FakeArgs` helper struct already defined in file — no new infrastructure needed.
+- `AppConfig.interpolateFactor` (int, default 0), `AppConfig.cameraDataFile` (string).
+- Validation: `--interpolate` without `--camera-data` fails with specific error message containing "requires --camera-data".
+- Invalid factor `3x` fails; valid factors `2x`/`4x` succeed.
+- 33 assertions across 14 test cases (4 new) all passing.
+
+### Camera Fixture (`tests/fixtures/camera.json`)
+- 5 frame entries (keys "0001"-"0005") matching existing 64x64 EXR test fixtures.
+- Camera translates along X-axis (0.0 to 0.4 in steps of 0.1).
+- Projection matrix: realistic values with fov=0.6911, aspect=1.0, near=0.1, far=100.0.
+- Format matches CameraDataLoader's expected schema: `{ "frames": { "NNNN": { "matrix_world": [[4x4]], "projection_matrix": [[4x4]], "fov": float, "near": float, "far": float } } }`.
+
+## 2026-04-11 � Task 9: DLSS-FG Integration Test
+- Appended `dlss_fg_e2e_interpolation` to `tests/test_integration.cpp` without modifying the existing RR integration test.
+- Matched the existing GPU/NGX SKIP gating pattern, with an added `ngx.isDlssFGAvailable()` skip gate for DLSS-G hardware support.
+- FG integration path uses `tests/fixtures/sequence/` + `tests/fixtures/camera.json`, sets `scaleFactor = 1` and `interpolateFactor = 2`, and verifies `processDirectory()` dispatches through FG to produce 9 EXRs from 5 input frames.
+- Verified one generated output EXR (`frame_0001.exr`) opens via `ExrReader` at 64x64.
+- Evidence captured in `.sisyphus/evidence/task-9-build.txt` and `.sisyphus/evidence/task-9-test-run.txt`; integration run finished with `All tests passed (14 assertions in 2 test cases)`.
+- LSP diagnostics could not run because `clangd` is not installed in this environment.
+## 2026-04-11 � Compliance audit follow-up
+- `blender/export_camera_data.py` now rejects empty frame ranges before export and `--test` performs a real one-frame export plus JSON shape/value validation against the factory-startup scene.
+- `tests/test_integration.cpp` FG coverage now documents why 5 input frames at 2x produce 9 outputs and validates the first interpolated output (`frame_0002.exr`) opens at 64x64 with HDR-preserving pixel data (`max > 1.0f`).
+- Verification: `cmake --build build --config Release` succeeded; `build\tests\Release\dlss-compositor-tests.exe` passed with `All tests passed (16834 assertions in 45 test cases)`.

@@ -1,0 +1,89 @@
+Command: ctest --test-dir build -C Release -R CameraCut --verbose
+
+UpdateCTestConfiguration  from :D:/Github/dlss-compositor-opus-rework/build/DartConfiguration.tcl
+Parse Config file:D:/Github/dlss-compositor-opus-rework/build/DartConfiguration.tcl
+Test project D:/Github/dlss-compositor-opus-rework/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 106
+    Start 106: CameraCut large translation triggers cut
+
+106: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CameraCut large translation triggers cut"
+106: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+106: Test timeout computed to be: 1500
+106: Filters: "CameraCut large translation triggers cut"
+106: ==============================================================================
+106: All tests passed (1 assertion in 1 test case)
+
+1/6 Test #106: CameraCut large translation triggers cut ........   Passed    0.04 sec
+test 107
+    Start 107: CameraCut large rotation triggers cut
+
+107: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CameraCut large rotation triggers cut"
+107: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+107: Test timeout computed to be: 1500
+107: Filters: "CameraCut large rotation triggers cut"
+107: ==============================================================================
+107: All tests passed (1 assertion in 1 test case)
+
+2/6 Test #107: CameraCut large rotation triggers cut ...........   Passed    0.03 sec
+test 108
+    Start 108: CameraCut sub-threshold does not trigger
+
+108: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CameraCut sub-threshold does not trigger"
+108: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+108: Test timeout computed to be: 1500
+108: Filters: "CameraCut sub-threshold does not trigger"
+108: ==============================================================================
+108: All tests passed (1 assertion in 1 test case)
+
+3/6 Test #108: CameraCut sub-threshold does not trigger ........   Passed    0.03 sec
+test 109
+    Start 109: CameraCut detection respects custom threshold
+
+109: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CameraCut detection respects custom threshold"
+109: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+109: Test timeout computed to be: 1500
+109: Filters: "CameraCut detection respects custom threshold"
+109: ==============================================================================
+109: All tests passed (2 assertions in 1 test case)
+
+4/6 Test #109: CameraCut detection respects custom threshold ...   Passed    0.03 sec
+test 110
+    Start 110: CameraCut first-frame scenario
+
+110: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CameraCut first-frame scenario"
+110: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+110: Test timeout computed to be: 1500
+110: Filters: "CameraCut first-frame scenario"
+110: ==============================================================================
+110: All tests passed (1 assertion in 1 test case)
+
+5/6 Test #110: CameraCut first-frame scenario ..................   Passed    0.03 sec
+test 116
+    Start 116: CameraCut
+
+116: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "[CameraCut]"
+116: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+116: Test timeout computed to be: 1500
+116: Filters: [CameraCut]
+116: ==============================================================================
+116: All tests passed (6 assertions in 5 test cases)
+
+6/6 Test #116: CameraCut .......................................   Passed    0.13 sec
+
+The following tests passed:
+    CameraCut large translation triggers cut
+    CameraCut large rotation triggers cut
+    CameraCut sub-threshold does not trigger
+    CameraCut detection respects custom threshold
+    CameraCut first-frame scenario
+    CameraCut
+
+100% tests passed, 0 tests failed out of 6
+
+Total Test time (real) =   0.29 sec

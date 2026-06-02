@@ -1,0 +1,15 @@
+Task 2: Fix CLI --tonemap custom parsing
+=========================================
+Date: 2026-05-07
+
+Changes made:
+1. src/cli/cli_parser.cpp - parseTonemapMode(): Added "custom" → TonemapMode::Custom branch
+2. src/cli/cli_parser.cpp - Error message: "--tonemap must be one of: none, pq, custom"
+3. src/cli/cli_parser.cpp - Help text: "FG transport encoding (none|pq|custom; default: pq)"
+4. tests/test_cli.cpp: Added test case "CliParser - --tonemap custom with LUT files"
+
+Verification:
+- grep confirmed '"custom"' branch at line 121 in parseTonemapMode()
+- grep confirmed error message includes "custom" at line 373
+- grep confirmed help text includes "custom" at line 443
+- grep confirmed test case exists at line 276 in test_cli.cpp

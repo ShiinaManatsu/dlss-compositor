@@ -1,0 +1,68 @@
+﻿=== Phase 4 Task 2: --progress-format json (NDJSON event stream) ===
+
+--- cmake --build build --config Release (last 10 lines) ---
+  IlmThread.vcxproj -> D:\Github\dlss-compositor\build\bin\Release\IlmThread-3_3.dll
+  OpenEXRCore.vcxproj -> D:\Github\dlss-compositor\build\bin\Release\OpenEXRCore-3_3.dll
+  OpenEXR.vcxproj -> D:\Github\dlss-compositor\build\bin\Release\OpenEXR-3_3.dll
+  OpenEXRUtil.vcxproj -> D:\Github\dlss-compositor\build\bin\Release\OpenEXRUtil-3_3.dll
+  Scanning sources for module dependencies...
+  Vulkan-Module.vcxproj -> D:\Github\dlss-compositor\build\_deps\vulkan-headers-build\Release\Vulkan-Module.dll
+  volk.vcxproj -> D:\Github\dlss-compositor\build\_deps\volk-build\Release\volk.lib
+  dlss_compositor_core.vcxproj -> D:\Github\dlss-compositor\build\Release\dlss_compositor_core.lib
+  dlss-compositor.vcxproj -> D:\Github\dlss-compositor\build\Release\dlss-compositor.exe
+  dlss-compositor-tests.vcxproj -> D:\Github\dlss-compositor\build\tests\Release\dlss-compositor-tests.exe
+
+
+--- ctest -R Ndjson ---
+Test project D:/Github/dlss-compositor/build
+    Start 87: NdjsonEmitter is disabled by default
+1/5 Test #87: NdjsonEmitter is disabled by default ......................   Passed    0.02 sec
+    Start 88: NdjsonEmitter enable/disable round-trip
+2/5 Test #88: NdjsonEmitter enable/disable round-trip ...................   Passed    0.02 sec
+    Start 89: NdjsonEmitter::emitRaw is a no-op when disabled
+3/5 Test #89: NdjsonEmitter::emitRaw is a no-op when disabled ...........   Passed    0.02 sec
+    Start 90: NdjsonEmitter is thread-safe across concurrent toggles
+4/5 Test #90: NdjsonEmitter is thread-safe across concurrent toggles ....   Passed    0.13 sec
+    Start 91: globalNdjsonEmitter returns the same singleton instance
+5/5 Test #91: globalNdjsonEmitter returns the same singleton instance ...   Passed    0.12 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =   0.33 sec
+
+
+--- --help (filtered for 'progress') ---
+
+  --progress-format <fmt> Progress reporting format (human|json; default: human)
+
+
+
+
+--- End-to-end smoke test ---
+Command: dlss-compositor.exe --progress-format json --input-dir tests\fixtures\sequence --output-dir D:\ndjson_test_out --scale 2
+Exit code: 0
+
+stdout (NDJSON, one event per line):
+{"event":"started","input_dir":"tests\\fixtures\\sequence","output_dir":"D:\\ndjson_test_out","timestamp_ms":0,"total":5}
+{"event":"frame_started","n":1,"timestamp_ms":29,"total":5}
+{"event":"frame_written","n":1,"path":"D:\\ndjson_test_out\\frame_0001.exr","timestamp_ms":48}
+{"event":"frame_started","n":2,"timestamp_ms":51,"total":5}
+{"event":"frame_written","n":2,"path":"D:\\ndjson_test_out\\frame_0002.exr","timestamp_ms":60}
+{"event":"frame_started","n":3,"timestamp_ms":65,"total":5}
+{"event":"frame_written","n":3,"path":"D:\\ndjson_test_out\\frame_0003.exr","timestamp_ms":74}
+{"event":"frame_started","n":4,"timestamp_ms":77,"total":5}
+{"event":"frame_written","n":4,"path":"D:\\ndjson_test_out\\frame_0004.exr","timestamp_ms":86}
+{"event":"frame_started","n":5,"timestamp_ms":89,"total":5}
+{"event":"frame_written","n":5,"path":"D:\\ndjson_test_out\\frame_0005.exr","timestamp_ms":97}
+{"duration_ms":97,"errors":0,"event":"complete","timestamp_ms":97,"total":5}
+
+stderr (first 8 lines, human/NGX logs):
+[NGX] SDK: 310.5.3 (compile-time)
+[NGX] Engine: dlss-compositor 0.2.1
+[NGX] DLSS-SR: available
+[NGX] DLSS-FG: available, max-multi-frame=1
+[NGX] Min driver: 470.0
+[NGX] Loaded: nvngx_dlss.dll v310.5.3.0, nvngx_dlssg.dll v310.5.3.0
+[NGX] DLSS-SR preset: K (auto for MaxQuality)
+[NGX] DLSS-SR feature created: 64x64 -> 128x128, quality=MaxQuality, preset=auto
+

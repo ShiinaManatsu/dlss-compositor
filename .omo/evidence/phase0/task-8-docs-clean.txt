@@ -1,0 +1,12 @@
+﻿=== Grep verification: stale CLI flag references ===
+Date: 2026-05-07 13:02:11
+
+Pattern: --gui\b|--test-gui|--test-load|--test-process
+
+--- README.md ---
+0 matches
+
+--- docs/*.md ---
+0 matches
+
+Result: PASS - no stale CLI flag references found

@@ -1,0 +1,14 @@
+﻿--- grep for progress-bar / progress-text / eta-text in ProcessingView.tsx ---
+
+(no matches above = single-source-of-progress invariant holds)
+
+--- typecheck ---
+npm --prefix gui run typecheck => PASS (tsc --noEmit, 0 errors)
+
+--- behavior ---
+ProcessingView right column now contains only:
+  - Top status row (start/stop, status indicator, elapsed time, error banner)
+  - Completion banner (status==='done')
+  - Frame preview area (flex-1, fills the freed space)
+  - Stop confirmation modal
+Progress data flow (useProcessing) is untouched — StatusBar / other consumers still receive progress events.

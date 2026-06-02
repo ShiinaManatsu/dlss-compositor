@@ -1,0 +1,23 @@
+Task 4: --source-fps flag and InFrameTimeDeltaInMsec
+=====================================================
+Date: 2026-05-07
+
+Status: ALL CHANGES VERIFIED
+
+Files modified:
+  src/cli/config.h                  — int sourceFps = 30                   (T3, already committed)
+  src/cli/cli_parser.cpp            — --source-fps parse + --help          (T3, already committed)
+  src/dlss/dlss_sr_processor.h      — float frameTimeDeltaMs = 33.3f       (uncommitted)
+  src/dlss/dlss_sr_processor.cpp    — evalParams.InFrameTimeDeltaInMsec = frame.frameTimeDeltaMs (uncommitted)
+  src/pipeline/sequence_processor.cpp — 3 sites assign frameTimeDeltaMs    (uncommitted)
+
+Verification:
+  ✅ config.h: int sourceFps = 30 at line 67
+  ✅ cli_parser.cpp: --source-fps parsing at lines 336-348
+  ✅ cli_parser.cpp: --source-fps help at line 473
+  ✅ dlss_sr_processor.h: float frameTimeDeltaMs = 33.3f at line 36
+  ✅ dlss_sr_processor.cpp: evalParams.InFrameTimeDeltaInMsec = frame.frameTimeDeltaMs at line 158
+  ✅ sequence_processor.cpp Site 1 (line 835): frame.frameTimeDeltaMs = 1000.0f / ...
+  ✅ sequence_processor.cpp Site 2 (line 1223): firstFrame.frameTimeDeltaMs = 1000.0f / ...
+  ✅ sequence_processor.cpp Site 3 (line 1366): srFrame.frameTimeDeltaMs = 1000.0f / ...
+  ✅ All 3 sites use config.sourceFps with > 0 guard (no div-by-zero)

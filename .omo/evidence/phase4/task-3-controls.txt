@@ -1,0 +1,1 @@
+﻿Added sourceFps, sharpness, and ngxLogLevel controls to GUI. Modified config types, config store, basic settings, advanced settings, cli arguments builder, and settings store schema/defaults. Build passes without errors. Commited to git.

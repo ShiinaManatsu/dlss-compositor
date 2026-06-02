@@ -1,0 +1,1 @@
+Live frame preview implemented successfully. UI uses FFmpeg to convert EXR to PNG thumbnail.

@@ -1,0 +1,158 @@
+UpdateCTestConfiguration  from :D:/Github/dlss-compositor-opus-rework/build/DartConfiguration.tcl
+Parse Config file:D:/Github/dlss-compositor-opus-rework/build/DartConfiguration.tcl
+Test project D:/Github/dlss-compositor-opus-rework/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 96
+      Start  96: CliAdvancedFlags defaults preserve prior hardcoded behavior
+
+96: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags defaults preserve prior hardcoded behavior"
+96: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+96: Test timeout computed to be: 1500
+96: Filters: "CliAdvancedFlags defaults preserve prior hardcoded behavior"
+96: Randomness seeded to: 4165064607
+96: ===============================================================================
+96: All tests passed (8 assertions in 1 test case)
+96: 
+ 1/11 Test  #96: CliAdvancedFlags defaults preserve prior hardcoded behavior ....   Passed    0.13 sec
+test 97
+      Start  97: CliAdvancedFlags HDR boolean pair
+
+97: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags HDR boolean pair"
+97: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+97: Test timeout computed to be: 1500
+97: Filters: "CliAdvancedFlags HDR boolean pair"
+97: Randomness seeded to: 3269912961
+97: ===============================================================================
+97: All tests passed (4 assertions in 1 test case)
+97: 
+ 2/11 Test  #97: CliAdvancedFlags HDR boolean pair ..............................   Passed    0.03 sec
+test 98
+      Start  98: CliAdvancedFlags MV-low-res boolean pair
+
+98: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags MV-low-res boolean pair"
+98: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+98: Test timeout computed to be: 1500
+98: Filters: "CliAdvancedFlags MV-low-res boolean pair"
+98: Randomness seeded to: 1173314189
+98: ===============================================================================
+98: All tests passed (4 assertions in 1 test case)
+98: 
+ 3/11 Test  #98: CliAdvancedFlags MV-low-res boolean pair .......................   Passed    0.04 sec
+test 99
+      Start  99: CliAdvancedFlags auto-exposure boolean pair
+
+99: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags auto-exposure boolean pair"
+99: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+99: Test timeout computed to be: 1500
+99: Filters: "CliAdvancedFlags auto-exposure boolean pair"
+99: Randomness seeded to: 3855940285
+99: ===============================================================================
+99: All tests passed (4 assertions in 1 test case)
+99: 
+ 4/11 Test  #99: CliAdvancedFlags auto-exposure boolean pair ....................   Passed    0.03 sec
+test 100
+      Start 100: CliAdvancedFlags enable-output-subrects boolean pair
+
+100: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags enable-output-subrects boolean pair"
+100: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+100: Test timeout computed to be: 1500
+100: Filters: "CliAdvancedFlags enable-output-subrects boolean pair"
+100: Randomness seeded to: 3311461166
+100: ===============================================================================
+100: All tests passed (4 assertions in 1 test case)
+100: 
+ 5/11 Test #100: CliAdvancedFlags enable-output-subrects boolean pair ...........   Passed    0.05 sec
+test 101
+      Start 101: CliAdvancedFlags exposure-scale validates range
+
+101: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags exposure-scale validates range"
+101: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+101: Test timeout computed to be: 1500
+101: Filters: "CliAdvancedFlags exposure-scale validates range"
+101: Randomness seeded to: 961591203
+101: ===============================================================================
+101: All tests passed (9 assertions in 1 test case)
+101: 
+ 6/11 Test #101: CliAdvancedFlags exposure-scale validates range ................   Passed    0.05 sec
+test 102
+      Start 102: CliAdvancedFlags frame-time-delta-ms validates positive
+
+102: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags frame-time-delta-ms validates positive"
+102: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+102: Test timeout computed to be: 1500
+102: Filters: "CliAdvancedFlags frame-time-delta-ms validates positive"
+102: Randomness seeded to: 3603179548
+102: ===============================================================================
+102: All tests passed (5 assertions in 1 test case)
+102: 
+ 7/11 Test #102: CliAdvancedFlags frame-time-delta-ms validates positive ........   Passed    0.03 sec
+test 103
+      Start 103: CliAdvancedFlags dlss-sharpness validates unit range
+
+103: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags dlss-sharpness validates unit range"
+103: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+103: Test timeout computed to be: 1500
+103: Filters: "CliAdvancedFlags dlss-sharpness validates unit range"
+103: Randomness seeded to: 1640905554
+103: ===============================================================================
+103: All tests passed (9 assertions in 1 test case)
+103: 
+ 8/11 Test #103: CliAdvancedFlags dlss-sharpness validates unit range ...........   Passed    0.03 sec
+test 104
+      Start 104: CliAdvancedFlags enable-dynamic-resolution boolean pair
+
+104: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags enable-dynamic-resolution boolean pair"
+104: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+104: Test timeout computed to be: 1500
+104: Filters: "CliAdvancedFlags enable-dynamic-resolution boolean pair"
+104: Randomness seeded to: 3209748060
+104: ===============================================================================
+104: All tests passed (4 assertions in 1 test case)
+104: 
+ 9/11 Test #104: CliAdvancedFlags enable-dynamic-resolution boolean pair ........   Passed    0.03 sec
+test 105
+      Start 105: CliAdvancedFlags combined flags coexist without interference
+
+105: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "CliAdvancedFlags combined flags coexist without interference"
+105: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+105: Test timeout computed to be: 1500
+105: Filters: "CliAdvancedFlags combined flags coexist without interference"
+105: Randomness seeded to: 3803501055
+105: ===============================================================================
+105: All tests passed (9 assertions in 1 test case)
+105: 
+10/11 Test #105: CliAdvancedFlags combined flags coexist without interference ...   Passed    0.03 sec
+test 110
+      Start 110: CliAdvancedFlags
+
+110: Test command: D:\Github\dlss-compositor-opus-rework\build\tests\Release\dlss-compositor-tests.exe "[CliAdvancedFlags]"
+110: Working Directory: D:/Github/dlss-compositor-opus-rework/build/tests
+110: Test timeout computed to be: 1500
+110: Filters: [CliAdvancedFlags]
+110: Randomness seeded to: 4060894232
+110: ===============================================================================
+110: All tests passed (60 assertions in 10 test cases)
+110: 
+11/11 Test #110: CliAdvancedFlags ...............................................   Passed    0.03 sec
+
+The following tests passed:
+	CliAdvancedFlags defaults preserve prior hardcoded behavior
+	CliAdvancedFlags HDR boolean pair
+	CliAdvancedFlags MV-low-res boolean pair
+	CliAdvancedFlags auto-exposure boolean pair
+	CliAdvancedFlags enable-output-subrects boolean pair
+	CliAdvancedFlags exposure-scale validates range
+	CliAdvancedFlags frame-time-delta-ms validates positive
+	CliAdvancedFlags dlss-sharpness validates unit range
+	CliAdvancedFlags enable-dynamic-resolution boolean pair
+	CliAdvancedFlags combined flags coexist without interference
+	CliAdvancedFlags
+
+100% tests passed, 0 tests failed out of 11
+
+Total Test time (real) =   0.48 sec

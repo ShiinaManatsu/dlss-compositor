@@ -1,0 +1,41 @@
+Task 6: Vulkan Context Headless / GLFW Removal
+================================================
+Date: 2026-05-07
+
+Files modified:
+  - src/gpu/vulkan_context.cpp (634 → 596 lines)
+  - src/gpu/vulkan_context.h (51 → 50 lines)
+
+Changes to vulkan_context.cpp:
+  1. Removed `#include <GLFW/glfw3.h>` (was line 9)
+  2. Removed `glfwInit()` block (was ~lines 247-254)
+  3. Removed `glfwVulkanSupported()` check (was ~lines 256-260)
+  4. Removed GLFW extension query block (was ~lines 291-303):
+     - `glfwGetRequiredInstanceExtensions()` call removed
+     - Replaced with plain `std::vector<const char*> enabledExtensions;`
+  5. Removed `VK_KHR_SURFACE_EXTENSION_NAME` and `VK_KHR_WIN32_SURFACE_EXTENSION_NAME`
+     additions (was ~lines 305-306)
+  6. Removed `VK_KHR_SWAPCHAIN_EXTENSION_NAME` from device extensions loop
+     (was ~lines 454-461). Now only enables `VK_KHR_MAINTENANCE1_EXTENSION_NAME`.
+  7. Removed `glfwTerminate()` from `destroy()` (was ~lines 588-591)
+
+Changes to vulkan_context.h:
+  8. Removed `bool m_glfwInitialized = false;` member (was line 48)
+
+Preserved (as required):
+  - VkQueue m_graphicsQueue and m_graphicsQueueFamily (still used for NGX)
+  - volk, VMA, NGX initialization
+  - VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME handling
+  - VK_EXT_DEBUG_UTILS handling
+  - queryQueueFamilyIndices() function (graphics queue family still needed)
+
+Result:
+  VulkanContext is now compute-only / headless — no surface, swapchain,
+  or GLFW dependencies remain. Initialization flow:
+    1. volkInitialize()
+    2. Enumerate layers and instance extensions
+    3. Build instance extensions (empty start → KHR_get_phys_props2 → NGX → debug)
+    4. Create instance with volkLoadInstance
+    5. Select physical device (prefer NVIDIA discrete)
+    6. Build device extensions (KHR_maintenance1 → NGX)
+    7. Create logical device, queues, command pool, VMA allocator
