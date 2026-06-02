@@ -12,7 +12,10 @@ add_executable(dlss_engine_tests
     test_ngx_init.cpp
     test_frame_prefetcher.cpp
     test_channel_mapper.cpp
-    test_texture_pool.cpp)
+    test_texture_pool.cpp
+    test_depth_pass.cpp
+    test_tonemap_pass.cpp
+    test_mv_conversion_sanity.cpp)
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
     dlss_warnings

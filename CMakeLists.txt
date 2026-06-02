@@ -123,8 +123,11 @@ add_library(dlss_engine_lib STATIC
     src/dlss/ngx_wrapper.cpp
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pool.cpp
+    src/gpu/passes/mv_pass.cpp
+    src/gpu/passes/tonemap_pass.cpp
     src/io/frame_prefetcher.cpp
-    src/io/channel_mapper.cpp)
+    src/io/channel_mapper.cpp
+    src/io/async_writer.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC
@@ -202,6 +205,33 @@ function(dlss_add_shader TARGET SHADER_SRC)
         VERBATIM)
     target_sources(${TARGET} PRIVATE "${_spv}")
 endfunction()
+
+# -----------------------------------------------------------------------------
+# Shader compilation: depth world-linear → NDC (T22) + MV Blender→DLSS (T23)
+# -----------------------------------------------------------------------------
+if(GLSLC_EXECUTABLE)
+    dlss_add_shader(dlss_engine_lib src/shaders/depth_world_to_ndc.comp)
+    dlss_add_shader(dlss_engine_lib src/shaders/mv_blender_to_dlss.comp)
+
+    # Also copy the .spv next to the test executable so the pass can load it at runtime.
+    add_custom_command(
+        TARGET dlss_engine_lib POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_BINARY_DIR}/shaders/depth_world_to_ndc.comp.spv"
+            "${CMAKE_BINARY_DIR}/$<CONFIG>/depth_world_to_ndc.comp.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_BINARY_DIR}/shaders/mv_blender_to_dlss.comp.spv"
+            "${CMAKE_BINARY_DIR}/$<CONFIG>/mv_blender_to_dlss.spv"
+        COMMENT "Copying compute shader SPIR-V next to executables"
+        VERBATIM)
+endif()
+
+# -----------------------------------------------------------------------------
+# Shader compilation — Stage 4 tonemap + EOTF
+# -----------------------------------------------------------------------------
+if(GLSLC_EXECUTABLE)
+    dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
+endif()
 
 # -----------------------------------------------------------------------------
 # Tests
