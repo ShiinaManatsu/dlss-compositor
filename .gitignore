@@ -76,3 +76,8 @@ imgui.ini
 test_out.txt
 
 .playwright-mcp/
+
+# Runtime logs
+dlss-compositor.log
+build_t31*.log
+
