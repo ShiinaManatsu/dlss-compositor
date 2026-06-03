@@ -1,5 +1,29 @@
 import bpy
 
+
+def _get_or_create_compositor_tree(scene):
+    """Return the compositor NodeTree for *scene*, creating it if needed.
+
+    Blender 5.1 removed ``scene.node_tree`` and deprecated ``scene.use_nodes``.
+    The replacement is ``scene.compositing_node_group`` (NodeTree | None) together
+    with ``scene.render.use_compositing``.  This helper is backward-compatible with
+    Blender 4.x (which still used ``scene.node_tree``).
+    """
+    if hasattr(scene, 'compositing_node_group'):
+        # Blender 5.0+ path
+        if hasattr(scene.render, 'use_compositing'):
+            scene.render.use_compositing = True
+        tree = scene.compositing_node_group
+        if tree is None:
+            tree = bpy.data.node_groups.new(name="Compositor", type='CompositorNodeTree')
+            scene.compositing_node_group = tree
+        return tree
+    else:
+        # Pre-5.0 fallback
+        scene.use_nodes = True  # noqa: deprecated in 5.1, harmless on 4.x
+        return scene.node_tree  # may still be None on a brand-new scene
+
+
 class DLSS_OT_ApplySettings(bpy.types.Operator):
     """Configure render passes, compositor nodes, denoise, and OCIO for DLSS."""
     bl_idname = "dlss.apply_settings"
@@ -11,8 +35,9 @@ class DLSS_OT_ApplySettings(bpy.types.Operator):
 
     def _setup_compositor(self, scene, props):
         """Create/update File Output nodes in compositor for Combined/Depth/Vector."""
-        scene.use_nodes = True
-        tree = scene.node_tree
+        tree = _get_or_create_compositor_tree(scene)
+        if tree is None:
+            return
         nodes = tree.nodes
         links = tree.links
 
@@ -98,15 +123,20 @@ class DLSS_OT_ConfigureAllPasses(bpy.types.Operator):
             scene.cycles.use_denoising = True
 
         # 3. Set up compositor File Output nodes
-        self._setup_file_output_nodes(scene, props)
+        if self._setup_file_output_nodes(scene, props) is False:
+            return {'CANCELLED'}
 
         self.report({'INFO'}, "DLSS passes and compositor configured")
         return {'FINISHED'}
 
     def _setup_file_output_nodes(self, scene, props):
         """Create File Output nodes for Combined, Depth, Vector with Raw OCIO."""
-        scene.use_nodes = True
-        tree = scene.node_tree
+        tree = _get_or_create_compositor_tree(scene)
+        if tree is None:
+            self.report({'ERROR'},
+                "Compositor node tree unavailable. Open a Compositor workspace "
+                "and enable compositing, then re-run Apply Settings.")
+            return False
         nodes = tree.nodes
         links = tree.links
 

@@ -4,9 +4,12 @@ SR §3.7.1.1 scaling ratio table and minimum phase count table.
 """
 
 # Scaling ratios per quality mode (SR §3.7.1.1)
+# Ultra Quality (1.3x) is not in the official DLSS §3.7.1.1 table (removed from docs in SDK 2.3.2
+# due to user confusion), but the NGX enum value still exists and the de-facto scale is 1.30x
+# per industry convention (render at ~77% of output resolution).
 DLSS_RATIO = {
     'DLAA': 1.0,
-    'ULTRA_QUALITY': 1.0,
+    'ULTRA_QUALITY': 1.3,
     'QUALITY': 1.5,
     'BALANCED': 1.724,
     'PERFORMANCE': 2.0,
@@ -14,9 +17,10 @@ DLSS_RATIO = {
 }
 
 # Jitter phase counts per quality mode (SR §3.7.1.1 minimum table)
+# Ultra Quality phase count derived from formula: Base(8) * (1.3)^2 = 13.52 → 14
 JITTER_PHASES = {
     'DLAA': 8,
-    'ULTRA_QUALITY': 8,
+    'ULTRA_QUALITY': 14,
     'QUALITY': 18,
     'BALANCED': 24,
     'PERFORMANCE': 32,
