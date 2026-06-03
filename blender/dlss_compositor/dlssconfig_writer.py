@@ -19,8 +19,8 @@ log = logging.getLogger("dlss_compositor.dlssconfig_writer")
 # HDR display devices per Blender 5.1 docs
 HDR_DISPLAY_DEVICES = {"Rec.2100-PQ", "Rec.2100-HLG"}
 
-# Path to schema relative to repo root — single source of truth
-_SCHEMA_PATH = Path(__file__).parent.parent.parent / "src" / "core" / "dlssconfig.schema.json"
+# Path to schema — resolve() follows symlinks so dev symlink setup works
+_SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "src" / "core" / "dlssconfig.schema.json"
 
 JITTER_CLAMP = 0.499
 

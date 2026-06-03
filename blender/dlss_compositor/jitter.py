@@ -85,30 +85,27 @@ def generate_jitter_sequence(quality_mode: str, frame_count: int) -> list[tuple[
     return result
 
 
-def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: float, jitter_y: float):
+def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: float, jitter_y: float) -> None:
     """
-    Apply sub-pixel jitter to camera for this frame.
-    Uses camera shift (lens shift) which is a stable Blender API.
-    
-    NOTE: The jitter values are stored in dlssconfig.json per-frame;
-    this function applies them to the Blender camera during render.
-    Must be called in render_pre handler before each frame renders.
+    Apply sub-pixel jitter to camera for this frame via lens shift.
+
+    jitter_x/y are in pixel space [-0.499, +0.499] relative to the
+    RENDER resolution (after resolution_percentage override), not the
+    output resolution.  Blender camera shift_x/y of 1.0 equals one full
+    render-pixel-width / render-pixel-height shift respectively.
     """
     camera = scene.camera
     if camera is None:
         return
-    
-    # Store original shift to restore later
-    # (Handler T14 manages save/restore lifecycle; this just applies the offset)
-    # Convert pixel jitter to normalized camera shift
-    # jitter_x/y are in pixel space [-0.499, +0.499]
-    # Blender camera shift is in normalized sensor units
-    # For a typical sensor width, 1 pixel ≈ 1/render_width sensor units
+
     render = scene.render
-    width = render.resolution_x
-    height = render.resolution_y
-    
-    if width > 0:
-        camera.data.shift_x = (jitter_x / width) * (height / width)
-    if height > 0:
-        camera.data.shift_y = jitter_y / height
+    pct = render.resolution_percentage / 100.0
+
+    # Actual rendered pixel dimensions (after DLSS quality override)
+    render_w = render.resolution_x * pct
+    render_h = render.resolution_y * pct
+
+    if render_w > 0:
+        camera.data.shift_x = jitter_x / render_w
+    if render_h > 0:
+        camera.data.shift_y = jitter_y / render_h
