@@ -42,14 +42,22 @@ def _get_quality_percentage(quality_mode: str) -> int:
     return pct
 
 
-def _collect_camera_data(scene: Scene, frame_num: int) -> dict:
+def _frame_jitter(scene: Scene, frame_num: int) -> tuple[float, float]:
+    """Return the DLSS jitter pair for a Blender frame number."""
     """Collect per-frame camera matrix, projection, and jitter data."""
     from .jitter import generate_jitter_sequence
+
+    props = scene.dlss_compositor  # type: ignore[attr-defined]
+    sequence = generate_jitter_sequence(props.quality_mode, frame_num + 1)  # type: ignore[attr-defined]
+    return sequence[frame_num] if sequence else (0.0, 0.0)
+
+
+def _collect_camera_data(scene: Scene, frame_num: int, jitter_x: float, jitter_y: float) -> dict:
+    """Collect per-frame camera matrix, projection, and jitter data."""
 
     log.debug("_collect_camera_data: frame=%d scene='%s'", frame_num, scene.name)
 
     camera = scene.camera
-    props = scene.dlss_compositor  # type: ignore[attr-defined]
 
     matrix_world = [[0.0]*4 for _ in range(4)]
     projection   = [[0.0]*4 for _ in range(4)]
@@ -88,8 +96,6 @@ def _collect_camera_data(scene: Scene, frame_num: int) -> dict:
     else:
         log.warning("_collect_camera_data: scene '%s' has no active camera", scene.name)
 
-    sequence = generate_jitter_sequence(props.quality_mode, frame_num + 1)  # type: ignore[attr-defined]
-    jitter_x, jitter_y = sequence[frame_num] if sequence else (0.0, 0.0)
     log.debug("_collect_camera_data: jitter=(%.4f, %.4f)", jitter_x, jitter_y)
 
     return {
@@ -118,6 +124,19 @@ def _write_cam_json_atomic(output_dir: str, frame_num: int, data: dict) -> None:
     log.debug("_write_cam_json_atomic: wrote %s", cam_path)
 
 
+def _show_user_error(message: str) -> None:
+    """Show a Blender popup for user-actionable DLSS export failures."""
+    log.error(message)
+    wm = getattr(getattr(bpy, "context", None), "window_manager", None)
+    if wm is None:
+        return
+
+    def draw(self, _context):  # type: ignore[no-untyped-def]
+        self.layout.label(text=message)
+
+    wm.popup_menu(draw, title="DLSS Compositor", icon="ERROR")
+
+
 @bpy.app.handlers.persistent
 def dlss_render_init(scene: Scene) -> None:
     """
@@ -136,6 +155,7 @@ def dlss_render_init(scene: Scene) -> None:
 
     original_pct = scene.render.resolution_percentage
     scene["_dlss_saved_pct"] = original_pct
+    scene["_dlss_written_frames"] = []
 
     # Save original camera shift so we can restore after render
     camera = scene.camera
@@ -179,15 +199,22 @@ def dlss_render_pre(scene: Scene) -> None:
         log.warning("dlss_render_pre: output_dir not set — skipping per-frame cam.json")
         return
 
-    cam_data = _collect_camera_data(scene, frame_num)
-    _write_cam_json_atomic(output_dir, frame_num, cam_data)
-
     # Apply sub-pixel jitter to camera so the rendered frame is actually jittered
     from .jitter import apply_jitter_to_frame
-    apply_jitter_to_frame(scene, frame_num, cam_data["jitter_x"], cam_data["jitter_y"])
+    jitter_x, jitter_y = _frame_jitter(scene, frame_num)
+    apply_jitter_to_frame(scene, frame_num, jitter_x, jitter_y)
+
+    cam_data = _collect_camera_data(scene, frame_num, jitter_x, jitter_y)
+    _write_cam_json_atomic(output_dir, frame_num, cam_data)
+
+    written_frames = list(scene.get("_dlss_written_frames", []))
+    if frame_num not in written_frames:
+        written_frames.append(frame_num)
+        scene["_dlss_written_frames"] = written_frames
+
     log.info(
         "dlss_render_pre: frame=%d jitter=(%.4f, %.4f) cam.json written to %s",
-        frame_num, cam_data["jitter_x"], cam_data["jitter_y"], output_dir,
+        frame_num, jitter_x, jitter_y, output_dir,
     )
 
 
@@ -206,32 +233,38 @@ def _finalize(scene: Scene) -> None:
     saved_pct = scene["_dlss_saved_pct"]
     log.info("_finalize: restoring resolution_percentage to %d%%", saved_pct)
 
-    if props and props.output_dir:  # type: ignore[attr-defined]
-        from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
-        top_level = build_top_level_config(scene, props)
-        frames    = merge_per_frame_jsons(props.output_dir)  # type: ignore[attr-defined]
-        log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
-        write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]
-        log.info("_finalize: dlssconfig.json written (%d frames)", len(frames))
-    else:
-        log.warning("_finalize: output_dir not set, skipping dlssconfig.json write")
+    try:
+        if props and props.output_dir:  # type: ignore[attr-defined]
+            from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
+            top_level = build_top_level_config(scene, props)
+            written_frames = list(scene.get("_dlss_written_frames", []))
+            frames = merge_per_frame_jsons(props.output_dir, written_frames)  # type: ignore[attr-defined]
+            log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
+            write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]
+            log.info("_finalize: dlssconfig.json written (%d frames)", len(frames))
+        else:
+            log.warning("_finalize: output_dir not set, skipping dlssconfig.json write")
+    except Exception as exc:
+        _show_user_error(f"DLSS export failed: {exc}")
+    finally:
+        scene.render.resolution_percentage = int(saved_pct)
+        del scene["_dlss_saved_pct"]
+        if "_dlss_written_frames" in scene:
+            del scene["_dlss_written_frames"]
+        log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
 
-    scene.render.resolution_percentage = int(saved_pct)
-    del scene["_dlss_saved_pct"]
-    log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
-
-    # Restore original camera shift
-    camera = scene.camera
-    if camera is not None:
-        saved_sx = scene.get("_dlss_saved_shift_x")
-        saved_sy = scene.get("_dlss_saved_shift_y")
-        if saved_sx is not None:
-            camera.data.shift_x = float(saved_sx)
-            del scene["_dlss_saved_shift_x"]
-        if saved_sy is not None:
-            camera.data.shift_y = float(saved_sy)
-            del scene["_dlss_saved_shift_y"]
-        log.info("_finalize: restored camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
+        # Restore original camera shift
+        camera = scene.camera
+        if camera is not None:
+            saved_sx = scene.get("_dlss_saved_shift_x")
+            saved_sy = scene.get("_dlss_saved_shift_y")
+            if saved_sx is not None:
+                camera.data.shift_x = float(saved_sx)
+                del scene["_dlss_saved_shift_x"]
+            if saved_sy is not None:
+                camera.data.shift_y = float(saved_sy)
+                del scene["_dlss_saved_shift_y"]
+            log.info("_finalize: restored camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
 
 
 @bpy.app.handlers.persistent
@@ -274,6 +307,8 @@ def dlss_load_post(scene: Scene | None = None) -> None:
         )
         target_scene.render.resolution_percentage = int(saved_pct)
         del target_scene["_dlss_saved_pct"]
+        if "_dlss_written_frames" in target_scene:
+            del target_scene["_dlss_written_frames"]
     else:
         log.debug("dlss_load_post: no stale saved_pct found")
 

@@ -105,7 +105,10 @@ def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: floa
     render_w = render.resolution_x * pct
     render_h = render.resolution_y * pct
 
+    base_shift_x = float(scene.get("_dlss_saved_shift_x", camera.data.shift_x))
+    base_shift_y = float(scene.get("_dlss_saved_shift_y", camera.data.shift_y))
+
     if render_w > 0:
-        camera.data.shift_x = jitter_x / render_w
+        camera.data.shift_x = base_shift_x + (jitter_x / render_w)
     if render_h > 0:
-        camera.data.shift_y = jitter_y / render_h
+        camera.data.shift_y = base_shift_y + (jitter_y / render_h)

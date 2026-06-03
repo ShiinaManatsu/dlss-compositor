@@ -63,7 +63,7 @@ enum class OutputFormat {
 // DLSS scaling ratios per quality mode (SR §3.7.1.1)
 constexpr float DLSS_RATIO[] = {
     1.0f,   // DLAA
-    1.0f,   // UltraQuality
+    1.3f,   // UltraQuality
     1.5f,   // Quality
     1.724f, // Balanced
     2.0f,   // Performance
@@ -73,7 +73,7 @@ constexpr float DLSS_RATIO[] = {
 // Jitter phase counts per quality mode (SR §3.7.1.1 minimum table)
 constexpr int JITTER_PHASES[] = {
     8,   // DLAA
-    8,   // UltraQuality
+    14,  // UltraQuality
     18,  // Quality
     24,  // Balanced
     32,  // Performance

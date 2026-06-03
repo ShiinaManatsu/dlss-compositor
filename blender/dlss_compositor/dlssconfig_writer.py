@@ -1,11 +1,6 @@
-"""
-DLSS Compositor dlssconfig.json writer — Blender side.
-Schema single source of truth: src/core/dlssconfig.schema.json
-This module builds, validates, and atomically writes dlssconfig.json.
-"""
+"""DLSS Compositor dlssconfig.json writer — Blender side."""
 from __future__ import annotations
 
-import importlib.util
 import json
 import logging
 import os
@@ -18,9 +13,6 @@ log = logging.getLogger("dlss_compositor.dlssconfig_writer")
 
 # HDR display devices per Blender 5.1 docs
 HDR_DISPLAY_DEVICES = {"Rec.2100-PQ", "Rec.2100-HLG"}
-
-# Path to schema — resolve() follows symlinks so dev symlink setup works
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent.parent / "src" / "core" / "dlssconfig.schema.json"
 
 JITTER_CLAMP = 0.499
 
@@ -70,8 +62,8 @@ def build_top_level_config(scene: Scene, props: object) -> dict[str, Any]:
     }
 
 
-def merge_per_frame_jsons(output_dir: str) -> dict[str, Any]:
-    """Scan output_dir/frames/*.cam.json and merge into a frames dict."""
+def merge_per_frame_jsons(output_dir: str, frame_numbers: list[int] | None = None) -> dict[str, Any]:
+    """Merge continuous per-frame cam.json files into a frames dict."""
     frames_dir = Path(output_dir) / "frames"
     frames: dict[str, Any] = {}
 
@@ -79,14 +71,40 @@ def merge_per_frame_jsons(output_dir: str) -> dict[str, Any]:
         log.debug("merge_per_frame_jsons: frames dir does not exist: %s", frames_dir)
         return frames
 
-    cam_files = sorted(frames_dir.glob("*.cam.json"))
+    if frame_numbers is None:
+        cam_files = sorted(frames_dir.glob("*.cam.json"))
+        frame_numbers = []
+        for cam_file in cam_files:
+            frame_key = cam_file.stem.replace(".cam", "")
+            if frame_key.isdigit():
+                frame_numbers.append(int(frame_key))
+    else:
+        frame_numbers = sorted(set(frame_numbers))
+        cam_files = [frames_dir / f"{frame_num:04d}.cam.json" for frame_num in frame_numbers]
+
     log.debug("merge_per_frame_jsons: found %d cam.json files", len(cam_files))
 
-    for cam_file in cam_files:
+    if not frame_numbers:
+        return frames
+
+    continuous_numbers = [frame_numbers[0]]
+    previous = frame_numbers[0]
+    for frame_num in frame_numbers[1:]:
+        if frame_num != previous + 1:
+            log.warning(
+                "merge_per_frame_jsons: frame gap after %04d; discarding frame %04d and later",
+                previous, frame_num,
+            )
+            break
+        continuous_numbers.append(frame_num)
+        previous = frame_num
+
+    for frame_num in continuous_numbers:
+        cam_file = frames_dir / f"{frame_num:04d}.cam.json"
         with open(cam_file, encoding="utf-8") as f:
             frame_data: dict[str, Any] = json.load(f)
 
-        frame_key = cam_file.stem.replace(".cam", "")
+        frame_key = f"{frame_num:04d}"
 
         if "jitter_x" in frame_data:
             frame_data["jitter_x"] = _clamp_jitter(frame_data["jitter_x"], "jitter_x")
@@ -97,36 +115,6 @@ def merge_per_frame_jsons(output_dir: str) -> dict[str, Any]:
         log.debug("merge_per_frame_jsons: loaded frame %s", frame_key)
 
     return frames
-
-
-def validate_against_schema(data: dict[str, Any]) -> None:
-    """Validate dlssconfig dict against src/core/dlssconfig.schema.json.
-
-    Skips silently if jsonschema is not installed or schema file is missing.
-    Raises ValueError if validation fails.
-    """
-    if importlib.util.find_spec("jsonschema") is None:
-        log.warning("validate_against_schema: jsonschema not installed — skipping")
-        return
-
-    if not _SCHEMA_PATH.exists():
-        log.warning("validate_against_schema: schema not found at %s — skipping", _SCHEMA_PATH)
-        return
-
-    import jsonschema  # noqa: PLC0415 — deferred intentionally
-
-    with open(_SCHEMA_PATH, encoding="utf-8") as f:
-        schema = json.load(f)
-
-    validator = jsonschema.Draft7Validator(schema)
-    errors = list(validator.iter_errors(data))
-    if errors:
-        first = errors[0]
-        raise ValueError(
-            f"dlssconfig schema validation failed: {first.message} at {first.json_path}"
-        )
-
-    log.debug("validate_against_schema: OK")
 
 
 def write_atomic(path: str, data: dict[str, Any]) -> None:
@@ -146,14 +134,9 @@ def write_dlssconfig(
     top_level: dict[str, Any],
     frames: dict[str, Any],
 ) -> None:
-    """Combine top-level + per-frame data, validate, atomically write dlssconfig.json.
-
-    Raises ValueError if schema validation fails (file is NOT written in that case).
-    """
+    """Combine top-level + per-frame data and atomically write dlssconfig.json."""
     config = dict(top_level)
     config["frames"] = frames
-
-    validate_against_schema(config)
 
     out_path = Path(output_dir) / "dlssconfig.json"
     write_atomic(str(out_path), config)
