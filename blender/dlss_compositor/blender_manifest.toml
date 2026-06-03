@@ -8,3 +8,26 @@ maintainer = "DLSS Compositor Contributors"
 type = "add-on"
 blender_version_min = "5.1.0"
 license = ["SPDX:MIT"]
+platforms = ["windows-x64"]
+
+# Required: write dlssconfig.json + cam.json to output directory
+[permissions]
+files = "Write per-frame camera data and dlssconfig.json to output directory"
+
+# Third-party Python dependencies (bundled as wheels)
+wheels = [
+  "./wheels/jsonschema-4.26.0-py3-none-any.whl",
+  "./wheels/attrs-26.1.0-py3-none-any.whl",
+  "./wheels/jsonschema_specifications-2025.9.1-py3-none-any.whl",
+  "./wheels/referencing-0.37.0-py3-none-any.whl",
+  "./wheels/rpds_py-2026.5.1-cp312-cp312-win_amd64.whl",
+]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "*.zip",
+  "*.pyc",
+  "tests/",
+]
