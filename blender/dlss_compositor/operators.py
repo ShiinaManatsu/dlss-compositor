@@ -128,7 +128,7 @@ class DLSS_OT_ConfigureAllPasses(Operator):
             # Node-level format (property is readonly; its fields are writable)
             fmt = fo.format
             if fmt is not None:
-                fmt.file_format = "OPEN_EXR"
+                fmt.file_format = "OPEN_EXR_MULTILAYER"
                 fmt.color_management = "OVERRIDE"
                 fmt.view_settings.view_transform = "Raw"
 
