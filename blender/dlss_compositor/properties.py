@@ -15,7 +15,7 @@ class DLSSCompositorProperties(bpy.types.PropertyGroup):
     enabled: bpy.props.BoolProperty(
         name="Enable DLSS Compositor",
         description="Enable transparent resolution override and jitter during render",
-        default=False
+        default=True
     )
     quality_mode: bpy.props.EnumProperty(
         name="Quality Mode",
