@@ -118,6 +118,7 @@ def _write_cam_json_atomic(output_dir: str, frame_num: int, data: dict) -> None:
     log.debug("_write_cam_json_atomic: wrote %s", cam_path)
 
 
+@bpy.app.handlers.persistent
 def dlss_render_init(scene: Scene) -> None:
     """
     Called once at start of entire render job.
@@ -145,6 +146,7 @@ def dlss_render_init(scene: Scene) -> None:
     )
 
 
+@bpy.app.handlers.persistent
 def dlss_render_pre(scene: Scene) -> None:
     """
     Called before each frame renders.
@@ -205,18 +207,21 @@ def _finalize(scene: Scene) -> None:
     log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
 
 
+@bpy.app.handlers.persistent
 def dlss_render_complete(scene: Scene) -> None:
     """Called when render job completes successfully."""
     log.info("dlss_render_complete called: scene='%s'", scene.name)
     _finalize(scene)
 
 
+@bpy.app.handlers.persistent
 def dlss_render_cancel(scene: Scene) -> None:
     """Called when render job is cancelled/interrupted."""
     log.info("dlss_render_cancel called: scene='%s'", scene.name)
     _finalize(scene)
 
 
+@bpy.app.handlers.persistent
 def dlss_load_post(scene: Scene | None = None) -> None:
     """
     Called when Blender starts or loads a .blend file.
