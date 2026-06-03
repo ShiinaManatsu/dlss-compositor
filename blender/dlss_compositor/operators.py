@@ -103,53 +103,38 @@ class DLSS_OT_ConfigureAllPasses(Operator):
         for node in [n for n in nodes if n.label and n.label.startswith("DLSS_")]:
             nodes.remove(node)
 
-        # socket_type for file_output_items.new() — Blender 5.1 API
-        _SOCK: dict[str, str] = {
-            "Image": "RGBA",
-            "Depth": "FLOAT",   # Blender 5.1: VALUE renamed to FLOAT
-            "Vector": "VECTOR",
-        }
+        # ONE multilayer EXR per frame — all passes in one file.
+        # Channel names must match what frame_prefetcher.cpp expects:
+        #   Combined → R, G, B, A  (item name "")
+        #   Depth    → Z           (item name "Z")
+        #   Vector   → Vector.X/Y/Z/W  (item name "Vector")
+        fo: CompositorNodeOutputFile = nodes.new("CompositorNodeOutputFile")  # type: ignore[assignment]
+        fo.label = "DLSS_Output"
+        fo.location = (200, 0)
+        fo.directory = output_dir
+        fo.file_name = "####"
 
-        def make_output_node(
-            label: str,
-            x: float,
-            y: float,
-            file_name: str,
-            output_socket: str,
-        ) -> CompositorNodeOutputFile:
-            fo: CompositorNodeOutputFile = nodes.new("CompositorNodeOutputFile")  # type: ignore[assignment]
-            fo.label = label
-            fo.location = (x, y)
+        fmt = fo.format
+        if fmt is not None:
+            fmt.file_format = "OPEN_EXR_MULTILAYER"
+            fmt.color_management = "OVERRIDE"
+            fmt.view_settings.view_transform = "Raw"
 
-            # Blender 5.1: base_path removed → directory + file_name
-            fo.directory = output_dir
-            fo.file_name = file_name
+        # Clear default items and add the three passes
+        fo.file_output_items.clear()
+        item_combined: NodeCompositorFileOutputItem = fo.file_output_items.new("RGBA", "")
+        item_combined.name = ""
+        item_z: NodeCompositorFileOutputItem = fo.file_output_items.new("FLOAT", "Z")
+        item_z.name = "Z"
+        item_vec: NodeCompositorFileOutputItem = fo.file_output_items.new("VECTOR", "Vector")
+        item_vec.name = "Vector"
 
-            # Node-level format (property is readonly; its fields are writable)
-            fmt = fo.format
-            if fmt is not None:
-                fmt.file_format = "OPEN_EXR_MULTILAYER"
-                fmt.color_management = "OVERRIDE"
-                fmt.view_settings.view_transform = "Raw"  # OCIO view transform name (stubs are wrong here)
+        # Wire: Image→input[0], Depth→input[1], Vector→input[2]
+        for out_name, inp_idx in [("Image", 0), ("Depth", 1), ("Vector", 2)]:
+            sock = rl_node.outputs.get(out_name)  # type: ignore[union-attr]
+            if sock and len(fo.inputs) > inp_idx:
+                links.new(sock, fo.inputs[inp_idx])
 
-            # Blender 5.1: file_slots removed → file_output_items
-            items = fo.file_output_items
-            if not items:
-                item: NodeCompositorFileOutputItem = items.new(
-                    _SOCK.get(output_socket, "RGBA"), file_name
-                )
-            else:
-                item = items[0]
-                item.name = file_name
-
-            sock = rl_node.outputs.get(output_socket)  # type: ignore[union-attr]
-            if sock and fo.inputs:
-                links.new(sock, fo.inputs[0])
-            return fo
-
-        make_output_node("DLSS_Combined", 200, 100, "####", "Image")
-        make_output_node("DLSS_Depth", 200, -100, "####.depth", "Depth")
-        make_output_node("DLSS_Vector", 200, -300, "####.vector", "Vector")
         return None
 
 
