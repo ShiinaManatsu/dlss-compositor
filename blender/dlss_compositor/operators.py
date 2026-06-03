@@ -130,7 +130,7 @@ class DLSS_OT_ConfigureAllPasses(Operator):
             if fmt is not None:
                 fmt.file_format = "OPEN_EXR_MULTILAYER"
                 fmt.color_management = "OVERRIDE"
-                fmt.view_settings.view_transform = "Raw"
+                fmt.view_settings.view_transform = "NONE"  # Blender 5.1: "Raw" renamed to "NONE"
 
             # Blender 5.1: file_slots removed → file_output_items
             items = fo.file_output_items
