@@ -133,20 +133,16 @@ def dlss_render_init(scene: Scene) -> None:
         log.info("dlss_render_init: DLSS not enabled (props.enabled=False), skipping")
         return
 
-    try:
-        original_pct = scene.render.resolution_percentage
-        scene["_dlss_saved_pct"] = original_pct
+    original_pct = scene.render.resolution_percentage
+    scene["_dlss_saved_pct"] = original_pct
 
-        dlss_pct = _get_quality_percentage(props.quality_mode)  # type: ignore[attr-defined]
-        scene.render.resolution_percentage = dlss_pct
+    dlss_pct = _get_quality_percentage(props.quality_mode)  # type: ignore[attr-defined]
+    scene.render.resolution_percentage = dlss_pct
 
-        log.info(
-            "dlss_render_init: ENGAGED — original=%d%% → dlss=%d%% (quality=%s)",
-            original_pct, dlss_pct, props.quality_mode,  # type: ignore[attr-defined]
-        )
-    except Exception:
-        log.exception("dlss_render_init: UNEXPECTED ERROR")
-        raise
+    log.info(
+        "dlss_render_init: ENGAGED — original=%d%% → dlss=%d%% (quality=%s)",
+        original_pct, dlss_pct, props.quality_mode,  # type: ignore[attr-defined]
+    )
 
 
 def dlss_render_pre(scene: Scene) -> None:
@@ -167,21 +163,16 @@ def dlss_render_pre(scene: Scene) -> None:
         log.warning("dlss_render_pre: _dlss_saved_pct missing — render_init was not called properly")
         return
 
-    try:
-        frame_num  = scene.frame_current
-        output_dir = props.output_dir  # type: ignore[attr-defined]
+    frame_num  = scene.frame_current
+    output_dir = props.output_dir  # type: ignore[attr-defined]
 
-        if not output_dir:
-            log.warning("dlss_render_pre: output_dir not set — skipping per-frame cam.json")
-            return
+    if not output_dir:
+        log.warning("dlss_render_pre: output_dir not set — skipping per-frame cam.json")
+        return
 
-        cam_data = _collect_camera_data(scene, frame_num)
-        _write_cam_json_atomic(output_dir, frame_num, cam_data)
-        log.info("dlss_render_pre: frame=%d cam.json written to %s", frame_num, output_dir)
-
-    except Exception:
-        log.exception("dlss_render_pre: UNEXPECTED ERROR on frame %d", scene.frame_current)
-        raise
+    cam_data = _collect_camera_data(scene, frame_num)
+    _write_cam_json_atomic(output_dir, frame_num, cam_data)
+    log.info("dlss_render_pre: frame=%d cam.json written to %s", frame_num, output_dir)
 
 
 def _finalize(scene: Scene) -> None:
@@ -196,30 +187,22 @@ def _finalize(scene: Scene) -> None:
         log.info("_finalize: no _dlss_saved_pct found, nothing to restore")
         return
 
-    try:
-        saved_pct = scene["_dlss_saved_pct"]
-        log.info("_finalize: restoring resolution_percentage to %d%%", saved_pct)
+    saved_pct = scene["_dlss_saved_pct"]
+    log.info("_finalize: restoring resolution_percentage to %d%%", saved_pct)
 
-        if props and props.output_dir:  # type: ignore[attr-defined]
-            from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
-            top_level = build_top_level_config(scene, props)
-            frames    = merge_per_frame_jsons(props.output_dir)  # type: ignore[attr-defined]
-            log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
-            try:
-                write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]
-                log.info("_finalize: dlssconfig.json written (%d frames)", len(frames))
-            except ValueError:
-                log.exception("_finalize: dlssconfig.json schema validation failed")
-        else:
-            log.warning("_finalize: output_dir not set, skipping dlssconfig.json write")
+    if props and props.output_dir:  # type: ignore[attr-defined]
+        from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
+        top_level = build_top_level_config(scene, props)
+        frames    = merge_per_frame_jsons(props.output_dir)  # type: ignore[attr-defined]
+        log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
+        write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]
+        log.info("_finalize: dlssconfig.json written (%d frames)", len(frames))
+    else:
+        log.warning("_finalize: output_dir not set, skipping dlssconfig.json write")
 
-        scene.render.resolution_percentage = int(saved_pct)
-        del scene["_dlss_saved_pct"]
-        log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
-
-    except Exception:
-        log.exception("_finalize: UNEXPECTED ERROR")
-        raise
+    scene.render.resolution_percentage = int(saved_pct)
+    del scene["_dlss_saved_pct"]
+    log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
 
 
 def dlss_render_complete(scene: Scene) -> None:
@@ -243,11 +226,12 @@ def dlss_load_post(scene: Scene | None = None) -> None:
 
     target_scene = scene
     if target_scene is None:
-        try:
-            target_scene = bpy.context.scene
-        except AttributeError:
-            log.debug("dlss_load_post: no context scene available")
-            return
+        ctx = getattr(bpy, "context", None)
+        target_scene = getattr(ctx, "scene", None) if ctx is not None else None
+
+    if target_scene is None:
+        log.debug("dlss_load_post: no scene available")
+        return
 
     if "_dlss_saved_pct" in target_scene:
         saved_pct   = target_scene["_dlss_saved_pct"]

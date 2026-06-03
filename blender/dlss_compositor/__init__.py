@@ -34,15 +34,12 @@ def _setup_logging() -> None:
         h.close()
 
     # File handler — truncate on open so each reload starts fresh
-    try:
-        fh = logging.FileHandler(str(_LOG_PATH), mode="w", encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-        )
-        logger.addHandler(fh)
-    except Exception as exc:
-        print(f"[DLSS] Could not open log file {_LOG_PATH}: {exc}", file=sys.stderr)
+    fh = logging.FileHandler(str(_LOG_PATH), mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    logger.addHandler(fh)
 
     # Mirror to Blender's system console (stderr)
     sh = logging.StreamHandler(sys.stderr)
