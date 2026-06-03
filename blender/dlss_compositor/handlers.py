@@ -137,6 +137,13 @@ def dlss_render_init(scene: Scene) -> None:
     original_pct = scene.render.resolution_percentage
     scene["_dlss_saved_pct"] = original_pct
 
+    # Save original camera shift so we can restore after render
+    camera = scene.camera
+    if camera is not None:
+        scene["_dlss_saved_shift_x"] = camera.data.shift_x
+        scene["_dlss_saved_shift_y"] = camera.data.shift_y
+        log.debug("dlss_render_init: saved camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
+
     dlss_pct = _get_quality_percentage(props.quality_mode)  # type: ignore[attr-defined]
     scene.render.resolution_percentage = dlss_pct
 
@@ -174,7 +181,14 @@ def dlss_render_pre(scene: Scene) -> None:
 
     cam_data = _collect_camera_data(scene, frame_num)
     _write_cam_json_atomic(output_dir, frame_num, cam_data)
-    log.info("dlss_render_pre: frame=%d cam.json written to %s", frame_num, output_dir)
+
+    # Apply sub-pixel jitter to camera so the rendered frame is actually jittered
+    from .jitter import apply_jitter_to_frame
+    apply_jitter_to_frame(scene, frame_num, cam_data["jitter_x"], cam_data["jitter_y"])
+    log.info(
+        "dlss_render_pre: frame=%d jitter=(%.4f, %.4f) cam.json written to %s",
+        frame_num, cam_data["jitter_x"], cam_data["jitter_y"], output_dir,
+    )
 
 
 def _finalize(scene: Scene) -> None:
@@ -205,6 +219,19 @@ def _finalize(scene: Scene) -> None:
     scene.render.resolution_percentage = int(saved_pct)
     del scene["_dlss_saved_pct"]
     log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
+
+    # Restore original camera shift
+    camera = scene.camera
+    if camera is not None:
+        saved_sx = scene.get("_dlss_saved_shift_x")
+        saved_sy = scene.get("_dlss_saved_shift_y")
+        if saved_sx is not None:
+            camera.data.shift_x = float(saved_sx)
+            del scene["_dlss_saved_shift_x"]
+        if saved_sy is not None:
+            camera.data.shift_y = float(saved_sy)
+            del scene["_dlss_saved_shift_y"]
+        log.info("_finalize: restored camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
 
 
 @bpy.app.handlers.persistent
