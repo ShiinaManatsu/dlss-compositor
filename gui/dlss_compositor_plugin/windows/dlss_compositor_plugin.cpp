@@ -226,9 +226,13 @@ void DlssCompositorPlugin::HandleMethodCall(
           flutter::EncodableValue(static_cast<int32_t>(4));
       status[flutter::EncodableValue("video_encoders")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("prores_ks"))});
-      status[flutter::EncodableValue("export_formats")] = flutter::EncodableValue(
-          flutter::EncodableList{flutter::EncodableValue(std::string("mov")),
-                                 flutter::EncodableValue(std::string("mp4"))});
+      status[flutter::EncodableValue("export_formats_ldr")] = flutter::EncodableValue(
+          flutter::EncodableList{flutter::EncodableValue(std::string("png_16")),
+                                 flutter::EncodableValue(std::string("exr")),
+                                 flutter::EncodableValue(std::string("prores_422hq"))});
+      status[flutter::EncodableValue("export_formats_hdr")] = flutter::EncodableValue(
+          flutter::EncodableList{flutter::EncodableValue(std::string("exr")),
+                                 flutter::EncodableValue(std::string("prores_422hq"))});
       result->Success(flutter::EncodableValue(status));
 
     } else if (method == "getProgress") {
@@ -241,6 +245,14 @@ void DlssCompositorPlugin::HandleMethodCall(
       progress[flutter::EncodableValue("state")] =
           flutter::EncodableValue(std::string("idle"));
       result->Success(flutter::EncodableValue(progress));
+
+    } else if (method == "checkOutputCollisions") {
+      flutter::EncodableMap response;
+      response[flutter::EncodableValue("collisions")] =
+          flutter::EncodableValue(static_cast<int32_t>(0));
+      response[flutter::EncodableValue("files")] =
+          flutter::EncodableValue(flutter::EncodableList{});
+      result->Success(flutter::EncodableValue(response));
 
     } else if (method == "getPreviewFrame") {
       const int slot = ring_buffer_->readSlot.load();

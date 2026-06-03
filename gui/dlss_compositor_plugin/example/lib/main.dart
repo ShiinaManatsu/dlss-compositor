@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 
-import 'package:dlss_compositor_plugin/dlss_compositor_plugin.dart' as dlss_compositor_plugin;
+import 'package:dlss_compositor_plugin/dlss_compositor_plugin.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,14 +14,13 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
+  final plugin = DlssCompositorPlugin();
+  late Future<Map<String, dynamic>> status;
 
   @override
   void initState() {
     super.initState();
-    sumResult = dlss_compositor_plugin.sum(1, 2);
-    sumAsyncResult = dlss_compositor_plugin.sumAsync(3, 4);
+    status = plugin.getStatus();
   }
 
   @override
@@ -44,20 +42,14 @@ class _MyAppState extends State<MyApp> {
                   textAlign: .center,
                 ),
                 spacerSmall,
-                Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: .center,
-                ),
-                spacerSmall,
-                FutureBuilder<int>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
-                    final displayValue = (value.hasData)
-                        ? value.data
-                        : 'loading';
+                FutureBuilder<Map<String, dynamic>>(
+                  future: status,
+                  builder: (BuildContext context, AsyncSnapshot<Map<String, dynamic>> value) {
+                    final displayValue = value.hasData
+                        ? value.data.toString()
+                        : 'Loading status...';
                     return Text(
-                      'await sumAsync(3, 4) = $displayValue',
+                      displayValue,
                       style: textStyle,
                       textAlign: .center,
                     );
