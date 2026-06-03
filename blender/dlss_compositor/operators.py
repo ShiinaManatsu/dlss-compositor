@@ -106,7 +106,7 @@ class DLSS_OT_ConfigureAllPasses(Operator):
         # socket_type for file_output_items.new() — Blender 5.1 API
         _SOCK: dict[str, str] = {
             "Image": "RGBA",
-            "Depth": "VALUE",
+            "Depth": "FLOAT",   # Blender 5.1: VALUE renamed to FLOAT
             "Vector": "VECTOR",
         }
 
