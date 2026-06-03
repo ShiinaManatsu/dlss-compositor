@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'dart:math';
 
 /// Persistent preferences for DLSS Compositor GUI.
 /// Debug/release isolation: separate key prefix to avoid polluting release config during dev.
@@ -8,7 +9,8 @@ class AppPreferences extends ChangeNotifier {
   static const String _debugPrefix = 'dlss_compositor_debug';
   static const String _releasePrefix = 'dlss_compositor_release';
 
-  static String get _prefix => kDebugMode ? _debugPrefix : _releasePrefix;
+  static String get _prefix => mockPrefix ?? (kDebugMode ? _debugPrefix : _releasePrefix);
+  static String? mockPrefix;
 
   SharedPreferences? _prefs;
   Timer? _debounce;
@@ -32,6 +34,12 @@ class AppPreferences extends ChangeNotifier {
   String outputDirectory = '';
   double splitterPosition = 0.4;
   String sessionTitle = '';
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -81,6 +89,20 @@ class AppPreferences extends ChangeNotifier {
   void setOutputDirectory(String v) => _scheduleWrite(() { outputDirectory = v; notifyListeners(); });
   void setSplitterPosition(double v) => _scheduleWrite(() { splitterPosition = v; notifyListeners(); });
   void setSessionTitle(String v) => _scheduleWrite(() { sessionTitle = v; notifyListeners(); });
+
+  /// Generate a session title from the dlssconfig path if none is set.
+  /// Format: `<aov_dir_name>_<random4>`
+  void deriveSessionTitleIfEmpty(String configPath) {
+    if (sessionTitle.isNotEmpty || configPath.isEmpty) return;
+    
+    final normalized = configPath.replaceAll('\\', '/');
+    final segments = normalized.split('/');
+    if (segments.length > 1) {
+      final aovDir = segments[segments.length - 2];
+      final random = Random().nextInt(10000).toString().padLeft(4, '0');
+      setSessionTitle('${aovDir}_$random');
+    }
+  }
 
   /// Reset all preferences to defaults.
   Future<void> resetToDefaults() async {

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/app_state.dart';
+import '../state/preferences.dart';
 import '../plugin/dlss_compositor.dart';
+import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
 import 'dlssconfig_picker.dart';
 
@@ -36,19 +38,23 @@ class TaskConfigPanel extends StatefulWidget {
 }
 
 class _TaskConfigPanelState extends State<TaskConfigPanel> {
-  // Configuration state
-  String _preset = 'auto';
-  bool _fgEnabled = false;
-  FgMultiplier _fgMultiplier = FgMultiplier.two;
-  OutputFormat? _outputFormat;
-  OverwriteMode _overwriteMode = OverwriteMode.overwrite;
-  String _outputDir = '';
-  final _templateController = TextEditingController(text: 'frame_####');
+  final _templateController = TextEditingController();
+  String? _lastConfigPathForDefaults;
+  bool _prefsApplied = false;
 
   @override
   void initState() {
     super.initState();
     _templateController.addListener(_onTemplateChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = Provider.of<AppState>(context, listen: false);
+    if (_templateController.text != state.template) {
+      _templateController.text = state.template;
+    }
   }
 
   @override
@@ -58,14 +64,66 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   void _onTemplateChanged() {
-    setState(() {});
+    final state = Provider.of<AppState>(context, listen: false);
+    if (state.template != _templateController.text) {
+      state.setTaskConfig(template: _templateController.text);
+    }
   }
 
-  String get _templateSample {
-    final tmpl = _templateController.text;
+  String? _templateError(String text) {
+    final template = text.trim();
+    if (template.isEmpty) return 'Filename template is required';
+    if (template.contains('/') || template.contains('\\')) {
+      return 'Filename template must not contain path separators';
+    }
+    return null;
+  }
+
+  void _applyDefaults(AppState state, AppPreferences? prefs) {
+    if (prefs != null && !_prefsApplied) {
+      _prefsApplied = true;
+      if (prefs.presetOverride != state.preset ||
+          prefs.fgEnabled != state.fgEnabled ||
+          prefs.fgMultiplier != state.fgMultiplier ||
+          prefs.outputFormat != state.outputFormat ||
+          prefs.outputDirectory != state.outputDir) {
+        Future.microtask(() {
+          if (!mounted) return;
+          state.setTaskConfig(
+            preset: prefs.presetOverride,
+            fgEnabled: prefs.fgEnabled,
+            fgMultiplier: prefs.fgMultiplier,
+            outputFormat: prefs.outputFormat,
+            outputDir: prefs.outputDirectory,
+          );
+        });
+      }
+    } else if (prefs == null) {
+      _prefsApplied = true;
+    }
+
+    final configPath = state.currentDlssConfigPath;
+    if (configPath != null && configPath != _lastConfigPathForDefaults) {
+      _lastConfigPathForDefaults = configPath;
+      if (state.outputDir.isEmpty) {
+        final normalized = configPath.replaceAll('\\', '/');
+        final slash = normalized.lastIndexOf('/');
+        if (slash >= 0) {
+          Future.microtask(() {
+            if (mounted) {
+              state.setTaskConfig(outputDir: '${normalized.substring(0, slash)}/output');
+            }
+          });
+        }
+      }
+    }
+  }
+
+  String _templateSample(AppState state) {
+    final tmpl = state.template;
     final formatted = tmpl.replaceAll('####', '0001');
-    final ext = _outputFormat == OutputFormat.png16 ? '.png'
-              : _outputFormat == OutputFormat.prores422hq ? '.mov'
+    final ext = state.outputFormat == 'png_16' ? '.png'
+              : state.outputFormat == 'prores_422hq' ? '.mov'
               : '.exr';
     return formatted.contains('.') ? formatted : '$formatted$ext';
   }
@@ -83,51 +141,124 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   Future<void> _onStartPressed(BuildContext context) async {
     final appState = Provider.of<AppState>(context, listen: false);
+    final prefs = Provider.of<AppPreferences>(context, listen: false);
     if (appState.currentDlssConfig == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a valid dlssconfig.json first')));
+      await showErrorDialog(
+        context,
+        title: 'No valid dlssconfig.json',
+        message: 'Please select a valid dlssconfig.json before starting.',
+        details: appState.configError,
+      );
       return;
     }
 
-    // Check output collisions before starting
-    // ignore: unused_local_variable
-    final collisions = await DlssCompositor.getProgress();  // placeholder
-    // TODO: call checkOutputCollisions RPC when integrated
+    final templateError = _templateError(appState.template);
+    if (templateError != null) {
+      await showErrorDialog(
+        context,
+        title: 'Invalid filename template',
+        message: templateError,
+      );
+      return;
+    }
 
-    // For now: proceed directly
-    await DlssCompositor.setTask({
+    final outputDir = appState.outputDir.trim();
+    if (outputDir.isEmpty) {
+      await showErrorDialog(
+        context,
+        title: 'Output directory required',
+        message: 'Please select an output directory before starting.',
+      );
+      return;
+    }
+
+    final taskParams = {
       'config': appState.currentDlssConfigPath,
-      'preset': _preset,
-      'fg_enabled': _fgEnabled,
-      'fg_multiplier': _fgMultiplier.index + 2,
-      'output_format': _outputFormat?.value ?? 'exr',
-      'output_dir': _outputDir,
-      'output_template': _templateController.text,
-      'overwrite_mode': _overwriteMode.name,
-    });
-    await DlssCompositor.startTask();
-    appState.setTaskState(TaskState.running);
+      'preset': appState.preset,
+      'fg_enabled': appState.fgEnabled,
+      'fg_multiplier': appState.fgMultiplier,
+      'output_format': appState.outputFormat,
+      'output_dir': outputDir,
+      'output_template': appState.template.trim(),
+      'overwrite_mode': appState.overwriteMode,
+    };
+
+    final collisions = await DlssCompositor.checkOutputCollisions(taskParams);
+    final count = collisions['collisions'] as int? ?? 0;
+    if (count > 0 && context.mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Output collisions detected'),
+          content: Text('$count output files may conflict. Mode: ${appState.overwriteMode}. Continue?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
+    prefs.setPresetOverride(appState.preset);
+    prefs.setFgEnabled(appState.fgEnabled);
+    prefs.setFgMultiplier(appState.fgMultiplier);
+    prefs.setOutputFormat(appState.outputFormat);
+    prefs.setOutputDirectory(outputDir);
+
+    final setOk = await DlssCompositor.setTask(taskParams);
+    if (!setOk && context.mounted) {
+      await showErrorDialog(
+        context,
+        title: 'Backend rejected task',
+        message: 'Failed to set task parameters.',
+        details: taskParams.toString(),
+      );
+      return;
+    }
+
+    final startOk = await DlssCompositor.startTask();
+    if (startOk) {
+      // Reset state for new task
+      appState.updateProgress(0, 0, 0.0);
+      appState.setTaskState(TaskState.running, error: null);
+    } else if (context.mounted) {
+      await showErrorDialog(
+        context,
+        title: 'Backend failed to start',
+        message: 'Failed to start the task.',
+        details: taskParams.toString(),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
+        AppPreferences? prefs;
+        try {
+          prefs = context.watch<AppPreferences>();
+        } on ProviderNotFoundException {
+          prefs = null;
+        }
+        _applyDefaults(state, prefs);
         final isHdr = state.currentDlssConfig?['is_hdr'] as bool? ?? false;
         final availableFormats = _getAvailableFormats(isHdr);
 
         // Reset format if not available for current HDR/LDR mode
-        if (_outputFormat != null && !availableFormats.contains(_outputFormat)) {
+        if (!availableFormats.map((f) => f.value).contains(state.outputFormat)) {
           // Use Future.microtask to avoid setState during build
           Future.microtask(() {
-              if (mounted) {
-                setState(() {
-                  _outputFormat = availableFormats.first;
-                });
-              }
+            state.setTaskConfig(outputFormat: availableFormats.first.value);
           });
         }
-        _outputFormat ??= availableFormats.first;
 
         return SingleChildScrollView(
           padding: const EdgeInsets.all(12),
@@ -144,15 +275,15 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               const SizedBox(height: 12),
 
               // 3. Preset selector
-              _buildSection('Preset', _buildPresetSelector()),
+              _buildSection('Preset', _buildPresetSelector(state)),
               const SizedBox(height: 8),
 
               // 4. FG settings
-              _buildSection('Frame Generation', _buildFgSettings(state.fgMaxMultiplier)),
+              _buildSection('Frame Generation', _buildFgSettings(state)),
               const SizedBox(height: 8),
 
               // 5. Output settings
-              _buildSection('Output', _buildOutputSettings(isHdr, availableFormats)),
+              _buildSection('Output', _buildOutputSettings(state, availableFormats)),
               const SizedBox(height: 16),
 
               // 6. Start button
@@ -211,18 +342,18 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     );
   }
 
-  Widget _buildPresetSelector() {
+  Widget _buildPresetSelector(AppState state) {
     return DropdownButton<String>(
-      value: _preset,
+      value: state.preset,
       isDense: true,
       items: ['auto', 'J', 'K', 'L', 'M']
           .map((p) => DropdownMenuItem(value: p, child: Text(p == 'auto' ? 'Auto' : 'Preset $p')))
           .toList(),
-      onChanged: (v) => setState(() => _preset = v!),
+      onChanged: (v) => state.setTaskConfig(preset: v!),
     );
   }
 
-  Widget _buildFgSettings(int fgMax) {
+  Widget _buildFgSettings(AppState state) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -230,12 +361,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           children: [
             const Text('Enable FG:', style: TextStyle(fontSize: 13)),
             Switch(
-              value: _fgEnabled,
-              onChanged: (v) => setState(() => _fgEnabled = v),
+              value: state.fgEnabled,
+              onChanged: (v) => state.setTaskConfig(fgEnabled: v),
             ),
           ],
         ),
-        if (_fgEnabled) ...[
+        if (state.fgEnabled) ...[
           const Text('Multiplier:', style: TextStyle(fontSize: 12)),
           Row(
             children: [
@@ -244,10 +375,10 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                   padding: const EdgeInsets.only(right: 4),
                   child: ChoiceChip(
                     label: Text('${m.index + 2}x'),
-                    selected: _fgMultiplier == m,
+                    selected: state.fgMultiplier == (m.index + 2),
                     // Gray out multipliers exceeding hardware max
-                    onSelected: (m.index + 2 <= fgMax)
-                        ? (_) => setState(() => _fgMultiplier = m)
+                    onSelected: (m.index + 2 <= state.fgMaxMultiplier)
+                        ? (_) => state.setTaskConfig(fgMultiplier: m.index + 2)
                         : null,
                   ),
                 ),
@@ -258,7 +389,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     );
   }
 
-  Widget _buildOutputSettings(bool isHdr, List<OutputFormat> formats) {
+  Widget _buildOutputSettings(AppState state, List<OutputFormat> formats) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -266,17 +397,20 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
         Row(
           children: [
-            const Text('Format:', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
-            DropdownButton<OutputFormat>(
-              value: _outputFormat,
-              isDense: true,
-              items: formats
-                  .map((f) => DropdownMenuItem(value: f, child: Text(f.label)))
-                  .toList(),
-                onChanged: (v) => setState(() {
-                  _outputFormat = v;
-                }),
+            const SizedBox(
+              width: 84,
+              child: Text('Format:', style: TextStyle(fontSize: 12)),
+            ),
+            Expanded(
+              child: DropdownButton<String>(
+                value: formats.map((f) => f.value).contains(state.outputFormat) ? state.outputFormat : formats.first.value,
+                isExpanded: true,
+                isDense: true,
+                items: formats
+                    .map((f) => DropdownMenuItem(value: f.value, child: Text(f.label)))
+                    .toList(),
+                  onChanged: (v) => state.setTaskConfig(outputFormat: v),
+              ),
             ),
           ],
         ),
@@ -285,20 +419,22 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         // Output directory
         Row(
           children: [
-            const Text('Output Dir:', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
+            const SizedBox(
+              width: 84,
+              child: Text('Output Dir:', style: TextStyle(fontSize: 12)),
+            ),
             Expanded(
-              child: Text(_outputDir.isEmpty ? '(not set)' : _outputDir,
+              child: Text(state.outputDir.isEmpty ? '(not set)' : state.outputDir,
                   style: TextStyle(
                       fontSize: 12,
-                      color: _outputDir.isEmpty ? Colors.grey : null),
+                      color: state.outputDir.isEmpty ? Colors.grey : null),
                   overflow: TextOverflow.ellipsis),
             ),
             IconButton(
               icon: const Icon(Icons.folder, size: 16),
               onPressed: () async {
                 final dir = selectDirectory();
-                if (dir != null) setState(() => _outputDir = dir);
+                if (dir != null) state.setTaskConfig(outputDir: dir);
               },
             ),
           ],
@@ -308,10 +444,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         const SizedBox(height: 8),
         Row(
           children: [
-            const Text('Template:', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 140,
+            const SizedBox(
+              width: 84,
+              child: Text('Template:', style: TextStyle(fontSize: 12)),
+            ),
+            Expanded(
               child: TextField(
                 controller: _templateController,
                 style: const TextStyle(fontSize: 12),
@@ -323,7 +460,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               ),
             ),
             const SizedBox(width: 8),
-            Text('→ $_templateSample', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Flexible(
+              child: Text(
+                '→ ${_templateSample(state)}',
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
 
@@ -331,20 +474,25 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         const SizedBox(height: 8),
         Row(
           children: [
-            const Text('On conflict:', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
-            DropdownButton<OverwriteMode>(
-              value: _overwriteMode,
-              isDense: true,
-              items: const [
-                DropdownMenuItem(value: OverwriteMode.skip,
-                    child: Text('Skip existing')),
-                DropdownMenuItem(value: OverwriteMode.overwrite,
-                    child: Text('Overwrite')),
-                DropdownMenuItem(value: OverwriteMode.autoVersion,
-                    child: Text('Auto-version (_v##)')),
-              ],
-              onChanged: (v) => setState(() => _overwriteMode = v!),
+            const SizedBox(
+              width: 84,
+              child: Text('On conflict:', style: TextStyle(fontSize: 12)),
+            ),
+            Expanded(
+              child: DropdownButton<String>(
+                value: state.overwriteMode,
+                isExpanded: true,
+                isDense: true,
+                items: const [
+                  DropdownMenuItem(value: 'skip',
+                      child: Text('Skip existing')),
+                  DropdownMenuItem(value: 'overwrite',
+                      child: Text('Overwrite')),
+                  DropdownMenuItem(value: 'autoVersion',
+                      child: Text('Auto-version (_v##)')),
+                ],
+                onChanged: (v) => state.setTaskConfig(overwriteMode: v!),
+              ),
             ),
           ],
         ),

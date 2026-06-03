@@ -31,9 +31,15 @@ class DlssStatusBar extends StatelessWidget {
                   ),
                 ),
               ] else
-                const Text(
-                  'DLSS Compositor v2 — Connecting...',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                const Row(
+                  children: [
+                    SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54)),
+                    SizedBox(width: 8),
+                    Text(
+                      'DLSS Compositor v2 — Connecting...',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
                 ),
 
               const Spacer(),

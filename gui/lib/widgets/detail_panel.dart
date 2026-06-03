@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:dlss_compositor_plugin/dlss_compositor_plugin.dart';
 import '../state/app_state.dart';
 import '../plugin/dlss_compositor.dart';
+import '../util/error_dialog.dart';
 
 /// Log entry with level and message.
 class LogEntry {
@@ -26,7 +30,7 @@ class DetailPanel extends StatefulWidget {
 }
 
 class _DetailPanelState extends State<DetailPanel> {
-  Uint8List? _previewData;
+  ui.Image? _previewImage;
   final List<LogEntry> _logs = [];
   static const int _maxLogEntries = 200;
 
@@ -48,6 +52,7 @@ class _DetailPanelState extends State<DetailPanel> {
   void dispose() {
     _progressSub?.cancel();
     _previewTimer?.cancel();
+    _previewImage?.dispose();
     super.dispose();
   }
 
@@ -65,7 +70,7 @@ class _DetailPanelState extends State<DetailPanel> {
           Provider.of<AppState>(context, listen: false)
               .updateProgress(frame, total, percent);
 
-          if (total > 0 && frame == 0) {
+          if (total > 0 && frame == 0 && _startTime == null) {
             _startTime = DateTime.now();
           }
           _outputFrameCount = frame;
@@ -79,9 +84,33 @@ class _DetailPanelState extends State<DetailPanel> {
           Provider.of<AppState>(context, listen: false)
               .setTaskState(TaskState.done);
           setState(() {});
+          
+        } else if (type == 'error') {
+          _endTime = DateTime.now();
+          final msg = event['message'] as String? ?? 'Unknown error';
+          Provider.of<AppState>(context, listen: false)
+              .setTaskState(TaskState.error, error: msg);
+          _addLog('error', msg);
+          showErrorDialog(
+            context,
+            title: 'Backend error',
+            message: 'The backend reported a runtime error.',
+            details: msg,
+          );
+          setState(() {});
         }
       },
-      onError: (e) => _addLog('error', 'Stream error: $e'),
+      onError: (e) {
+        _addLog('error', 'Stream error: $e');
+        if (mounted) {
+          showErrorDialog(
+            context,
+            title: 'Backend stream error',
+            message: 'The backend event stream failed.',
+            details: '$e',
+          );
+        }
+      },
     );
 
     // Poll preview frames at ~3 fps (throttled)
@@ -93,10 +122,34 @@ class _DetailPanelState extends State<DetailPanel> {
       try {
         final frame = await DlssCompositor.getPreviewFrame();
         if (frame != null && mounted) {
-          setState(() => _previewData = frame);
+          final image = await _decodePreviewFrame(frame);
+          if (mounted) {
+            setState(() {
+              _previewImage?.dispose();
+              _previewImage = image;
+            });
+          } else {
+            image.dispose();
+          }
         }
       } catch (_) {}
     });
+  }
+
+  Future<ui.Image> _decodePreviewFrame(PreviewFrame frame) async {
+    final expected = frame.width * frame.height * 4;
+    final bytes = frame.data.length >= expected
+        ? Uint8List.sublistView(frame.data, 0, expected)
+        : (Uint8List(expected)..setRange(0, frame.data.length, frame.data));
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      bytes,
+      frame.width,
+      frame.height,
+      ui.PixelFormat.rgba8888,
+      completer.complete,
+    );
+    return completer.future;
   }
 
   void _addLog(String level, String message) {
@@ -114,6 +167,22 @@ class _DetailPanelState extends State<DetailPanel> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
+        // Reset local state if AppState went from non-running to running (new task)
+        if (state.taskState == TaskState.running && _endTime != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _startTime = null;
+                _endTime = null;
+                _outputFrameCount = 0;
+                _logs.clear();
+                _previewImage?.dispose();
+                _previewImage = null;
+              });
+            }
+          });
+        }
+
         return Column(
           children: [
             // 1. Preview frame
@@ -131,7 +200,7 @@ class _DetailPanelState extends State<DetailPanel> {
               child: _buildLogSection(),
             ),
 
-            // 4. Completion stats (only when Done)
+            // 4. Completion stats
             if (state.taskState == TaskState.done)
               _buildCompletionStats(state),
           ],
@@ -143,11 +212,10 @@ class _DetailPanelState extends State<DetailPanel> {
   Widget _buildPreviewSection() {
     return Container(
       color: Colors.black87,
-      child: _previewData != null
-          ? Image.memory(
-              _previewData!,
+      child: _previewImage != null
+          ? RawImage(
+              image: _previewImage,
               fit: BoxFit.contain,
-              gaplessPlayback: true,  // Prevent flicker during updates
             )
           : const Center(
               child: Column(
@@ -164,6 +232,23 @@ class _DetailPanelState extends State<DetailPanel> {
   }
 
   Widget _buildProgressSection(AppState state) {
+    String statusText = 'Ready';
+    if (state.taskState == TaskState.running) {
+      statusText = 'Processing: ${state.currentFrame}/${state.totalFrames}';
+      if (_startTime != null && state.currentFrame > 0 && state.totalFrames > state.currentFrame) {
+        final elapsed = DateTime.now().difference(_startTime!);
+        final timePerFrame = elapsed.inMilliseconds / state.currentFrame;
+        final remainingFrames = state.totalFrames - state.currentFrame;
+        final etaMillis = timePerFrame * remainingFrames;
+        final eta = Duration(milliseconds: etaMillis.round());
+        statusText += '  (ETA: ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')})';
+      }
+    } else if (state.taskState == TaskState.done) {
+      statusText = 'Complete ✓';
+    } else if (state.taskState == TaskState.error) {
+      statusText = 'Stopped';
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       color: const Color(0xFF2D2D2D),
@@ -173,12 +258,11 @@ class _DetailPanelState extends State<DetailPanel> {
           Row(
             children: [
               Text(
-                state.taskState == TaskState.running
-                    ? 'Processing: ${state.currentFrame}/${state.totalFrames}'
-                    : state.taskState == TaskState.done
-                        ? 'Complete ✓'
-                        : 'Ready',
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                statusText,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12
+                ),
               ),
               const Spacer(),
               if (state.taskState == TaskState.running)
@@ -188,7 +272,7 @@ class _DetailPanelState extends State<DetailPanel> {
                 ),
             ],
           ),
-          if (state.taskState == TaskState.running || state.taskState == TaskState.done) ...[
+          if (state.taskState == TaskState.running || state.taskState == TaskState.done || state.taskState == TaskState.error) ...[
             const SizedBox(height: 4),
             LinearProgressIndicator(
               value: state.progressPercent,
@@ -257,9 +341,10 @@ class _DetailPanelState extends State<DetailPanel> {
           const SizedBox(height: 4),
           ElevatedButton.icon(
             onPressed: () {
-              // Open output folder in Explorer
-              // final config = Provider.of<AppState>(context, listen: false).currentDlssConfig;
-              // TODO: use output_dir from config
+              final outputDir = state.outputDir;
+              if (outputDir.isNotEmpty) {
+                Process.start('explorer.exe', [outputDir]);
+              }
             },
             icon: const Icon(Icons.folder_open, size: 14),
             label: const Text('Open Output Folder'),

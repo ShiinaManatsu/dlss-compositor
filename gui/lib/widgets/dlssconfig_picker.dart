@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/app_state.dart';
+import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
 
 /// dlssconfig.json file picker with schema validation and summary display.
@@ -34,8 +35,24 @@ class DlssConfigPicker extends StatelessWidget {
       }
 
       appState.setDlssConfig(path, error == null ? config : null, error);
+      if (error != null && context.mounted) {
+        await showErrorDialog(
+          context,
+          title: 'Invalid dlssconfig.json',
+          message: error,
+          details: path,
+        );
+      }
     } catch (e) {
-      appState.setDlssConfig(path, null, 'Failed to parse: $e');
+      appState.setDlssConfig(path, null, 'Failed to parse dlssconfig.json');
+      if (context.mounted) {
+        await showErrorDialog(
+          context,
+          title: 'Failed to open dlssconfig.json',
+          message: 'The selected file could not be parsed.',
+          details: '$path\n$e',
+        );
+      }
     }
   }
 
@@ -49,16 +66,19 @@ class DlssConfigPicker extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     ElevatedButton.icon(
                       onPressed: () => _pickFile(context),
                       icon: const Icon(Icons.folder_open, size: 16),
                       label: const Text('Open dlssconfig.json'),
                     ),
-                    const SizedBox(width: 12),
                     if (state.currentDlssConfigPath != null)
-                      Expanded(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
                         child: Text(
                           state.currentDlssConfigPath!,
                           style: const TextStyle(fontSize: 12),
@@ -68,22 +88,7 @@ class DlssConfigPicker extends StatelessWidget {
                   ],
                 ),
 
-                // Validation status
-                if (state.configError != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.error, color: Colors.red, size: 16),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          state.configError!,
-                          style: const TextStyle(color: Colors.red, fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else if (state.currentDlssConfig != null) ...[
+                if (state.currentDlssConfig != null) ...[
                   const SizedBox(height: 8),
                   _buildSummary(state.currentDlssConfig!),
                 ],
