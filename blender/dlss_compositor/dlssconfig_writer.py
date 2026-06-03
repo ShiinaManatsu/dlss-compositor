@@ -3,13 +3,15 @@ DLSS Compositor dlssconfig.json writer — Blender side.
 Schema single source of truth: src/core/dlssconfig.schema.json
 This module builds, validates, and atomically writes dlssconfig.json.
 """
+from __future__ import annotations
+
 import os
 import json
-import math
 import logging
-import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict
+
+from bpy.types import Scene
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ def _clamp_jitter(value: float, warn_name: str = '') -> float:
     return max(-JITTER_CLAMP, min(JITTER_CLAMP, value))
 
 
-def build_top_level_config(scene, props) -> Dict[str, Any]:
+def build_top_level_config(scene: Scene, props: object) -> Dict[str, Any]:
     """
     Build the top-level dlssconfig dict from Blender scene + DLSS properties.
 

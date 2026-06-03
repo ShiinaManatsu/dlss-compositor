@@ -1,27 +1,28 @@
-"""
-DLSS Compositor render handlers — transparent resolution management + per-frame data collection.
+from __future__ import annotations
 
-Handler lifecycle:
-1. render_init: save user's resolution_percentage → override with DLSS quality percentage
-2. render_pre (per-frame): collect camera data + apply jitter → write per-frame cam.json
-3. render_complete OR render_cancel: merge per-frame jsons → write dlssconfig.json → restore percentage
-4. load_post (Blender startup): crash recovery → restore stale percentage if found
+# DLSS Compositor render handlers — transparent resolution management + per-frame data collection.
+#
+# Handler lifecycle:
+# 1. render_init: save user's resolution_percentage → override with DLSS quality percentage
+# 2. render_pre (per-frame): collect camera data + apply jitter → write per-frame cam.json
+# 3. render_complete OR render_cancel: merge per-frame jsons → write dlssconfig.json → restore percentage
+# 4. load_post (Blender startup): crash recovery → restore stale percentage if found
+#
+# CRITICAL: resolution_percentage save/override/restore is TRANSPARENT to the user.
+# The user never sees the percentage change — it happens only during active render.
 
-CRITICAL: resolution_percentage save/override/restore is TRANSPARENT to the user.
-The user never sees the percentage change — it happens only during active render.
-"""
 import bpy
 import os
 import json
 import math
 import logging
 from pathlib import Path
-from typing import Optional
+from bpy.types import Scene
 
 log = logging.getLogger(__name__)
 
 
-def _get_props(scene) -> Optional[object]:
+def _get_props(scene: Scene) -> object | None:
     """Get DLSS compositor properties, or None if not configured."""
     return getattr(scene, 'dlss_compositor', None)
 
@@ -33,7 +34,7 @@ def _get_quality_percentage(quality_mode: str) -> int:
     return round(100.0 / ratio)
 
 
-def _collect_camera_data(scene, frame_num: int) -> dict:
+def _collect_camera_data(scene: Scene, frame_num: int) -> dict[str, object]:
     """Collect per-frame camera matrix, projection, and jitter data."""
     from .jitter import generate_jitter_sequence
 
@@ -106,7 +107,7 @@ def _write_cam_json_atomic(output_dir: str, frame_num: int, data: dict) -> None:
     os.replace(tmp_path, str(cam_path))
 
 
-def dlss_render_init(scene):
+def dlss_render_init(scene: Scene) -> None:
     """
     Called once at start of entire render job.
     Save user's resolution_percentage → override with DLSS quality value.
@@ -129,7 +130,7 @@ def dlss_render_init(scene):
         log.warning(f"DLSS render_init error (non-fatal): {e}")
 
 
-def dlss_render_pre(scene, depsgraph=None):
+def dlss_render_pre(scene: Scene, depsgraph=None) -> None:
     """
     Called before each frame renders.
     Collect camera + jitter data → write per-frame .cam.json
@@ -155,7 +156,7 @@ def dlss_render_pre(scene, depsgraph=None):
         log.warning(f"DLSS render_pre error (non-fatal): {e}")
 
 
-def _finalize(scene):
+def _finalize(scene: Scene) -> None:
     """
     Shared finalize logic for render_complete and render_cancel.
     Merge per-frame jsons → write dlssconfig.json → restore percentage.
@@ -187,17 +188,17 @@ def _finalize(scene):
         log.warning(f"DLSS finalize error (non-fatal): {e}")
 
 
-def dlss_render_complete(scene):
+def dlss_render_complete(scene: Scene) -> None:
     """Called when render job completes successfully."""
     _finalize(scene)
 
 
-def dlss_render_cancel(scene):
+def dlss_render_cancel(scene: Scene) -> None:
     """Called when render job is cancelled/interrupted."""
     _finalize(scene)
 
 
-def dlss_load_post(scene=None):
+def dlss_load_post(scene: Scene | None = None) -> None:
     """
     Called when Blender starts or loads a .blend file.
     Crash recovery: if _dlss_saved_pct exists, restore it.
@@ -221,7 +222,7 @@ def dlss_load_post(scene=None):
         del target_scene['_dlss_saved_pct']
 
 
-def register_handlers():
+def register_handlers() -> None:
     """Register all DLSS render handlers with Blender."""
     bpy.app.handlers.render_init.append(dlss_render_init)
     bpy.app.handlers.render_pre.append(dlss_render_pre)
@@ -230,7 +231,7 @@ def register_handlers():
     bpy.app.handlers.load_post.append(dlss_load_post)
 
 
-def unregister_handlers():
+def unregister_handlers() -> None:
     """Unregister all DLSS render handlers."""
     for handler, func in [
         (bpy.app.handlers.render_init, dlss_render_init),

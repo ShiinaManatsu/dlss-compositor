@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import bpy
 
 QUALITY_MODES = [
     ('DLAA', 'DLAA', 'Max quality, 1x (no upscale)', 0),
-    ('ULTRA_QUALITY', 'Ultra Quality', '1x (same res)', 1),
+    ('ULTRA_QUALITY', 'Ultra Quality', '1.3x upscale (77%)', 1),
     ('QUALITY', 'Quality', '1.5x upscale', 2),
     ('BALANCED', 'Balanced', '1.724x upscale', 3),
     ('PERFORMANCE', 'Performance', '2x upscale', 4),
@@ -30,10 +32,10 @@ class DLSSCompositorProperties(bpy.types.PropertyGroup):
     # NOTE: NO cut_after (camera cut detected by CLI via matrix discontinuity)
     # NOTE: NO scale (derived from quality_mode via DLSS_RATIO)
 
-def register():
+def register() -> None:
     bpy.utils.register_class(DLSSCompositorProperties)
     bpy.types.Scene.dlss_compositor = bpy.props.PointerProperty(type=DLSSCompositorProperties)
 
-def unregister():
+def unregister() -> None:
     del bpy.types.Scene.dlss_compositor
     bpy.utils.unregister_class(DLSSCompositorProperties)

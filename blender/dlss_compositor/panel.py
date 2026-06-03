@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import bpy
+from bpy.types import Context
 
 class DLSS_PT_Main(bpy.types.Panel):
     bl_label = "DLSS Compositor"
@@ -8,11 +11,11 @@ class DLSS_PT_Main(bpy.types.Panel):
     bl_context = "render"
     bl_options = {'DEFAULT_CLOSED'}
 
-    def draw_header(self, context):
+    def draw_header(self, context: Context) -> None:
         props = context.scene.dlss_compositor
         self.layout.prop(props, "enabled", text="")
 
-    def draw(self, context):
+    def draw(self, context: Context) -> None:
         layout = self.layout
         props = context.scene.dlss_compositor
 
@@ -47,8 +50,8 @@ class DLSS_PT_Main(bpy.types.Panel):
         layout.label(text=f"Render at {pct}% → {scale_str}", icon='VIEW_CAMERA')
 
 
-def register():
+def register() -> None:
     bpy.utils.register_class(DLSS_PT_Main)
 
-def unregister():
+def unregister() -> None:
     bpy.utils.unregister_class(DLSS_PT_Main)

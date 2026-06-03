@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 bl_info = {
     "name": "DLSS Compositor",
     "blender": (5, 1, 0),
@@ -5,15 +7,20 @@ bl_info = {
     "version": (2, 0, 0),
 }
 
-from . import properties, panel, operators, aov_register
-from .handlers import register_handlers, unregister_handlers
+# Blender requires bl_info before imports — E402 is expected here  # noqa: E402
+from . import properties, panel, operators  # noqa: E402
+from .handlers import register_handlers, unregister_handlers  # noqa: E402
 
-def register():
+
+def register() -> None:
     properties.register()
     panel.register()
     operators.register()
+    register_handlers()
 
-def unregister():
+
+def unregister() -> None:
+    unregister_handlers()
     operators.unregister()
     panel.unregister()
     properties.unregister()

@@ -1,17 +1,20 @@
-"""
-Halton(2,3) jitter sequence for DLSS temporal accumulation.
-Per DLSS SR §3.7.1.1: base=8, phase counts per quality mode.
+from __future__ import annotations
 
-CRITICAL: The "base=8" in the plan means the minimum phase count starts at 8 
-(not that the Halton radix base is 8). The Halton sequence uses radix base 2 and 3.
-The phase_count is the sequence length before repeating:
-- DLAA/UltraQuality: 8 phases
-- Quality: 18 phases  
-- Balanced: 24 phases
-- Performance: 32 phases
-- UltraPerformance: 72 phases
-"""
+import bpy
+
 from .quality_mapping import JITTER_PHASES
+
+# Halton(2,3) jitter sequence for DLSS temporal accumulation.
+# Per DLSS SR §3.7.1.1: base=8, phase counts per quality mode.
+#
+# CRITICAL: The "base=8" in the plan means the minimum phase count starts at 8
+# (not that the Halton radix base is 8). The Halton sequence uses radix base 2 and 3.
+# The phase_count is the sequence length before repeating:
+# - DLAA: 8 phases, UltraQuality: 14 phases
+# - Quality: 18 phases
+# - Balanced: 24 phases
+# - Performance: 32 phases
+# - UltraPerformance: 72 phases
 
 CLAMP_MAX = 0.499
 CLAMP_MIN = -0.499
@@ -54,7 +57,7 @@ def _clamp_jitter(value: float) -> float:
     return max(CLAMP_MIN, min(CLAMP_MAX, value))
 
 
-def generate_jitter_sequence(quality_mode: str, frame_count: int) -> list:
+def generate_jitter_sequence(quality_mode: str, frame_count: int) -> list[tuple[float, float]]:
     """
     Generate per-frame jitter pairs for the given quality mode.
     
@@ -82,7 +85,7 @@ def generate_jitter_sequence(quality_mode: str, frame_count: int) -> list:
     return result
 
 
-def apply_jitter_to_frame(scene, frame_num: int, jitter_x: float, jitter_y: float):
+def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: float, jitter_y: float):
     """
     Apply sub-pixel jitter to camera for this frame.
     Uses camera shift (lens shift) which is a stable Blender API.
