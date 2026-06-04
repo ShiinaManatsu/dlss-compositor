@@ -157,12 +157,12 @@ The following formats are reserved for future releases and are not available in 
 
 ## Logging
 
-The CLI writes logs to `%APPDATA%\dlss-compositor\logs\compositor.log` (rotating, 5 MB max, 3 files). All log output goes to stderr during interactive use.
+The CLI writes logs to the project root as `dlss-compositor-cli.log` (rotating, 5 MB max, 3 files). The log is cleared when the CLI process starts. All log output also goes to stderr during interactive use; stdout is reserved for JSON-RPC `Content-Length` frames.
 
 To increase verbosity, set the environment variable:
 
 ```powershell
-$env:DLSS_LOG_LEVEL = "debug"
+$env:DLSS_COMPOSITOR_LOG = "debug"
 dlss-compositor-cli.exe --config dlssconfig.json --output-dir out/
 ```
 

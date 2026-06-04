@@ -66,6 +66,7 @@ nlohmann::json RpcDispatcher::handleCheckReady(const nlohmann::json& /*p*/) {
     // TODO(T36+): cross-check NGX availability via VulkanContext + ngx_wrapper.
     const bool ready = !m_taskConfig.is_null() && !m_taskConfig.empty();
     const std::string reason = ready ? std::string{} : std::string{"No task configured"};
+    LOG_INFO("[RPC] checkReady ready={} reason={}", ready, reason);
     return {{"ready", ready}, {"reason", reason}};
 }
 
@@ -75,6 +76,7 @@ nlohmann::json RpcDispatcher::handleCheckOutputCollisions(const nlohmann::json& 
     (void)p.value("output_dir", std::string{});
     (void)p.value("template", std::string{"frame_####.exr"});
     (void)p.value("frame_count", 0);
+    LOG_INFO("[RPC] checkOutputCollisions complete collisions=0");
     return {{"collisions", 0}, {"files", nlohmann::json::array()}};
 }
 
@@ -101,6 +103,7 @@ nlohmann::json RpcDispatcher::handleGetStatus(const nlohmann::json& /*p*/) {
     // IMPORTANT: video_encoders + export_formats list ONLY v2-implemented codecs.
     // DNxHR / H264 / H265 / AV1 / AVIF / JPEG / WebP MUST NOT appear here —
     // they exist as enum placeholders for future extensions only.
+    LOG_INFO("[RPC] getStatus response prepared");
     return {
         {"dlss_version",        "310.6.0"},
         {"fg_max_multiplier",   4},
@@ -143,6 +146,10 @@ nlohmann::json RpcDispatcher::handleGetTaskState(const nlohmann::json& /*p*/) {
 
 nlohmann::json RpcDispatcher::handleGetProgress(const nlohmann::json& /*p*/) {
     // Lock-free atomic reads on a single cache line — must be < 10ms.
+    LOG_DEBUG("[RPC] getProgress current={} total={} state={}",
+              m_progress.current_frame.load(),
+              m_progress.total_frames.load(),
+              m_progress.state.load());
     return {
         {"current_frame", m_progress.current_frame.load()},
         {"total_frames",  m_progress.total_frames.load()},

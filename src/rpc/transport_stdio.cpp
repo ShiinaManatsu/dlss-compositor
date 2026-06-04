@@ -82,6 +82,7 @@ void runJsonRpcStdio(RpcDispatcher& dispatcher) {
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+    LOG_INFO("[JSON-RPC] stdio binary mode configured");
     LOG_INFO("[JSON-RPC] stdio server started");
 
     while (std::cin.good() && !std::cin.eof()) {
@@ -93,6 +94,7 @@ void runJsonRpcStdio(RpcDispatcher& dispatcher) {
 
         nlohmann::json request;
         try {
+            LOG_DEBUG("[JSON-RPC] request bytes={}", body.size());
             request = nlohmann::json::parse(body);
         } catch (const nlohmann::json::exception& e) {
             // fmt v11 requires lvalue refs in make_format_args; copy first.
@@ -109,14 +111,17 @@ void runJsonRpcStdio(RpcDispatcher& dispatcher) {
         const std::string method = request.value("method", std::string{});
         const nlohmann::json id = request.contains("id") ? request["id"] : nlohmann::json(nullptr);
         const nlohmann::json params = request.value("params", nlohmann::json::object());
+        LOG_INFO("[JSON-RPC] dispatch begin method={}", method);
 
         nlohmann::json result = dispatcher.dispatch(method, params);
+        LOG_INFO("[JSON-RPC] dispatch complete method={}", method);
 
         writeJsonRpcResponse({
             {"jsonrpc", "2.0"},
             {"id",      id},
             {"result",  result},
         });
+        LOG_DEBUG("[JSON-RPC] response written method={}", method);
     }
 
     LOG_INFO("[JSON-RPC] stdio server stopped");
