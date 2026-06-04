@@ -8,6 +8,7 @@ import 'package:dlss_compositor_plugin/dlss_compositor_plugin.dart';
 import '../state/app_state.dart';
 import '../plugin/dlss_compositor.dart';
 import '../util/error_dialog.dart';
+import '../util/app_log.dart';
 
 /// Log entry with level and message.
 class LogEntry {
@@ -58,6 +59,7 @@ class _DetailPanelState extends State<DetailPanel> {
 
   void _startListening() {
     // Subscribe to EventChannel progress stream
+    AppLog.phase('detail', 'Subscribing to progress stream');
     _progressSub = DlssCompositor.progressStream.listen(
       (event) {
         if (!mounted) return;
@@ -74,12 +76,20 @@ class _DetailPanelState extends State<DetailPanel> {
             _startTime = DateTime.now();
           }
           _outputFrameCount = frame;
+          if (frame == 0 || frame == total || frame % 30 == 0) {
+            AppLog.phase('detail', 'Progress event applied', {
+              'frame': frame,
+              'total': total,
+              'percent': percent,
+            });
+          }
 
         } else if (type == 'log') {
           _addLog(event['level'] as String? ?? 'info',
                   event['message'] as String? ?? '');
 
         } else if (type == 'done') {
+          AppLog.phase('detail', 'Done event received');
           _endTime = DateTime.now();
           Provider.of<AppState>(context, listen: false)
               .setTaskState(TaskState.done);
@@ -88,6 +98,7 @@ class _DetailPanelState extends State<DetailPanel> {
         } else if (type == 'error') {
           _endTime = DateTime.now();
           final msg = event['message'] as String? ?? 'Unknown error';
+          AppLog.phase('detail', 'Error event received', msg);
           Provider.of<AppState>(context, listen: false)
               .setTaskState(TaskState.error, error: msg);
           _addLog('error', msg);
@@ -101,6 +112,7 @@ class _DetailPanelState extends State<DetailPanel> {
         }
       },
       onError: (e) {
+        AppLog.phase('detail', 'Progress stream error', e);
         _addLog('error', 'Stream error: $e');
         if (mounted) {
           showErrorDialog(
@@ -132,7 +144,9 @@ class _DetailPanelState extends State<DetailPanel> {
             image.dispose();
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLog.phase('preview', 'Preview poll failed', e);
+      }
     });
   }
 
@@ -340,12 +354,9 @@ class _DetailPanelState extends State<DetailPanel> {
               style: const TextStyle(color: Colors.white70, fontSize: 12)),
           const SizedBox(height: 4),
           ElevatedButton.icon(
-            onPressed: () {
-              final outputDir = state.outputDir;
-              if (outputDir.isNotEmpty) {
-                Process.start('explorer.exe', [outputDir]);
-              }
-            },
+            onPressed: state.outputDir.trim().isEmpty
+                ? null
+                : () => _openOutputFolder(state.outputDir),
             icon: const Icon(Icons.folder_open, size: 14),
             label: const Text('Open Output Folder'),
             style: ElevatedButton.styleFrom(
@@ -356,5 +367,41 @@ class _DetailPanelState extends State<DetailPanel> {
         ],
       ),
     );
+  }
+
+  Future<void> _openOutputFolder(String outputDir) async {
+    final dir = Directory(outputDir.trim()).absolute;
+    AppLog.phase('detail', 'Open output folder requested', {'path': dir.path});
+    if (!dir.existsSync()) {
+      AppLog.phase('detail', 'Open output folder failed: missing directory', {'path': dir.path});
+      if (!mounted) return;
+      await showErrorDialog(
+        context,
+        title: 'Output folder not found',
+        message: 'The output folder does not exist yet.',
+        details: dir.path,
+      );
+      return;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        final nativePath = dir.path.replaceAll('/', r'\');
+        await Process.start('explorer.exe', [nativePath], runInShell: false);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [dir.path], runInShell: false);
+      } else {
+        await Process.start('xdg-open', [dir.path], runInShell: false);
+      }
+    } on ProcessException catch (e) {
+      AppLog.phase('detail', 'Open output folder spawn failed', e.message);
+      if (!mounted) return;
+      await showErrorDialog(
+        context,
+        title: 'Failed to open output folder',
+        message: 'Could not launch the system file manager.',
+        details: '${e.message}\n${dir.path}',
+      );
+    }
   }
 }

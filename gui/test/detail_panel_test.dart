@@ -33,11 +33,14 @@ void main() {
     expect(find.text('10.0%'), findsOneWidget);
     
     // Update to done state
+    appState.setTaskConfig(outputDir: 'C:\\output');
     appState.setTaskState(TaskState.done);
     await tester.pump();
 
     expect(find.text('Complete ✓'), findsOneWidget);
     expect(find.text('Completed'), findsOneWidget);
     expect(find.text('Open Output Folder'), findsOneWidget);
+    final openButton = tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Open Output Folder'));
+    expect(openButton.onPressed, isNotNull);
   });
 }

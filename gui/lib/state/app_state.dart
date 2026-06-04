@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../plugin/dlss_compositor.dart';
+import '../util/app_log.dart';
 
 /// Task state enum
 enum TaskState { idle, running, done, error }
@@ -38,24 +39,40 @@ class AppState extends ChangeNotifier {
 
   // Load DLSS status from native plugin
   Future<void> loadStatus() async {
+    AppLog.phase('status', 'loadStatus begin');
     try {
       final ready = await DlssCompositor.checkReady();
       engineReady = ready;
+      AppLog.phase('status', 'checkReady complete', {'ready': ready});
       final status = await DlssCompositor.getStatus();
       dlssVersion = status['dlss_version'] as String? ?? '';
       gpuName = status['gpu_name'] as String? ?? '';
       fgMaxMultiplier = status['fg_max_multiplier'] as int? ?? 2;
       srAvailable = status['sr_available'] as bool? ?? false;
       fgAvailable = status['fg_available'] as bool? ?? false;
+      if (!fgAvailable || fgMaxMultiplier < 2) {
+        fgEnabled = false;
+      }
+      if (fgMaxMultiplier >= 2 && fgMultiplier > fgMaxMultiplier) {
+        fgMultiplier = fgMaxMultiplier;
+      }
       connectionError = false;
+      AppLog.phase('status', 'getStatus complete', status);
       notifyListeners();
     } catch (e) {
+      connectionError = true;
+      AppLog.phase('status', 'loadStatus failed', e);
       debugPrint('Failed to load DLSS status: $e');
     }
   }
 
   // Set selected dlssconfig
   void setDlssConfig(String path, Map<String, dynamic>? config, String? error) {
+    AppLog.phase('config', 'setDlssConfig', {
+      ...AppLog.summarizePath(path),
+      'valid': config != null,
+      'error': error,
+    });
     currentDlssConfigPath = path;
     currentDlssConfig = config;
     configError = error;
@@ -64,6 +81,11 @@ class AppState extends ChangeNotifier {
 
   // Update progress
   void updateProgress(int frame, int total, double percent) {
+    AppLog.phase('progress', 'updateProgress', {
+      'frame': frame,
+      'total': total,
+      'percent': percent,
+    });
     currentFrame = frame;
     totalFrames = total;
     progressPercent = percent;
@@ -71,6 +93,7 @@ class AppState extends ChangeNotifier {
   }
 
   void setTaskState(TaskState state, {String? error}) {
+    AppLog.phase('task', 'setTaskState', {'state': state.name, 'error': error});
     taskState = state;
     taskError = error;
     notifyListeners();

@@ -5,17 +5,24 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
+import '../util/app_log.dart';
 
 /// dlssconfig.json file picker with schema validation and summary display.
 class DlssConfigPicker extends StatelessWidget {
   const DlssConfigPicker({super.key});
 
   Future<void> _pickFile(BuildContext context) async {
+    AppLog.phase('config', 'Opening dlssconfig picker');
     final path = selectFile(
       filterDescription: 'DLSS Config',
       filterPattern: '*.json',
     );
-    if (path == null || !context.mounted) return;
+    if (path == null || !context.mounted) {
+      AppLog.phase('config', 'dlssconfig picker cancelled');
+      return;
+    }
+
+    AppLog.phase('config', 'dlssconfig selected', AppLog.summarizePath(path));
 
     final appState = Provider.of<AppState>(context, listen: false);
 
@@ -34,6 +41,10 @@ class DlssConfigPicker extends StatelessWidget {
         error = 'Missing required field: fps';
       }
 
+      AppLog.phase('config', 'dlssconfig parsed', {
+        'valid': error == null,
+        'error': error,
+      });
       appState.setDlssConfig(path, error == null ? config : null, error);
       if (error != null && context.mounted) {
         await showErrorDialog(
@@ -44,6 +55,7 @@ class DlssConfigPicker extends StatelessWidget {
         );
       }
     } catch (e) {
+      AppLog.phase('config', 'dlssconfig parse failed', e);
       appState.setDlssConfig(path, null, 'Failed to parse dlssconfig.json');
       if (context.mounted) {
         await showErrorDialog(

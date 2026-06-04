@@ -1,4 +1,5 @@
 import 'package:dlss_compositor_gui/plugin/dlss_compositor.dart';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,5 +55,20 @@ void main() {
     expect(event['type'], 'progress');
     expect(event['current_frame'], 1);
     expect(event['total_frames'], 10);
+  });
+
+  test('checkOutputCollisions scans output directory from task params', () async {
+    final dir = Directory.systemTemp.createTempSync('dlss_gui_collision_test');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    File('${dir.path}${Platform.pathSeparator}frame_0001.exr').writeAsStringSync('exists');
+
+    final result = await DlssCompositor.checkOutputCollisions({
+      'output_dir': dir.path,
+      'template': 'frame_####.exr',
+      'frame_count': 2,
+    });
+
+    expect(result['collisions'], 1);
+    expect(result['files'], isA<List<String>>());
   });
 }

@@ -87,6 +87,7 @@ void main() {
 
   testWidgets('TaskConfigPanel handles FG multiplier limits', (WidgetTester tester) async {
     final appState = AppState();
+    appState.fgAvailable = true;
     appState.fgMaxMultiplier = 3;
     appState.setDlssConfig('C:\\config.json', {}, null);
 
@@ -130,6 +131,22 @@ void main() {
     // Add explicit extension
     await tester.enterText(find.byType(TextField), 'img_####.exr');
     await tester.pumpAndSettle();
-    expect(find.text('→ img_0001.exr'), findsOneWidget);
+    expect(find.text('→ img_0001.png'), findsOneWidget);
   });
+
+  testWidgets('Template extension follows output format', (WidgetTester tester) async {
+    final appState = AppState();
+    appState.setDlssConfig('C:\\config.json', {'is_hdr': false}, null);
+
+    await tester.pumpWidget(buildTestApp(appState));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('PNG (16-bit)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('EXR (scene-linear)').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('→ frame_0001.exr'), findsOneWidget);
+  });
+
 }

@@ -5,6 +5,7 @@ import '../state/preferences.dart';
 import '../plugin/dlss_compositor.dart';
 import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
+import '../util/app_log.dart';
 import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
@@ -120,12 +121,20 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   String _templateSample(AppState state) {
-    final tmpl = state.template;
+    final tmpl = _templateForFormat(state.template, state.outputFormat);
     final formatted = tmpl.replaceAll('####', '0001');
     final ext = state.outputFormat == 'png_16' ? '.png'
               : state.outputFormat == 'prores_422hq' ? '.mov'
               : '.exr';
     return formatted.contains('.') ? formatted : '$formatted$ext';
+  }
+
+  String _templateForFormat(String template, String format) {
+    final trimmed = template.trim().isEmpty ? 'frame_####' : template.trim();
+    final expectedExt = format == 'png_16' ? '.png'
+        : format == 'prores_422hq' ? '.mov'
+        : '.exr';
+    return trimmed.replaceFirst(RegExp(r'\.(png|exr|mov)$', caseSensitive: false), expectedExt);
   }
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
@@ -142,7 +151,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   Future<void> _onStartPressed(BuildContext context) async {
     final appState = Provider.of<AppState>(context, listen: false);
     final prefs = Provider.of<AppPreferences>(context, listen: false);
+    AppLog.phase('task', 'Start pressed');
     if (appState.currentDlssConfig == null) {
+      AppLog.phase('task', 'Start rejected: invalid config', appState.configError);
       await showErrorDialog(
         context,
         title: 'No valid dlssconfig.json',
@@ -154,6 +165,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
     final templateError = _templateError(appState.template);
     if (templateError != null) {
+      AppLog.phase('task', 'Start rejected: invalid template', templateError);
       await showErrorDialog(
         context,
         title: 'Invalid filename template',
@@ -164,6 +176,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
     final outputDir = appState.outputDir.trim();
     if (outputDir.isEmpty) {
+      AppLog.phase('task', 'Start rejected: missing output directory');
       await showErrorDialog(
         context,
         title: 'Output directory required',
@@ -175,16 +188,20 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final taskParams = {
       'config': appState.currentDlssConfigPath,
       'preset': appState.preset,
-      'fg_enabled': appState.fgEnabled,
+      'fg_enabled': appState.fgEnabled && appState.fgAvailable && appState.fgMaxMultiplier >= 2,
       'fg_multiplier': appState.fgMultiplier,
       'output_format': appState.outputFormat,
       'output_dir': outputDir,
-      'output_template': appState.template.trim(),
+      'template': _templateForFormat(appState.template, appState.outputFormat),
+      'output_template': _templateForFormat(appState.template, appState.outputFormat),
       'overwrite_mode': appState.overwriteMode,
+      'frame_count': _expectedOutputFrameCount(appState),
     };
 
+    AppLog.phase('task', 'Checking output collisions', AppLog.summarizeTaskParams(taskParams));
     final collisions = await DlssCompositor.checkOutputCollisions(taskParams);
     final count = collisions['collisions'] as int? ?? 0;
+    AppLog.phase('task', 'Output collision check complete', collisions);
     if (count > 0 && context.mounted) {
       final proceed = await showDialog<bool>(
         context: context,
@@ -203,6 +220,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           ],
         ),
       );
+      AppLog.phase('task', 'Collision dialog resolved', {'proceed': proceed});
       if (proceed != true) return;
     }
 
@@ -212,8 +230,10 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     prefs.setOutputFormat(appState.outputFormat);
     prefs.setOutputDirectory(outputDir);
 
+    AppLog.phase('task', 'Sending setTask');
     final setOk = await DlssCompositor.setTask(taskParams);
     if (!setOk && context.mounted) {
+      AppLog.phase('task', 'setTask rejected');
       await showErrorDialog(
         context,
         title: 'Backend rejected task',
@@ -223,19 +243,37 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       return;
     }
 
+    AppLog.phase('task', 'Sending startTask');
     final startOk = await DlssCompositor.startTask();
     if (startOk) {
       // Reset state for new task
       appState.updateProgress(0, 0, 0.0);
       appState.setTaskState(TaskState.running, error: null);
+      AppLog.phase('task', 'Task running');
     } else if (context.mounted) {
+      AppLog.phase('task', 'startTask rejected');
+      const message = 'The processing backend could not be started. Check the root logs for details.';
+      appState.setTaskState(TaskState.error, error: message);
       await showErrorDialog(
         context,
-        title: 'Backend failed to start',
-        message: 'Failed to start the task.',
+        title: 'Processing backend unavailable',
+        message: message,
         details: taskParams.toString(),
       );
     }
+  }
+
+  int _expectedOutputFrameCount(AppState appState) {
+    final frames = appState.currentDlssConfig?['frames'];
+    final inputFrames = frames is List
+        ? frames.length
+        : frames is Map
+            ? frames.length
+            : 0;
+    if (!appState.fgEnabled || inputFrames == 0) {
+      return inputFrames;
+    }
+    return appState.fgMultiplier * inputFrames - (appState.fgMultiplier - 1);
   }
 
   @override
@@ -270,7 +308,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               const SizedBox(height: 12),
 
               // 2. Readonly config info
-              if (state.currentDlssConfig != null) _buildConfigInfo(state.currentDlssConfig!),
+        if (state.currentDlssConfig != null) _buildConfigInfo(state.currentDlssConfig!),
 
               const SizedBox(height: 12),
 
@@ -354,6 +392,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   Widget _buildFgSettings(AppState state) {
+    final fgCanRun = state.fgAvailable && state.fgMaxMultiplier >= 2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -362,10 +401,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             const Text('Enable FG:', style: TextStyle(fontSize: 13)),
             Switch(
               value: state.fgEnabled,
-              onChanged: (v) => state.setTaskConfig(fgEnabled: v),
+              onChanged: fgCanRun ? (v) => state.setTaskConfig(fgEnabled: v) : null,
             ),
           ],
         ),
+        if (!fgCanRun)
+          Text('FG unavailable on this device/session',
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
         if (state.fgEnabled) ...[
           const Text('Multiplier:', style: TextStyle(fontSize: 12)),
           Row(

@@ -6,8 +6,12 @@ import 'state/preferences.dart';
 import 'widgets/detail_panel.dart';
 import 'widgets/status_bar.dart';
 import 'widgets/task_config_panel.dart';
+import 'util/app_log.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  AppLog.resetStartup();
+  AppLog.phase('startup', 'Flutter binding initialized');
   runApp(
     MultiProvider(
       providers: [
@@ -17,6 +21,7 @@ void main() {
       child: const DlssCompositorApp(),
     ),
   );
+  AppLog.phase('startup', 'runApp submitted');
 }
 
 class DlssCompositorApp extends StatelessWidget {

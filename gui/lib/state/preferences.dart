@@ -3,6 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math';
 
+import '../util/app_log.dart';
+
 /// Persistent preferences for DLSS Compositor GUI.
 /// Debug/release isolation: separate key prefix to avoid polluting release config during dev.
 class AppPreferences extends ChangeNotifier {
@@ -42,6 +44,7 @@ class AppPreferences extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    AppLog.phase('preferences', 'load begin');
     _prefs = await SharedPreferences.getInstance();
     lastDlssConfigPath  = _get(_kLastConfig, '');
     presetOverride      = _get(_kPreset, 'auto');
@@ -51,6 +54,12 @@ class AppPreferences extends ChangeNotifier {
     outputDirectory     = _get(_kOutputDir, '');
     splitterPosition    = _getDouble(_kSplitterPos, 0.4);
     sessionTitle        = _get(_kSessionTitle, '');
+    AppLog.phase('preferences', 'load complete', {
+      'has_last_config': lastDlssConfigPath.isNotEmpty,
+      'output_format': outputFormat,
+      'has_output_directory': outputDirectory.isNotEmpty,
+      'splitter_position': splitterPosition,
+    });
     notifyListeners();
   }
 
@@ -70,6 +79,7 @@ class AppPreferences extends ChangeNotifier {
 
   Future<void> _persist() async {
     if (_prefs == null) return;
+    AppLog.phase('preferences', 'persist begin');
     await _prefs!.setString(_key(_kLastConfig), lastDlssConfigPath);
     await _prefs!.setString(_key(_kPreset), presetOverride);
     await _prefs!.setBool(_key(_kFgEnabled), fgEnabled);
@@ -78,6 +88,7 @@ class AppPreferences extends ChangeNotifier {
     await _prefs!.setString(_key(_kOutputDir), outputDirectory);
     await _prefs!.setDouble(_key(_kSplitterPos), splitterPosition);
     await _prefs!.setString(_key(_kSessionTitle), sessionTitle);
+    AppLog.phase('preferences', 'persist complete');
   }
 
   // Setters with debounced write
