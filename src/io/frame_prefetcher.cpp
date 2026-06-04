@@ -10,16 +10,253 @@
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfInputFile.h>
+#include <OpenEXR/ImfInputPart.h>
+#include <OpenEXR/ImfMultiPartInputFile.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <exception>
-#include <regex>
+#include <limits>
+#include <string>
 #include <utility>
 
 namespace dlss {
 
 namespace {
+
+constexpr int kMaxExrDimension = 16384;
+constexpr std::size_t kMaxExrPixels = 16384ull * 16384ull;
+constexpr int kMaxExrParts = 64;
+
+struct ImageLayout {
+    int width = 0;
+    int height = 0;
+    std::size_t pixels = 0;
+    std::size_t pixelStrideRgba = 0;
+    std::size_t rowStrideRgba = 0;
+    std::size_t pixelStrideZ = 0;
+    std::size_t rowStrideZ = 0;
+    std::ptrdiff_t originByteOffsetRgba = 0;
+    std::ptrdiff_t originByteOffsetZ = 0;
+};
+
+ImageLayout makeLayout(const Imath::Box2i& dw)
+{
+    ImageLayout layout;
+    const long long width = static_cast<long long>(dw.max.x) -
+                            static_cast<long long>(dw.min.x) + 1ll;
+    const long long height = static_cast<long long>(dw.max.y) -
+                             static_cast<long long>(dw.min.y) + 1ll;
+    if (width > static_cast<long long>(std::numeric_limits<int>::max()) ||
+        height > static_cast<long long>(std::numeric_limits<int>::max())) {
+        return layout;
+    }
+
+    layout.width  = static_cast<int>(width);
+    layout.height = static_cast<int>(height);
+    layout.pixels = static_cast<std::size_t>(layout.width) *
+                    static_cast<std::size_t>(layout.height);
+
+    layout.pixelStrideRgba = 4u * sizeof(float);
+    layout.rowStrideRgba   = layout.pixelStrideRgba * static_cast<std::size_t>(layout.width);
+    layout.pixelStrideZ    = sizeof(float);
+    layout.rowStrideZ      = layout.pixelStrideZ * static_cast<std::size_t>(layout.width);
+
+    layout.originByteOffsetRgba =
+        static_cast<std::ptrdiff_t>(dw.min.x) *
+            static_cast<std::ptrdiff_t>(layout.pixelStrideRgba) +
+        static_cast<std::ptrdiff_t>(dw.min.y) *
+            static_cast<std::ptrdiff_t>(layout.rowStrideRgba);
+    layout.originByteOffsetZ =
+        static_cast<std::ptrdiff_t>(dw.min.x) *
+            static_cast<std::ptrdiff_t>(layout.pixelStrideZ) +
+        static_cast<std::ptrdiff_t>(dw.min.y) *
+            static_cast<std::ptrdiff_t>(layout.rowStrideZ);
+
+    return layout;
+}
+
+bool hasChannel(const Imf::ChannelList& channels, const char* name)
+{
+    return channels.findChannel(name) != nullptr;
+}
+
+std::string firstChannelName(const Imf::ChannelList& channels)
+{
+    Imf::ChannelList::ConstIterator it = channels.begin();
+    return it == channels.end() ? std::string{} : std::string{it.name()};
+}
+
+void insertRgbaSlices(Imf::FrameBuffer& fb, DecodedFrame& frame, const ImageLayout& layout)
+{
+    const char* const rgbaNames[4] = {"R", "G", "B", "A"};
+    for (int ch = 0; ch < 4; ++ch) {
+        char* base = reinterpret_cast<char*>(frame.combined.data() + ch);
+        base -= layout.originByteOffsetRgba;
+        fb.insert(rgbaNames[ch],
+                  Imf::Slice(Imf::FLOAT, base,
+                             layout.pixelStrideRgba, layout.rowStrideRgba));
+    }
+}
+
+void insertDepthSlice(Imf::FrameBuffer& fb,
+                      DecodedFrame& frame,
+                      const ImageLayout& layout,
+                      const char* channelName)
+{
+    char* base = reinterpret_cast<char*>(frame.depth.data());
+    base -= layout.originByteOffsetZ;
+    fb.insert(channelName,
+              Imf::Slice(Imf::FLOAT, base,
+                         layout.pixelStrideZ, layout.rowStrideZ));
+}
+
+void insertVectorSlices(Imf::FrameBuffer& fb,
+                        DecodedFrame& frame,
+                        const ImageLayout& layout,
+                        const Imf::ChannelList& channels)
+{
+    const char* const vecNames[4] = {
+        "Vector.X", "Vector.Y", "Vector.Z", "Vector.W"};
+    for (int ch = 0; ch < 4; ++ch) {
+        if (!hasChannel(channels, vecNames[ch])) {
+            continue;
+        }
+        char* base = reinterpret_cast<char*>(frame.vector.data() + ch);
+        base -= layout.originByteOffsetRgba;
+        fb.insert(vecNames[ch],
+                  Imf::Slice(Imf::FLOAT, base,
+                             layout.pixelStrideRgba, layout.rowStrideRgba));
+    }
+}
+
+void insertNamedVectorSlices(Imf::FrameBuffer& fb,
+                             DecodedFrame& frame,
+                             const ImageLayout& layout,
+                             const Imf::ChannelList& channels,
+                             const char* const channelNames[4])
+{
+    for (int ch = 0; ch < 4; ++ch) {
+        if (!hasChannel(channels, channelNames[ch])) {
+            continue;
+        }
+        char* base = reinterpret_cast<char*>(frame.vector.data() + ch);
+        base -= layout.originByteOffsetRgba;
+        fb.insert(channelNames[ch],
+                  Imf::Slice(Imf::FLOAT, base,
+                             layout.pixelStrideRgba, layout.rowStrideRgba));
+    }
+}
+
+bool isVectorPartName(const std::string& partName)
+{
+    return partName == "Vector" || partName == "vector";
+}
+
+bool readSinglePart(Imf::InputFile& file,
+                    const Imath::Box2i& dw,
+                    DecodedFrame& frame,
+                    const ImageLayout& layout)
+{
+    const Imf::Header& header = file.header();
+    const Imf::ChannelList& channels = header.channels();
+    if (!hasChannel(channels, "R") || !hasChannel(channels, "G") ||
+        !hasChannel(channels, "B") || !hasChannel(channels, "A")) {
+        return false;
+    }
+
+    Imf::FrameBuffer fb;
+    insertRgbaSlices(fb, frame, layout);
+    if (hasChannel(channels, "Z")) {
+        insertDepthSlice(fb, frame, layout, "Z");
+    }
+    insertVectorSlices(fb, frame, layout, channels);
+
+    file.setFrameBuffer(fb);
+    file.readPixels(dw.min.y, dw.max.y);
+    return true;
+}
+
+bool readMultipart(const std::filesystem::path& filePath,
+                   const Imath::Box2i& dw,
+                   DecodedFrame& frame,
+                   const ImageLayout& layout)
+{
+    Imf::MultiPartInputFile multi(filePath.string().c_str());
+    if (multi.parts() <= 1) {
+        return false;
+    }
+    if (multi.parts() > kMaxExrParts) {
+        throw std::runtime_error("EXR has too many parts: " + filePath.string());
+    }
+
+    bool readColor = false;
+    bool readDepth = false;
+    bool readVector = false;
+
+    for (int partIndex = 0; partIndex < multi.parts(); ++partIndex) {
+        Imf::InputPart part(multi, partIndex);
+        const Imf::Header& header = part.header();
+        const Imf::ChannelList& channels = header.channels();
+        const std::string partName = header.hasName() ? header.name() : std::string{};
+        const Imath::Box2i partDw = header.dataWindow();
+        if (partDw != dw) {
+            LOG_WARN("[FramePrefetcher] Skipping EXR part '{}' with mismatched dataWindow in {}",
+                     partName, filePath.string());
+            continue;
+        }
+
+        Imf::FrameBuffer fb;
+        bool shouldRead = false;
+
+        if (!readColor && hasChannel(channels, "R") && hasChannel(channels, "G") &&
+            hasChannel(channels, "B") && hasChannel(channels, "A")) {
+            insertRgbaSlices(fb, frame, layout);
+            readColor = true;
+            shouldRead = true;
+        }
+
+        if (!readDepth) {
+            if (hasChannel(channels, "Z")) {
+                insertDepthSlice(fb, frame, layout, "Z");
+                readDepth = true;
+                shouldRead = true;
+            } else if (partName == "Z") {
+                const std::string channelName = firstChannelName(channels);
+                if (!channelName.empty()) {
+                    insertDepthSlice(fb, frame, layout, channelName.c_str());
+                    readDepth = true;
+                    shouldRead = true;
+                }
+            }
+        }
+
+        if (!readVector) {
+            if (hasChannel(channels, "Vector.X")) {
+                insertVectorSlices(fb, frame, layout, channels);
+                readVector = true;
+                shouldRead = true;
+            } else if (isVectorPartName(partName) && hasChannel(channels, "X")) {
+                const char* const rawVecNames[4] = {"X", "Y", "Z", "W"};
+                insertNamedVectorSlices(fb, frame, layout, channels, rawVecNames);
+                readVector = true;
+                shouldRead = true;
+            }
+        }
+
+        if (shouldRead) {
+            part.setFrameBuffer(fb);
+            part.readPixels(dw.min.y, dw.max.y);
+        }
+        if (readColor && readDepth && readVector) {
+            break;
+        }
+    }
+
+    LOG_DEBUG("[FramePrefetcher] EXR {} parts={} color={} depth={} vector={}",
+              filePath.string(), multi.parts(), readColor, readDepth, readVector);
+    return readColor;
+}
 
 // ---------------------------------------------------------------------------
 // Extract numeric frame index from filename (e.g. "0042.exr" -> 42).
@@ -68,96 +305,35 @@ FrameResult decodeExr(const std::filesystem::path& filePath)
         const Imf::Header&  header = file.header();
         const Imath::Box2i  dw     = header.dataWindow();
 
-        const int width  = dw.max.x - dw.min.x + 1;
-        const int height = dw.max.y - dw.min.y + 1;
-        if (width <= 0 || height <= 0) {
+        const ImageLayout layout = makeLayout(dw);
+        if (layout.width <= 0 || layout.height <= 0) {
             return std::unexpected(ReadError{
                 ReadErrorCode::ParseFailed,
                 "Non-positive data window in " + filePath.string(),
                 filePath});
         }
-        const std::size_t pixels = static_cast<std::size_t>(width) *
-                                   static_cast<std::size_t>(height);
-
-        DecodedFrame frame;
-        frame.width       = static_cast<std::uint32_t>(width);
-        frame.height      = static_cast<std::uint32_t>(height);
-        frame.source_path = filePath;
-        frame.combined.assign(pixels * 4, 0.0f);
-        frame.depth.assign(pixels, 0.0f);
-        frame.vector.assign(pixels * 4, 0.0f);
-
-        const Imf::ChannelList& channels = header.channels();
-        const bool hasZ        = channels.findChannel("Z")        != nullptr;
-        const bool hasVectorX  = channels.findChannel("Vector.X") != nullptr;
-
-        if (!hasZ) {
+        if (layout.width > kMaxExrDimension || layout.height > kMaxExrDimension ||
+            layout.pixels > kMaxExrPixels) {
             return std::unexpected(ReadError{
-                ReadErrorCode::MissingChannel,
-                "Missing Z (depth) channel in " + filePath.string(),
+                ReadErrorCode::ParseFailed,
+                "EXR data window exceeds supported size limit: " + filePath.string(),
                 filePath});
         }
 
-        // Standard OpenEXR base-pointer trick: subtract data-window origin so
-        // that file pixel (x,y) lands on buffer index (x - dw.min.x, y - dw.min.y).
-        const std::size_t pixel_stride_rgba = 4u * sizeof(float);
-        const std::size_t row_stride_rgba   =
-            pixel_stride_rgba * static_cast<std::size_t>(width);
-        const std::size_t pixel_stride_z = sizeof(float);
-        const std::size_t row_stride_z   =
-            pixel_stride_z * static_cast<std::size_t>(width);
+        DecodedFrame frame;
+        frame.width       = static_cast<std::uint32_t>(layout.width);
+        frame.height      = static_cast<std::uint32_t>(layout.height);
+        frame.source_path = filePath;
+        frame.combined.assign(layout.pixels * 4, 0.0f);
+        frame.depth.assign(layout.pixels, 1.0f);
+        frame.vector.assign(layout.pixels * 4, 0.0f);
 
-        const std::ptrdiff_t origin_byte_offset_rgba =
-            static_cast<std::ptrdiff_t>(dw.min.x) *
-                static_cast<std::ptrdiff_t>(pixel_stride_rgba) +
-            static_cast<std::ptrdiff_t>(dw.min.y) *
-                static_cast<std::ptrdiff_t>(row_stride_rgba);
-
-        const std::ptrdiff_t origin_byte_offset_z =
-            static_cast<std::ptrdiff_t>(dw.min.x) *
-                static_cast<std::ptrdiff_t>(pixel_stride_z) +
-            static_cast<std::ptrdiff_t>(dw.min.y) *
-                static_cast<std::ptrdiff_t>(row_stride_z);
-
-        Imf::FrameBuffer fb;
-
-        // Combined RGBA — interleaved layout.
-        const char* const rgba_names[4] = {"R", "G", "B", "A"};
-        for (int ch = 0; ch < 4; ++ch) {
-            char* base = reinterpret_cast<char*>(frame.combined.data() + ch);
-            base -= origin_byte_offset_rgba;
-            fb.insert(rgba_names[ch],
-                      Imf::Slice(Imf::FLOAT, base,
-                                 pixel_stride_rgba, row_stride_rgba));
+        if (!readMultipart(filePath, dw, frame, layout) && !readSinglePart(file, dw, frame, layout)) {
+            return std::unexpected(ReadError{
+                ReadErrorCode::MissingChannel,
+                "EXR is missing Combined RGBA channels: " + filePath.string(),
+                filePath});
         }
-
-        // Depth (single Z channel, planar).
-        {
-            char* base = reinterpret_cast<char*>(frame.depth.data());
-            base -= origin_byte_offset_z;
-            fb.insert("Z",
-                      Imf::Slice(Imf::FLOAT, base,
-                                 pixel_stride_z, row_stride_z));
-        }
-
-        // Motion vector (Cycles default: Vector.X / .Y / .Z / .W) — optional.
-        if (hasVectorX) {
-            const char* const vec_names[4] = {
-                "Vector.X", "Vector.Y", "Vector.Z", "Vector.W"};
-            for (int ch = 0; ch < 4; ++ch) {
-                if (channels.findChannel(vec_names[ch]) == nullptr) {
-                    continue;
-                }
-                char* base = reinterpret_cast<char*>(frame.vector.data() + ch);
-                base -= origin_byte_offset_rgba;
-                fb.insert(vec_names[ch],
-                          Imf::Slice(Imf::FLOAT, base,
-                                     pixel_stride_rgba, row_stride_rgba));
-            }
-        }
-
-        file.setFrameBuffer(fb);
-        file.readPixels(dw.min.y, dw.max.y);
 
         return frame;
 

@@ -18,7 +18,10 @@
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfHeader.h>
+#include <OpenEXR/ImfMultiPartOutputFile.h>
 #include <OpenEXR/ImfOutputFile.h>
+#include <OpenEXR/ImfOutputPart.h>
+#include <OpenEXR/ImfPartType.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -118,6 +121,101 @@ void writeFixtureExr(const fs::path& filePath,
     out.writePixels(height);
 }
 
+// Write a Blender-like multipart EXR where Combined, Z, and Vector are stored
+// in separate parts. This mirrors Blender 5.1 OPEN_EXR_MULTILAYER output seen
+// in user renders: part 0 RGBA, part "Z" channel "Z.V", part "Vector" channels
+// "Vector.X/Y/Z".
+void writeMultipartBlenderExr(const fs::path& filePath,
+                              int             width,
+                              int             height,
+                              bool            rawVectorChannels = false)
+{
+    Imf::Header headers[3] = {
+        Imf::Header(width, height),
+        Imf::Header(width, height),
+        Imf::Header(width, height)};
+
+    headers[0].setName("Combined");
+    headers[0].setType(Imf::SCANLINEIMAGE);
+    headers[0].channels().insert("R", Imf::Channel(Imf::FLOAT));
+    headers[0].channels().insert("G", Imf::Channel(Imf::FLOAT));
+    headers[0].channels().insert("B", Imf::Channel(Imf::FLOAT));
+    headers[0].channels().insert("A", Imf::Channel(Imf::FLOAT));
+
+    headers[1].setName("Z");
+    headers[1].setType(Imf::SCANLINEIMAGE);
+    headers[1].channels().insert("Z.V", Imf::Channel(Imf::FLOAT));
+
+    headers[2].setName("Vector");
+    headers[2].setType(Imf::SCANLINEIMAGE);
+    if (rawVectorChannels) {
+        headers[2].channels().insert("X", Imf::Channel(Imf::FLOAT));
+        headers[2].channels().insert("Y", Imf::Channel(Imf::FLOAT));
+        headers[2].channels().insert("Z", Imf::Channel(Imf::FLOAT));
+    } else {
+        headers[2].channels().insert("Vector.X", Imf::Channel(Imf::FLOAT));
+        headers[2].channels().insert("Vector.Y", Imf::Channel(Imf::FLOAT));
+        headers[2].channels().insert("Vector.Z", Imf::Channel(Imf::FLOAT));
+    }
+
+    const std::size_t pixels = static_cast<std::size_t>(width) *
+                               static_cast<std::size_t>(height);
+    std::vector<float> rgba(pixels * 4, 0.0f);
+    std::vector<float> z(pixels, 42.0f);
+    std::vector<float> vec(pixels * 4, 0.0f);
+    for (std::size_t i = 0; i < pixels; ++i) {
+        rgba[i * 4 + 0] = 0.10f;
+        rgba[i * 4 + 1] = 0.20f;
+        rgba[i * 4 + 2] = 0.30f;
+        rgba[i * 4 + 3] = 1.00f;
+        vec[i * 4 + 0] = 1.25f;
+        vec[i * 4 + 1] = -2.50f;
+        vec[i * 4 + 2] = 3.75f;
+    }
+
+    Imf::MultiPartOutputFile out(filePath.string().c_str(), headers, 3);
+
+    const std::size_t pixRgba = 4 * sizeof(float);
+    const std::size_t rowRgba = pixRgba * static_cast<std::size_t>(width);
+    const std::size_t pixZ    = sizeof(float);
+    const std::size_t rowZ    = pixZ * static_cast<std::size_t>(width);
+
+    Imf::FrameBuffer rgbaFb;
+    const char* const rgbaNames[4] = {"R", "G", "B", "A"};
+    for (int ch = 0; ch < 4; ++ch) {
+        rgbaFb.insert(rgbaNames[ch],
+                      Imf::Slice(Imf::FLOAT,
+                                 reinterpret_cast<char*>(rgba.data() + ch),
+                                 pixRgba, rowRgba));
+    }
+    Imf::OutputPart rgbaPart(out, 0);
+    rgbaPart.setFrameBuffer(rgbaFb);
+    rgbaPart.writePixels(height);
+
+    Imf::FrameBuffer zFb;
+    zFb.insert("Z.V",
+               Imf::Slice(Imf::FLOAT,
+                          reinterpret_cast<char*>(z.data()),
+                          pixZ, rowZ));
+    Imf::OutputPart zPart(out, 1);
+    zPart.setFrameBuffer(zFb);
+    zPart.writePixels(height);
+
+    Imf::FrameBuffer vecFb;
+    const char* const prefixedVecNames[3] = {"Vector.X", "Vector.Y", "Vector.Z"};
+    const char* const rawVecNames[3] = {"X", "Y", "Z"};
+    const char* const* vecNames = rawVectorChannels ? rawVecNames : prefixedVecNames;
+    for (int ch = 0; ch < 3; ++ch) {
+        vecFb.insert(vecNames[ch],
+                     Imf::Slice(Imf::FLOAT,
+                                reinterpret_cast<char*>(vec.data() + ch),
+                                pixRgba, rowRgba));
+    }
+    Imf::OutputPart vecPart(out, 2);
+    vecPart.setFrameBuffer(vecFb);
+    vecPart.writePixels(height);
+}
+
 // Filename "<index:04d>.exr"
 std::string indexFilename(int idx)
 {
@@ -214,6 +312,55 @@ TEST_CASE("FramePrefetcher: 5 valid EXRs all decode", "[unit][io]")
     }
     REQUIRE(success == kFrames);
     REQUIRE(pf.isDone());
+}
+
+TEST_CASE("FramePrefetcher: Blender multipart EXR decodes Z and Vector parts", "[unit][io]")
+{
+    TempDir tmp;
+    constexpr int kWidth  = 8;
+    constexpr int kHeight = 4;
+    const fs::path path = tmp.path() / "0001.exr";
+    writeMultipartBlenderExr(path, kWidth, kHeight);
+
+    dlss::FramePrefetcher pf({path}, 1);
+    auto result = pf.getNext();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->width == static_cast<std::uint32_t>(kWidth));
+    REQUIRE(result->height == static_cast<std::uint32_t>(kHeight));
+    REQUIRE(result->combined.size() == static_cast<std::size_t>(kWidth * kHeight * 4));
+    REQUIRE(result->depth.size() == static_cast<std::size_t>(kWidth * kHeight));
+    REQUIRE(result->vector.size() == static_cast<std::size_t>(kWidth * kHeight * 4));
+
+    REQUIRE(result->combined[0] == 0.10f);
+    REQUIRE(result->combined[1] == 0.20f);
+    REQUIRE(result->combined[2] == 0.30f);
+    REQUIRE(result->combined[3] == 1.00f);
+    REQUIRE(result->depth[0] == 42.0f);
+    REQUIRE(result->vector[0] == 1.25f);
+    REQUIRE(result->vector[1] == -2.50f);
+    REQUIRE(result->vector[2] == 3.75f);
+    REQUIRE(result->vector[3] == 0.0f);
+}
+
+TEST_CASE("FramePrefetcher: Blender multipart EXR decodes raw Vector part channels", "[unit][io]")
+{
+    TempDir tmp;
+    constexpr int kWidth  = 8;
+    constexpr int kHeight = 4;
+    const fs::path path = tmp.path() / "0001.exr";
+    writeMultipartBlenderExr(path, kWidth, kHeight, /*rawVectorChannels=*/true);
+
+    dlss::FramePrefetcher pf({path}, 1);
+    auto result = pf.getNext();
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->vector.size() == static_cast<std::size_t>(kWidth * kHeight * 4));
+    REQUIRE(result->depth[0] == 42.0f);
+    REQUIRE(result->vector[0] == 1.25f);
+    REQUIRE(result->vector[1] == -2.50f);
+    REQUIRE(result->vector[2] == 3.75f);
+    REQUIRE(result->vector[3] == 0.0f);
 }
 
 // ===========================================================================
