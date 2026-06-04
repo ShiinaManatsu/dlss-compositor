@@ -15,17 +15,22 @@
 #include "../rpc/dispatcher.h"
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace dlss {
 
 struct SrFgConfig {
     DlssConfig dlssConfig;
     OutputFormat outputFormat = OutputFormat::ExrLinear;
+    std::string inputDir;
     std::string outputDir;
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     int fgMultiplier = 2;  // 2/3/4 for FG 2x/3x/4x
+    std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
 /// SR+FG combined pipeline — all 7 stages.

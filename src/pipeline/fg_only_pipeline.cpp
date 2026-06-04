@@ -26,6 +26,9 @@ void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher*
 }
 
 std::filesystem::path inferInputDir(const FgOnlyConfig& config) {
+    if (!config.inputDir.empty()) {
+        return std::filesystem::path(config.inputDir);
+    }
     if (!config.outputDir.empty()) {
         return std::filesystem::path(config.outputDir);
     }
@@ -51,13 +54,24 @@ std::vector<std::pair<int, std::string>> sortedFrameKeys(const DlssConfig& confi
     return frames;
 }
 
+std::string inputPattern(const std::string& pattern) {
+    if (pattern == R"(^\d{4}\.exr$)" || pattern == R"(\d{4}\.exr)") {
+        return "####.exr";
+    }
+    if (pattern == R"(^\d{4}\.png$)" || pattern == R"(\d{4}\.png)") {
+        return "####.png";
+    }
+    return pattern;
+}
+
 std::vector<std::filesystem::path> buildFramePaths(
     const DlssConfig& config,
     const std::filesystem::path& baseDir) {
     std::vector<std::filesystem::path> paths;
+    const std::string pattern = inputPattern(config.filename_pattern);
     for (const auto& [frameNumber, frameKey] : sortedFrameKeys(config)) {
         (void)frameKey;
-        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(config.filename_pattern, frameNumber));
+        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(pattern, frameNumber));
     }
     return paths;
 }
@@ -306,7 +320,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         TextureDesc displayDesc{
             w,
             h,
-            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_FORMAT_A2B10G10R10_UNORM_PACK32,
             VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT};
         TextureDesc depthWorldDesc{
             w,
@@ -331,13 +345,13 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         TextureDesc interpDesc{
             w,
             h,
-            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_FORMAT_A2B10G10R10_UNORM_PACK32,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
         TextureDesc sceneLinearDesc{
             w,
             h,
             VK_FORMAT_R16G16B16A16_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
 
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         int outputFrameIdx = 0;
@@ -360,7 +374,8 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             writeJob.fps           = dlssCfg.fps;
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
-            writeJob.pixels.resize(static_cast<std::size_t>(w) * h * 8u, 0u);
+            writeJob.previewCallback = config.previewCallback;
+            writeJob.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, w, h);
             writer.enqueue(std::move(writeJob));
 
             pool.release(sceneLinear);
@@ -369,6 +384,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
         };
 
+        int processedInputs = 0;
         for (int frameIdx = 0; frameIdx < totalFrames && !m_stop.load(); ++frameIdx) {
             const auto frameResult = prefetcher.getNext();
             if (!frameResult.has_value()) {
@@ -397,9 +413,8 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             batch.addUpload(mvBlender, mapped.motionVector.data(), mapped.motionVector.size() * sizeof(std::uint16_t));
             batch.submit();
 
-            const bool hasNextInputFrame = (frameIdx + 1) < totalFrames;
             std::vector<PooledTextureHandle> interpHandles;
-            for (int j = 0; hasNextInputFrame && j < config.multiplier - 1; ++j) {
+            for (int j = 0; j < config.multiplier - 1; ++j) {
                 interpHandles.push_back(pool.acquire(interpDesc));
             }
 
@@ -423,45 +438,44 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             // Stage 4: tonemap scene-linear input to the display-ready backbuffer FG requires.
             tonemapPass.execute(cmd, colorTex, displayTex, tonemapMode);
 
-            if (hasNextInputFrame) {
-                transitionForFgEvaluate(cmd, displayTex, depthNdc, mvDlss, interpHandles);
+            transitionForFgEvaluate(cmd, displayTex, depthNdc, mvDlss, interpHandles);
 
-                FgInputs fgIn{};
-                fgIn.backbufferDisplayReady = displayTex->view;
-                fgIn.depthNdcRenderRes      = depthNdc->view;
-                fgIn.motionVecDlssRenderRes = mvDlss->view;
-                fgIn.backbufferImage        = displayTex->image;
-                fgIn.depthImage             = depthNdc->image;
-                fgIn.motionVecImage         = mvDlss->image;
-                fgIn.outputInterpImages.reserve(interpHandles.size());
-                fgIn.outputInterp.reserve(interpHandles.size());
-                for (const auto& handle : interpHandles) {
-                    fgIn.outputInterp.push_back(handle->view);
-                    fgIn.outputInterpImages.push_back(handle->image);
-                }
-                fgIn.backbufferFormat = displayTex->desc.format;
-                fgIn.depthFormat      = depthNdc->desc.format;
-                fgIn.motionVecFormat  = mvDlss->desc.format;
-                fgIn.width            = w;
-                fgIn.height           = h;
-                fgIn.is_hdr           = dlssCfg.is_hdr;
-                fgIn.reset            = (frameIdx == 0);
-                fgIn.multiplier       = config.multiplier;
-                fillFgCameraInputs(fgIn, cam);
-
-                // Stage 5: multi-frame FG eval writes multiplier-1 interpolated frames.
-                fgPass.evaluate(cmd, fgIn);
-                transitionFgOutputsForInverse(cmd, interpHandles);
-            } else {
-                transitionStorageToShaderRead(cmd, displayTex);
+            FgInputs fgIn{};
+            fgIn.backbufferDisplayReady = displayTex->view;
+            fgIn.depthNdcRenderRes      = depthNdc->view;
+            fgIn.motionVecDlssRenderRes = mvDlss->view;
+            fgIn.backbufferImage        = displayTex->image;
+            fgIn.depthImage             = depthNdc->image;
+            fgIn.motionVecImage         = mvDlss->image;
+            fgIn.outputInterpImages.reserve(interpHandles.size());
+            fgIn.outputInterp.reserve(interpHandles.size());
+            for (const auto& handle : interpHandles) {
+                fgIn.outputInterp.push_back(handle->view);
+                fgIn.outputInterpImages.push_back(handle->image);
             }
+            fgIn.backbufferFormat = displayTex->desc.format;
+            fgIn.depthFormat      = depthNdc->desc.format;
+            fgIn.motionVecFormat  = mvDlss->desc.format;
+            fgIn.width            = w;
+            fgIn.height           = h;
+            fgIn.is_hdr           = dlssCfg.is_hdr;
+            fgIn.reset            = (frameIdx == 0);
+            fgIn.multiplier       = config.multiplier;
+            fillFgCameraInputs(fgIn, cam);
+
+            // Stage 5: multi-frame FG eval writes multiplier-1 interpolated frames.
+            fgPass.evaluate(cmd, fgIn);
+            transitionFgOutputsForInverse(cmd, interpHandles);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
-            // Stage 6 + 7: write real frame first, then generated frames, renumbered 0001..N.
-            writeFrameSceneLinear(displayTex);
-            for (const auto& handle : interpHandles) {
-                writeFrameSceneLinear(handle);
+            // Stage 6 + 7: write A, generated(A→B), B. The first eval warms FG history.
+            if (frameIdx > 0) {
+                for (const auto& handle : interpHandles) {
+                    writeFrameSceneLinear(handle);
+                }
             }
+            writeFrameSceneLinear(displayTex);
+            ++processedInputs;
 
             pool.release(colorTex);
             pool.release(depthWorld);
@@ -477,6 +491,10 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                      frameIdx + 1, totalFrames, outputFrameIdx);
         }
 
+        if (processedInputs != totalFrames) {
+            throw std::runtime_error("FgOnlyPipeline: processed " + std::to_string(processedInputs) +
+                                     " of " + std::to_string(totalFrames) + " input frames");
+        }
         writer.flush();
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 

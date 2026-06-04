@@ -57,7 +57,7 @@ TEST_CASE("spdlog - stdout clean", "[log]") {
     const auto tempDir = std::filesystem::temp_directory_path();
     const auto stdoutPath = tempDir / "dlss-log-stdout.txt";
     const auto stderrPath = tempDir / "dlss-log-stderr.txt";
-    const auto logFilePath = std::filesystem::current_path() / "dlss-compositor.log";
+    const auto logFilePath = std::filesystem::current_path() / "dlss-compositor-cli.log";
     constexpr auto kMessage = "test-msg-42";
 
     std::error_code ec;
@@ -72,7 +72,7 @@ TEST_CASE("spdlog - stdout clean", "[log]") {
         StreamRedirect stdoutRedirect(stdout, stdoutPath);
         StreamRedirect stderrRedirect(stderr, stderrPath);
 
-        dlss::log::init();
+        dlss::log::init(true);
         LOG_INFO(kMessage);
 
         std::fflush(stdout);

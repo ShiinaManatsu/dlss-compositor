@@ -5,24 +5,18 @@
 //   --version       Print version and exit.
 //   --help          Print usage and exit.
 //   --self-check    Verify GPU + NGX availability (T36+ integration).
-//   --rpc-stdio     Run JSON-RPC 2.0 server over stdio (Content-Length framed).
 //   --config <p>    Process a dlssconfig.json (T36+ integration).
 //
 // Replaces the legacy main_smoke.cpp. The smoke entry remains in git history
 // for reference but is no longer compiled.
 // =============================================================================
 #include "core/log.h"
-#include "rpc/dispatcher.h"
+#include "cli/config_executor.h"
 
 #include <algorithm>
 #include <iostream>
 #include <string>
 #include <vector>
-
-namespace dlss {
-// Provided by transport_stdio.cpp.
-void runJsonRpcStdio(RpcDispatcher& dispatcher);
-} // namespace dlss
 
 namespace {
 
@@ -44,7 +38,12 @@ void printHelp() {
         << "dlss-compositor-cli v2.0.0\n"
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
-        << "  --rpc-stdio                  JSON-RPC 2.0 stdio server mode.\n"
+        << "  --output-dir <path>          Output directory for --config.\n"
+        << "  --output-format <fmt>        exr | png_16 | prores_422hq.\n"
+        << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
+        << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
+        << "  --fg <2x|3x|4x>              Enable frame generation multiplier.\n"
+        << "  --events stderr              Emit structured progress events on stderr.\n"
         << "  --self-check                 Check GPU + NGX availability.\n"
         << "  --version                    Print version.\n"
         << "  --help                       This help message.\n";
@@ -53,21 +52,26 @@ void printHelp() {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    dlss::log::init();
+    dlss::log::init(true);
+    LOG_INFO("[startup] CLI launched argc={}", argc);
 
     const std::vector<std::string> args(argv + 1, argv + argc);
+    LOG_INFO("[startup] CLI parsed {} argument(s)", args.size());
 
     if (hasArg(args, "--version")) {
+        LOG_INFO("[startup] CLI mode=version");
         std::cerr << "dlss-compositor-cli v2.0.0 (DLSS SDK 310.6.0)\n";
         return 0;
     }
 
     if (hasArg(args, "--help") || args.empty()) {
+        LOG_INFO("[startup] CLI mode=help empty_args={}", args.empty());
         printHelp();
         return args.empty() ? 1 : 0;
     }
 
     if (hasArg(args, "--self-check")) {
+        LOG_INFO("[startup] CLI mode=self-check");
         LOG_INFO("[self-check] DLSS Compositor v2 self-check");
         // TODO(T36+): boot Vulkan + NGX and report device, driver, NGX feature
         // availability. Today we only verify the logger pipeline is alive.
@@ -77,21 +81,31 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (hasArg(args, "--rpc-stdio")) {
-        // JSON-RPC 2.0 stdio server (Flutter plugin fallback + automation).
-        dlss::RpcDispatcher dispatcher;
-        dlss::runJsonRpcStdio(dispatcher);
-        return 0;
-    }
-
     const std::string configPath = getArg(args, "--config");
     if (!configPath.empty()) {
+        LOG_INFO("[startup] CLI mode=config");
         LOG_INFO("[cli] Processing config: {}", configPath);
-        // TODO(T36+): wire dlssconfig parser + pipeline executor.
-        LOG_ERROR("[cli] Pipeline not yet integrated (Wave 6 tasks pending)");
-        return 1;
+        const std::string fg = getArg(args, "--fg");
+        dlss::ConfigExecutionOptions options;
+        options.configPath = configPath;
+        options.outputDir = getArg(args, "--output-dir", getArg(args, "--output"));
+        options.outputTemplate = getArg(args, "--output-template", getArg(args, "--template"));
+        options.outputFormat = getArg(args, "--output-format", "exr");
+        options.overwriteMode = getArg(args, "--overwrite-mode", "overwrite");
+        options.previewSharedMemoryName = getArg(args, "--preview-shm");
+        options.emitEvents = getArg(args, "--events") == "stderr";
+        options.fgEnabled = !fg.empty();
+        if (fg == "2x" || fg == "2") options.fgMultiplier = 2;
+        else if (fg == "3x" || fg == "3") options.fgMultiplier = 3;
+        else if (fg == "4x" || fg == "4") options.fgMultiplier = 4;
+        else if (!fg.empty()) {
+            LOG_ERROR("[cli] Unsupported --fg value: {}", fg);
+            return 4;
+        }
+        return dlss::executeConfig(options);
     }
 
+    LOG_WARN("[startup] CLI mode=missing-command");
     std::cerr << "dlss-compositor-cli: no command specified. Use --help for usage.\n";
     return 1;
 }

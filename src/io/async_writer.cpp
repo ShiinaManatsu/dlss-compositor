@@ -259,6 +259,9 @@ AsyncFrameWriter::~AsyncFrameWriter()
 
 void AsyncFrameWriter::enqueue(WriteJob job)
 {
+    if (job.previewCallback) {
+        job.previewCallback(job.pixels, job.width, job.height);
+    }
     if (job.format == OutputFormat::Png16 && job.is_hdr) {
         // Per T29 plan: PNG cannot represent HDR — reject at enqueue.
         throw std::runtime_error(

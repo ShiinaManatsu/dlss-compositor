@@ -12,16 +12,21 @@
 #include "../rpc/dispatcher.h"
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace dlss {
 
 struct SrOnlyConfig {
     DlssConfig dlssConfig;
     OutputFormat outputFormat = OutputFormat::ExrLinear;
+    std::string inputDir;
     std::string outputDir;
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
+    std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
 /// SR-only pipeline: Stage 1 (prefetch+map+convert) → Stage 2 (SR) → Stage 7 (write)

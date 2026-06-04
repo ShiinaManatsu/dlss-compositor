@@ -18,7 +18,7 @@ enum class Level {
     error,
 };
 
-void init();
+void init(bool resetFile = false);
 void setLevel(const std::string& level);
 
 namespace detail {
@@ -31,7 +31,7 @@ inline void impl_trace(std::string_view message) {
 
 template <typename... Args>
 inline void impl_trace(std::string_view format, Args&&... args) {
-    detail::log_message(Level::trace, fmt::vformat(format, fmt::make_format_args(std::forward<Args>(args)...)));
+    detail::log_message(Level::trace, fmt::vformat(format, fmt::make_format_args(args...)));
 }
 
 inline void impl_debug(std::string_view message) {
@@ -40,7 +40,7 @@ inline void impl_debug(std::string_view message) {
 
 template <typename... Args>
 inline void impl_debug(std::string_view format, Args&&... args) {
-    detail::log_message(Level::debug, fmt::vformat(format, fmt::make_format_args(std::forward<Args>(args)...)));
+    detail::log_message(Level::debug, fmt::vformat(format, fmt::make_format_args(args...)));
 }
 
 inline void impl_info(std::string_view message) {
@@ -49,7 +49,7 @@ inline void impl_info(std::string_view message) {
 
 template <typename... Args>
 inline void impl_info(std::string_view format, Args&&... args) {
-    detail::log_message(Level::info, fmt::vformat(format, fmt::make_format_args(std::forward<Args>(args)...)));
+    detail::log_message(Level::info, fmt::vformat(format, fmt::make_format_args(args...)));
 }
 
 inline void impl_warn(std::string_view message) {
@@ -58,7 +58,7 @@ inline void impl_warn(std::string_view message) {
 
 template <typename... Args>
 inline void impl_warn(std::string_view format, Args&&... args) {
-    detail::log_message(Level::warn, fmt::vformat(format, fmt::make_format_args(std::forward<Args>(args)...)));
+    detail::log_message(Level::warn, fmt::vformat(format, fmt::make_format_args(args...)));
 }
 
 inline void impl_error(std::string_view message) {
@@ -67,7 +67,7 @@ inline void impl_error(std::string_view message) {
 
 template <typename... Args>
 inline void impl_error(std::string_view format, Args&&... args) {
-    detail::log_message(Level::error, fmt::vformat(format, fmt::make_format_args(std::forward<Args>(args)...)));
+    detail::log_message(Level::error, fmt::vformat(format, fmt::make_format_args(args...)));
 }
 
 }}  // namespace dlss::log

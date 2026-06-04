@@ -13,17 +13,22 @@
 #include "../rpc/dispatcher.h"
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace dlss {
 
 struct FgOnlyConfig {
     DlssConfig dlssConfig;
     OutputFormat outputFormat = OutputFormat::ExrLinear;
+    std::string inputDir;
     std::string outputDir;
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     int multiplier = 2;  // 2/3/4 for 2x/3x/4x
+    std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
 /// FG-only pipeline: Stage 1 → Stage 4 (tonemap) → Stage 5 (FG) → Stage 6 (inverse) → Stage 7 (write)

@@ -26,6 +26,9 @@ void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher*
 }
 
 std::filesystem::path inferInputDir(const SrFgConfig& config) {
+    if (!config.inputDir.empty()) {
+        return std::filesystem::path(config.inputDir);
+    }
     if (!config.outputDir.empty()) {
         return std::filesystem::path(config.outputDir);
     }
@@ -51,13 +54,24 @@ std::vector<std::pair<int, std::string>> sortedFrameKeys(const DlssConfig& confi
     return frames;
 }
 
+std::string inputPattern(const std::string& pattern) {
+    if (pattern == R"(^\d{4}\.exr$)" || pattern == R"(\d{4}\.exr)") {
+        return "####.exr";
+    }
+    if (pattern == R"(^\d{4}\.png$)" || pattern == R"(\d{4}\.png)") {
+        return "####.png";
+    }
+    return pattern;
+}
+
 std::vector<std::filesystem::path> buildFramePaths(
     const DlssConfig& config,
     const std::filesystem::path& baseDir) {
     std::vector<std::filesystem::path> paths;
+    const std::string pattern = inputPattern(config.filename_pattern);
     for (const auto& [frameNumber, frameKey] : sortedFrameKeys(config)) {
         (void)frameKey;
-        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(config.filename_pattern, frameNumber));
+        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(pattern, frameNumber));
     }
     return paths;
 }
@@ -358,12 +372,12 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             rH,
             VK_FORMAT_R16G16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
-        TextureDesc displayDesc{oW, oH, VK_FORMAT_R8G8B8A8_UNORM,
+        TextureDesc displayDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
             VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT};
-        TextureDesc interpDesc{oW, oH, VK_FORMAT_R8G8B8A8_UNORM,
+        TextureDesc interpDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
         TextureDesc sceneLinearDesc{oW, oH, VK_FORMAT_R16G16B16A16_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
 
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps);  // DLSS SR §3.14 — from fps, NEVER hardcoded
@@ -387,7 +401,8 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             job.fps           = dlssCfg.fps;
             job.is_hdr        = dlssCfg.is_hdr;
             job.overwriteMode = config.overwriteMode;
-            job.pixels.resize(static_cast<std::size_t>(oW) * oH * 8u, 0u);
+            job.previewCallback = config.previewCallback;
+            job.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH);
             writer.enqueue(std::move(job));
 
             pool.release(sceneLinear);
@@ -396,6 +411,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
         };
 
+        int processedInputs = 0;
         for (int frameIdx = 0; frameIdx < inputFrames && !m_stop.load(); ++frameIdx) {
             // === STAGE 1: Prefetch + Channel Map + Upload + Depth/MV Convert ===
             const auto frameResult = prefetcher.getNext();
@@ -428,9 +444,8 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             batch.addUpload(mvBlender, mapped.motionVector.data(), mapped.motionVector.size() * sizeof(std::uint16_t));
             batch.submit();
 
-            const bool hasNextInputFrame = (frameIdx + 1) < inputFrames;
             std::vector<PooledTextureHandle> interpHandles;
-            for (int j = 0; hasNextInputFrame && j < config.fgMultiplier - 1; ++j) {
+            for (int j = 0; j < config.fgMultiplier - 1; ++j) {
                 interpHandles.push_back(pool.acquire(interpDesc));
             }
 
@@ -461,6 +476,8 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             srIn.motionVecDlss       = mvDlss->view;   // SAME handle used by FG Stage 5.
             srIn.renderW             = rW;
             srIn.renderH             = rH;
+            srIn.outputW             = oW;
+            srIn.outputH             = oH;
             srIn.jitterX             = cam ? cam->jitter.x : 0.0f;
             srIn.jitterY             = cam ? cam->jitter.y : 0.0f;
             srIn.reset               = reset;
@@ -473,47 +490,52 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             transitionStorageImageForWrite(cmd, displayTex);
             tonemapPass.execute(cmd, sceneColorOutput, displayTex, tonemapMode);
 
-            if (hasNextInputFrame) {
-                // === STAGE 5: DLSS-FG Eval ===
-                // FG inputs: display-ready backbuffer + SHARED depth + SHARED MV (render-res).
-                transitionForFgEvaluate(cmd, displayTex, interpHandles);
+            // === STAGE 5: DLSS-FG Eval ===
+            // FG stores previous pBackbuffer internally. Evaluate every rendered frame;
+            // write generated frames only after a valid previous frame exists, before
+            // writing the current real frame: A, interp(A→B), B.
+            transitionForFgEvaluate(cmd, displayTex, interpHandles);
 
-                FgInputs fgIn{};
-                fgIn.backbufferDisplayReady = displayTex->view;
-                fgIn.depthNdcRenderRes      = depthNdc->view;  // SAME PooledTextureHandle as SR.
-                fgIn.motionVecDlssRenderRes = mvDlss->view;   // SAME PooledTextureHandle as SR.
-                fgIn.backbufferImage        = displayTex->image;
-                fgIn.depthImage             = depthNdc->image;
-                fgIn.motionVecImage         = mvDlss->image;
-                fgIn.outputInterp.reserve(interpHandles.size());
-                fgIn.outputInterpImages.reserve(interpHandles.size());
-                for (const auto& handle : interpHandles) {
-                    fgIn.outputInterp.push_back(handle->view);
-                    fgIn.outputInterpImages.push_back(handle->image);
-                }
-                fgIn.backbufferFormat = displayTex->desc.format;
-                fgIn.depthFormat      = depthNdc->desc.format;
-                fgIn.motionVecFormat  = mvDlss->desc.format;
-                fgIn.width            = oW;
-                fgIn.height           = oH;
-                fgIn.depthMotionWidth = rW;
-                fgIn.depthMotionHeight = rH;
-                fgIn.is_hdr           = dlssCfg.is_hdr;
-                fgIn.reset            = reset;
-                fgIn.multiplier       = config.fgMultiplier;
-                fillFgCameraInputs(fgIn, cam);
-
-                fgPass.evaluate(cmd, fgIn);
-                transitionFgOutputsForInverse(cmd, interpHandles);
-            } else {
-                transitionStorageToShaderRead(cmd, displayTex);
+            FgInputs fgIn{};
+            fgIn.backbufferDisplayReady = displayTex->view;
+            fgIn.depthNdcRenderRes      = depthNdc->view;  // SAME PooledTextureHandle as SR.
+            fgIn.motionVecDlssRenderRes = mvDlss->view;   // SAME PooledTextureHandle as SR.
+            fgIn.backbufferImage        = displayTex->image;
+            fgIn.depthImage             = depthNdc->image;
+            fgIn.motionVecImage         = mvDlss->image;
+            fgIn.outputInterp.reserve(interpHandles.size());
+            fgIn.outputInterpImages.reserve(interpHandles.size());
+            for (const auto& handle : interpHandles) {
+                fgIn.outputInterp.push_back(handle->view);
+                fgIn.outputInterpImages.push_back(handle->image);
             }
+            fgIn.backbufferFormat = displayTex->desc.format;
+            fgIn.depthFormat      = depthNdc->desc.format;
+            fgIn.motionVecFormat  = mvDlss->desc.format;
+            fgIn.width            = oW;
+            fgIn.height           = oH;
+            fgIn.depthMotionWidth = rW;
+            fgIn.depthMotionHeight = rH;
+            fgIn.is_hdr           = dlssCfg.is_hdr;
+            fgIn.reset            = reset;
+            fgIn.multiplier       = config.fgMultiplier;
+            fillFgCameraInputs(fgIn, cam);
+
+            fgPass.evaluate(cmd, fgIn);
+            transitionFgOutputsForInverse(cmd, interpHandles);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
             // === STAGE 6: Inverse Tonemap + STAGE 7: Write ===
+            const bool writeGeneratedFrames = frameIdx > 0 && !reset;
+            if (writeGeneratedFrames) {
+                for (const auto& handle : interpHandles) {
+                    writeWithInverse(handle);
+                }
+            }
             writeWithInverse(displayTex);
-            for (const auto& handle : interpHandles) {
-                writeWithInverse(handle);
+            ++processedInputs;
+            if (!writeGeneratedFrames && frameIdx > 0) {
+                LOG_WARN("[SR+FG] Skipped generated frames at reset/gap input {}", frameIdx + 1);
             }
 
             pool.release(sceneColorRender);
@@ -531,6 +553,10 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                      outputFrameIdx, outputFrames);
         }
 
+        if (processedInputs != inputFrames) {
+            throw std::runtime_error("SrFgPipeline: processed " + std::to_string(processedInputs) +
+                                     " of " + std::to_string(inputFrames) + " input frames");
+        }
         writer.flush();
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 

@@ -12,6 +12,7 @@ add_executable(dlss_engine_tests
     test_ngx_init.cpp
     test_frame_prefetcher.cpp
     test_channel_mapper.cpp
+    test_cli_config_executor.cpp
     test_texture_pool.cpp
     test_depth_pass.cpp
     test_dlss_fg.cpp
@@ -27,7 +28,12 @@ add_executable(dlss_engine_tests
 target_link_libraries(dlss_engine_tests PRIVATE
     dlss_engine_lib
     dlss_warnings
+    volk::volk
     Catch2::Catch2WithMain)
+target_compile_definitions(dlss_engine_tests PRIVATE VK_NO_PROTOTYPES)
+if(WIN32)
+    target_link_libraries(dlss_engine_tests PRIVATE version.lib)
+endif()
 
 # GPU NGX tests need the same runtime DLL side-by-side layout as the CLI.
 foreach(_dll_name nvngx_dlss.dll nvngx_dlssg.dll)
@@ -45,3 +51,15 @@ endforeach()
 
 include(Catch)
 catch_discover_tests(dlss_engine_tests)
+
+add_executable(dlss_cli_tests
+    test_cli_config_executor.cpp)
+target_link_libraries(dlss_cli_tests PRIVATE
+    dlss_engine_lib
+    dlss_warnings
+    volk::volk
+    Catch2::Catch2WithMain)
+if(WIN32)
+    target_link_libraries(dlss_cli_tests PRIVATE version.lib)
+endif()
+catch_discover_tests(dlss_cli_tests)

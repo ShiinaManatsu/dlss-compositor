@@ -21,6 +21,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -44,6 +45,7 @@ struct WriteJob {
     int                   fps          = 24;
     bool                  is_hdr       = false;
     OverwriteMode         overwriteMode = OverwriteMode::Overwrite;
+    std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
 enum class WriteErrorCode {

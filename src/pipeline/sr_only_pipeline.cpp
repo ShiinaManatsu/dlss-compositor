@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <stdexcept>
 #include <utility>
@@ -31,6 +32,9 @@ float matrixDisplacement(const float* m1, const float* m2) {
 }
 
 std::filesystem::path inferInputDir(const SrOnlyConfig& config) {
+    if (!config.inputDir.empty()) {
+        return std::filesystem::path(config.inputDir);
+    }
     if (!config.outputDir.empty()) {
         return std::filesystem::path(config.outputDir);
     }
@@ -56,13 +60,24 @@ std::vector<std::pair<int, std::string>> sortedFrameKeys(const DlssConfig& confi
     return frames;
 }
 
+std::string inputPattern(const std::string& pattern) {
+    if (pattern == R"(^\d{4}\.exr$)" || pattern == R"(\d{4}\.exr)") {
+        return "####.exr";
+    }
+    if (pattern == R"(^\d{4}\.png$)" || pattern == R"(\d{4}\.png)") {
+        return "####.png";
+    }
+    return pattern;
+}
+
 std::vector<std::filesystem::path> buildFramePaths(
     const DlssConfig& config,
     const std::filesystem::path& baseDir) {
     std::vector<std::filesystem::path> paths;
+    const std::string pattern = inputPattern(config.filename_pattern);
     for (const auto& [frameNumber, frameKey] : sortedFrameKeys(config)) {
         (void)frameKey;
-        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(config.filename_pattern, frameNumber));
+        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(pattern, frameNumber));
     }
     return paths;
 }
@@ -78,6 +93,51 @@ void identity(float (&m)[4][4]) {
             m[row][col] = (row == col) ? 1.0f : 0.0f;
         }
     }
+}
+
+uint16_t f32ToF16(float v) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    const uint32_t sign = (bits >> 31) & 0x1u;
+    const uint32_t exponent = (bits >> 23) & 0xFFu;
+    const uint32_t mantissa = bits & 0x7FFFFFu;
+    if (exponent == 255) return static_cast<uint16_t>((sign << 15) | 0x7C00u | (mantissa ? 0x200u : 0u));
+    if (exponent == 0) return static_cast<uint16_t>(sign << 15);
+    const int e = static_cast<int>(exponent) - 127 + 15;
+    if (e >= 31) return static_cast<uint16_t>((sign << 15) | 0x7C00u);
+    if (e <= 0) {
+        if (e < -10) return static_cast<uint16_t>(sign << 15);
+        const uint32_t m = (mantissa | 0x800000u) >> (1 - e);
+        return static_cast<uint16_t>((sign << 15) | (m >> 13));
+    }
+    return static_cast<uint16_t>((sign << 15) | (static_cast<uint32_t>(e) << 10) | (mantissa >> 13));
+}
+
+std::vector<float> makeNdcDepth(const DecodedFrame& frame, const float projection[4][4]) {
+    std::vector<float> out(frame.depth.size(), 0.0f);
+    for (std::size_t i = 0; i < frame.depth.size(); ++i) {
+        const float viewZ = -frame.depth[i];
+        const float clipZ = projection[2][2] * viewZ + projection[3][2];
+        const float clipW = projection[2][3] * viewZ + projection[3][3];
+        float ndc = 0.0f;
+        if (std::abs(clipW) > 1e-6f) {
+            ndc = (clipZ / clipW) * 0.5f + 0.5f;
+        }
+        out[i] = std::clamp(ndc, 0.0f, 1.0f);
+    }
+    return out;
+}
+
+std::vector<uint16_t> makeDlssMv(const DecodedFrame& frame) {
+    const std::size_t pixels = static_cast<std::size_t>(frame.width) * frame.height;
+    std::vector<uint16_t> out(pixels * 2, 0);
+    for (std::size_t i = 0; i < pixels; ++i) {
+        const float x = frame.vector.size() >= pixels * 4 ? frame.vector[i * 4] : 0.0f;
+        const float y = frame.vector.size() >= pixels * 4 ? -frame.vector[i * 4 + 1] : 0.0f;
+        out[i * 2] = f32ToF16(x);
+        out[i * 2 + 1] = f32ToF16(y);
+    }
+    return out;
 }
 
 void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher) {
@@ -206,8 +266,6 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
     try {
         TexturePool pool(m_ctx);
         DlssSrPass srPass(m_ngx, m_ctx, &pool);
-        DepthConversionPass depthPass(m_ctx);
-        MvConversionPass mvPass(m_ctx);
         AsyncFrameWriter writer;
 
         srPass.create(dlssCfg.render_resolution.width,
@@ -239,7 +297,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
             VK_FORMAT_R32_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
         TextureDesc mvBlenderDesc{
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
@@ -249,11 +307,12 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
             VK_FORMAT_R16G16_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
 
         const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps);
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
 
+        int processedFrames = 0;
         for (int frameIdx = 0; frameIdx < totalFrames && !m_stop.load(); ++frameIdx) {
             const auto frameResult = prefetcher.getNext();
             if (!frameResult.has_value()) {
@@ -277,12 +336,6 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             auto mvBlender   = pool.acquire(mvBlenderDesc);
             auto mvDlss      = pool.acquire(mvDlssDesc);
 
-            UploadBatch batch(m_ctx);
-            batch.addUpload(colorRender, mapped.sceneColor.data(), mapped.sceneColor.size() * sizeof(std::uint16_t));
-            batch.addUpload(depthWorld, mapped.depth.data(), mapped.depth.size() * sizeof(float));
-            batch.addUpload(mvBlender, mapped.motionVector.data(), mapped.motionVector.size() * sizeof(std::uint16_t));
-            batch.submit();
-
             const std::string& frameKey = frameKeys[static_cast<std::size_t>(frameIdx)].second;
             const CameraData* cam = findCamera(dlssCfg, frameKey);
             const CameraData* prevCam = frameIdx > 0
@@ -295,15 +348,16 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             const float* prevMatrix = prevCam ? &prevCam->matrix_world[0][0] : nullptr;
             const float* currMatrix = cam ? &cam->matrix_world[0][0] : nullptr;
 
+            const auto ndcDepth = makeNdcDepth(decodedFrame, projection);
+            const auto dlssMv = makeDlssMv(decodedFrame);
+
+            UploadBatch batch(m_ctx);
+            batch.addUpload(colorRender, mapped.sceneColor.data(), mapped.sceneColor.size() * sizeof(std::uint16_t));
+            batch.addUpload(depthNdc, ndcDepth.data(), ndcDepth.size() * sizeof(float));
+            batch.addUpload(mvDlss, dlssMv.data(), dlssMv.size() * sizeof(std::uint16_t));
+            batch.submit();
+
             VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-            transitionStorageImageForWrite(cmd, depthNdc);
-            depthPass.execute(cmd,
-                              depthWorld,
-                              depthNdc,
-                              projection,
-                              cam ? cam->near_clip : 0.1f,
-                              cam ? cam->far_clip : 100.0f);
-            mvPass.execute(cmd, mvBlender, mvDlss);
             transitionForSrEvaluate(cmd, colorOutput, depthNdc, mvDlss);
 
             SrInputs srIn{};
@@ -313,6 +367,8 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             srIn.motionVecDlss       = mvDlss->view;
             srIn.renderW             = dlssCfg.render_resolution.width;
             srIn.renderH             = dlssCfg.render_resolution.height;
+            srIn.outputW             = dlssCfg.output_resolution.width;
+            srIn.outputH             = dlssCfg.output_resolution.height;
             srIn.jitterX             = cam ? cam->jitter.x : 0.0f;
             srIn.jitterY             = cam ? cam->jitter.y : 0.0f;
             srIn.reset               = shouldReset(frameIdx, decodedFrame, prevMatrix, currMatrix);
@@ -330,8 +386,10 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             writeJob.fps           = dlssCfg.fps;
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
-            writeJob.pixels.resize(static_cast<std::size_t>(writeJob.width) * writeJob.height * 8u, 0u);
+            writeJob.previewCallback = config.previewCallback;
+            writeJob.pixels        = m_ctx->downloadImageRgba16f(colorOutput->image, writeJob.width, writeJob.height);
             writer.enqueue(std::move(writeJob));
+            ++processedFrames;
 
             pool.release(colorRender);
             pool.release(colorOutput);
@@ -346,6 +404,10 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             LOG_INFO("[SR-only] Frame {}/{} done", frameIdx + 1, totalFrames);
         }
 
+        if (processedFrames != totalFrames) {
+            throw std::runtime_error("SrOnlyPipeline: processed " + std::to_string(processedFrames) +
+                                     " of " + std::to_string(totalFrames) + " input frames");
+        }
         writer.flush();
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 
