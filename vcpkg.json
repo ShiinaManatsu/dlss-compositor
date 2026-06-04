@@ -11,6 +11,10 @@
     "spdlog",
     "volk",
     "vulkan-memory-allocator",
+    {
+      "name": "glslang",
+      "features": ["tools"]
+    },
     "ffmpeg"
   ]
 }

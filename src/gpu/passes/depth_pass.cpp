@@ -16,8 +16,9 @@
 
 #include "depth_pass.h"
 #include <spdlog/spdlog.h>
-#include <cstdio>
-#include <cstring>
+#include <array>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -37,36 +38,32 @@ struct DepthPushConstants {
 // ---------------------------------------------------------------------------
 // SPIR-V loading helper
 // ---------------------------------------------------------------------------
-static std::vector<uint32_t> loadSpirv(const char* path) {
-    FILE* f = nullptr;
-#ifdef _WIN32
-    fopen_s(&f, path, "rb");
-#else
-    f = fopen(path, "rb");
-#endif
-    if (!f) {
-        throw std::runtime_error(std::string("DepthConversionPass: cannot open shader: ") + path);
+std::vector<uint32_t> loadSpirv(const char* fileName) {
+    const std::array<std::filesystem::path, 3> candidates{
+        std::filesystem::path(DLSS_SHADER_DIR) / fileName,
+        std::filesystem::current_path() / "shaders" / fileName,
+        std::filesystem::current_path() / fileName,
+    };
+
+    for (const auto& path : candidates) {
+        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        if (!in) continue;
+
+        const auto size = in.tellg();
+        if (size <= 0 || (size % 4) != 0) {
+            throw std::runtime_error("DepthConversionPass: invalid SPIR-V size for: " + path.string());
+        }
+
+        std::vector<uint32_t> code(static_cast<size_t>(size) / sizeof(uint32_t));
+        in.seekg(0, std::ios::beg);
+        in.read(reinterpret_cast<char*>(code.data()), static_cast<std::streamsize>(size));
+        if (!in) {
+            throw std::runtime_error("DepthConversionPass: read error for: " + path.string());
+        }
+        return code;
     }
 
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    if (size <= 0 || (size % 4) != 0) {
-        fclose(f);
-        throw std::runtime_error(
-            std::string("DepthConversionPass: invalid SPIR-V size for: ") + path);
-    }
-
-    std::vector<uint32_t> code(static_cast<size_t>(size) / 4);
-    if (fread(code.data(), 1, static_cast<size_t>(size), f) !=
-        static_cast<size_t>(size)) {
-        fclose(f);
-        throw std::runtime_error(
-            std::string("DepthConversionPass: read error for: ") + path);
-    }
-    fclose(f);
-    return code;
+    throw std::runtime_error(std::string("DepthConversionPass: SPIR-V not found: ") + fileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +141,8 @@ void DepthConversionPass::createDescriptorSetLayout() {
 // ---------------------------------------------------------------------------
 void DepthConversionPass::createPipeline() {
     // Locate shader relative to executable
-    auto code = loadSpirv("depth_world_to_ndc.comp.spv");
+    std::vector<uint32_t> code;
+    code = loadSpirv("depth_world_to_ndc.comp.spv");
 
     VkShaderModuleCreateInfo smCI{};
     smCI.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;

@@ -115,10 +115,34 @@ else()
     message(STATUS "Vulkan SDK not found via find_package; relying on volk-bundled headers.")
 endif()
 
+# Lightweight CLI support path used by dlss-compositor-cli.  This intentionally
+# avoids Vulkan/NGX objects so --config / JSON-RPC smoke flows can build and run
+# even when GPU toolchain pieces are unavailable or under repair.
+add_library(dlss_cli_support STATIC
+    src/cli/config_executor.cpp
+    src/cli/preview_ipc.cpp
+    src/core/dlssconfig.cpp
+    src/core/log.cpp
+    src/io/async_writer.cpp)
+
+target_include_directories(dlss_cli_support PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(dlss_cli_support
+    PUBLIC
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+        Imath::Imath
+        OpenEXR::OpenEXR
+    PRIVATE
+        dlss_warnings)
+
 # -----------------------------------------------------------------------------
 # Engine static library — populated incrementally by later tasks (T4..T30).
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
+    src/cli/config_executor.cpp
+    src/cli/preview_ipc.cpp
+    src/core/dlssconfig.cpp
+    src/core/log.cpp
     src/core/stub.cpp
     src/dlss/dlss_fg.cpp
     src/dlss/dlss_sr.cpp
@@ -141,15 +165,16 @@ add_library(dlss_engine_lib STATIC
 
 target_include_directories(dlss_engine_lib
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/src
-    SYSTEM PUBLIC
+        ${CMAKE_SOURCE_DIR}/src)
+
+target_include_directories(dlss_engine_lib SYSTEM PUBLIC
         ${DLSS_SDK_ROOT}/include)
 
 target_link_libraries(dlss_engine_lib
     PUBLIC
         nlohmann_json::nlohmann_json
         spdlog::spdlog
-        volk::volk_headers
+        volk::volk
         GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
@@ -162,7 +187,12 @@ if(Vulkan_FOUND)
     target_link_libraries(dlss_engine_lib PUBLIC Vulkan::Headers)
 endif()
 
+if(WIN32)
+    target_link_libraries(dlss_engine_lib PUBLIC version.lib)
+endif()
+
 target_compile_definitions(dlss_engine_lib PRIVATE
+    VK_NO_PROTOTYPES
     DLSS_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders")
 
 # -----------------------------------------------------------------------------
@@ -170,6 +200,10 @@ target_compile_definitions(dlss_engine_lib PRIVATE
 # -----------------------------------------------------------------------------
 add_executable(dlss-compositor-cli src/main_cli.cpp)
 target_link_libraries(dlss-compositor-cli PRIVATE dlss_engine_lib dlss_warnings)
+target_link_libraries(dlss-compositor-cli PRIVATE volk::volk)
+if(WIN32)
+    target_link_libraries(dlss-compositor-cli PRIVATE version.lib)
+endif()
 
 # Copy DLSS runtime DLLs next to the exe so it can launch out-of-box.
 set(_dlss_dlls
@@ -188,70 +222,71 @@ foreach(_dll IN LISTS _dlss_dlls)
 endforeach()
 
 # -----------------------------------------------------------------------------
-# GLSL → SPIR-V helper (used by later shader tasks).
+# GLSL → SPIR-V helper.
 # -----------------------------------------------------------------------------
 find_program(GLSLC_EXECUTABLE glslc
     HINTS
         ENV VULKAN_SDK
         ENV VK_SDK_PATH
     PATH_SUFFIXES Bin bin)
+find_program(GLSLANG_VALIDATOR_EXECUTABLE glslangValidator
+    HINTS
+        ENV VULKAN_SDK
+        ENV VK_SDK_PATH
+        "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/tools/glslang"
+        "${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows-static-md/tools/glslang"
+    PATH_SUFFIXES Bin bin)
 if(GLSLC_EXECUTABLE)
+    set(DLSS_SHADER_COMPILER "${GLSLC_EXECUTABLE}")
+    set(DLSS_SHADER_COMPILER_ARGS --target-env=vulkan1.3 -O)
     message(STATUS "Found glslc: ${GLSLC_EXECUTABLE}")
+elseif(GLSLANG_VALIDATOR_EXECUTABLE)
+    set(DLSS_SHADER_COMPILER "${GLSLANG_VALIDATOR_EXECUTABLE}")
+    set(DLSS_SHADER_COMPILER_ARGS -V --target-env vulkan1.3)
+    message(STATUS "Found glslangValidator: ${GLSLANG_VALIDATOR_EXECUTABLE}")
 else()
-    message(STATUS "glslc not found; shader compilation will fail until Vulkan SDK is installed.")
+    message(FATAL_ERROR "No GLSL shader compiler found. Install Vulkan SDK glslc or vcpkg glslang[tools].")
 endif()
 
-# Compile a single .comp shader to .spv embedded into a target.
+# Compile a single .comp shader to .spv and attach it to a target.
 function(dlss_add_shader TARGET SHADER_SRC)
-    if(NOT GLSLC_EXECUTABLE)
-        message(FATAL_ERROR "glslc not found — cannot compile shader ${SHADER_SRC}")
-    endif()
     get_filename_component(_name ${SHADER_SRC} NAME)
     set(_spv "${CMAKE_BINARY_DIR}/shaders/${_name}.spv")
     add_custom_command(
         OUTPUT  "${_spv}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
-        COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -O
+        COMMAND ${DLSS_SHADER_COMPILER} ${DLSS_SHADER_COMPILER_ARGS}
                 "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_SRC}" -o "${_spv}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_SRC}"
-        COMMENT "GLSLC ${SHADER_SRC} -> ${_spv}"
+        COMMENT "GLSL ${SHADER_SRC} -> ${_spv}"
         VERBATIM)
     target_sources(${TARGET} PRIVATE "${_spv}")
+    set_property(GLOBAL APPEND PROPERTY DLSS_SHADER_SPV_FILES "${_spv}")
 endfunction()
 
 # -----------------------------------------------------------------------------
 # Shader compilation: depth world-linear → NDC (T22) + MV Blender→DLSS (T23)
 # -----------------------------------------------------------------------------
-if(GLSLC_EXECUTABLE)
-    dlss_add_shader(dlss_engine_lib src/shaders/depth_world_to_ndc.comp)
-    dlss_add_shader(dlss_engine_lib src/shaders/mv_blender_to_dlss.comp)
-
-    # Also copy the .spv next to the test executable so the pass can load it at runtime.
-    add_custom_command(
-        TARGET dlss_engine_lib POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_BINARY_DIR}/shaders/depth_world_to_ndc.comp.spv"
-            "${CMAKE_BINARY_DIR}/$<CONFIG>/depth_world_to_ndc.comp.spv"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_BINARY_DIR}/shaders/mv_blender_to_dlss.comp.spv"
-            "${CMAKE_BINARY_DIR}/$<CONFIG>/mv_blender_to_dlss.spv"
-        COMMENT "Copying compute shader SPIR-V next to executables"
-        VERBATIM)
-endif()
+dlss_add_shader(dlss_engine_lib src/shaders/depth_world_to_ndc.comp)
+dlss_add_shader(dlss_engine_lib src/shaders/mv_blender_to_dlss.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 4 tonemap + EOTF
 # -----------------------------------------------------------------------------
-if(GLSLC_EXECUTABLE)
-    dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
-endif()
+dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 6 inverse tonemap + EOTF
 # -----------------------------------------------------------------------------
-if(GLSLC_EXECUTABLE)
-    dlss_add_shader(dlss_engine_lib src/shaders/inverse_tonemap_eotf.comp)
-endif()
+dlss_add_shader(dlss_engine_lib src/shaders/inverse_tonemap_eotf.comp)
+
+get_property(_dlss_shader_spv_files GLOBAL PROPERTY DLSS_SHADER_SPV_FILES)
+add_custom_command(
+    TARGET dlss_engine_lib POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_dlss_shader_spv_files} "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+    COMMENT "Copying compute shader SPIR-V next to executables"
+    VERBATIM)
 
 # -----------------------------------------------------------------------------
 # Tests

@@ -134,7 +134,7 @@ void MvConversionPass::createDescriptorSetLayout() {
 }
 
 void MvConversionPass::createPipeline() {
-    const auto shaderCode = readSpirv("mv_blender_to_dlss.spv");
+    const std::vector<uint32_t> shaderCode = readSpirv("mv_blender_to_dlss.comp.spv");
 
     VkShaderModuleCreateInfo shaderInfo{};
     shaderInfo.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
