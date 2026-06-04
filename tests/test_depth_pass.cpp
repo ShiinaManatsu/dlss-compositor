@@ -150,13 +150,13 @@ TEST_CASE("DepthConversionPass - NDC correct for known depth", "[gpu]") {
     depInfo.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     depInfo.imageMemoryBarrierCount = 2;
     depInfo.pImageMemoryBarriers    = barriers;
-    vkCmdPipelineBarrier2(cmd, &depInfo);
+    ctx.cmdPipelineBarrier2(cmd, &depInfo);
 
     // Execute depth conversion pass
     REQUIRE_NOTHROW(pass.execute(cmd, srcTex, dstTex, proj, nearZ, farZ));
 
     ctx.endOneTimeCommands(cmdPool, cmd, ctx.computeQueue());
-    vkDestroyCommandPool(ctx.device(), cmdPool, nullptr);
+    ctx.destroyCommandPool(cmdPool);
 
     pool.release(srcTex);
     pool.release(dstTex);

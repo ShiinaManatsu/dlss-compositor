@@ -63,7 +63,7 @@ TEST_CASE("DlssSrPass - create and evaluate 5 frames", "[gpu]") {
         ctx.endOneTimeCommands(cmdPool, cmd, ctx.computeQueue());
     }
     
-    vkDestroyCommandPool(ctx.device(), cmdPool, nullptr);
+    ctx.destroyCommandPool(cmdPool);
     pool.release(colorRender);
     pool.release(colorOutput);
     pool.release(depth);

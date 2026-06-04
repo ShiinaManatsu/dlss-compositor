@@ -5,6 +5,8 @@
 #include "vulkan_context.h"
 #include "../core/log.h"
 
+#include <windows.h>
+
 // volk must be initialized before any Vulkan calls
 #include <volk.h>
 
@@ -46,50 +48,71 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 } // anonymous namespace
 
 VulkanContext::VulkanContext() {
+    LOG_INFO("[VulkanContext] volkInitialize begin");
     // Init volk (loads Vulkan function pointers)
     VkResult r = volkInitialize();
     if (r != VK_SUCCESS) {
         throw std::runtime_error("volkInitialize failed — is Vulkan runtime installed?");
     }
+    LOG_INFO("[VulkanContext] volkInitialize complete");
 
-    // Query NGX required instance extensions
-    // DLSS SR §3.4 — must query before vkCreateInstance
-    uint32_t ngxInstExtCount = 0;
-    const char** ngxInstExts = nullptr;
-    NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(
-        nullptr, &ngxInstExtCount, &ngxInstExts);
-    
+    NVSDK_NGX_FeatureDiscoveryInfo discoveryInfo{};
+    discoveryInfo.SDKVersion = NVSDK_NGX_Version_API;
+    discoveryInfo.FeatureID = NVSDK_NGX_Feature_SuperSampling;
+    discoveryInfo.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
+    discoveryInfo.Identifier.v.ProjectDesc.ProjectId = "d4a7ef3e-2d2d-4e9d-b8bb-2d773ef3b2fd";
+    discoveryInfo.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
+    discoveryInfo.Identifier.v.ProjectDesc.EngineVersion = "2.0.0";
+    discoveryInfo.ApplicationDataPath = L".";
+
     std::vector<const char*> extraInstExts;
-    for (uint32_t i = 0; i < ngxInstExtCount; ++i)
-        extraInstExts.push_back(ngxInstExts[i]);
+    uint32_t ngxInstExtCount = 0;
+    VkExtensionProperties* ngxInstExts = nullptr;
+    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(
+            &discoveryInfo, &ngxInstExtCount, &ngxInstExts))) {
+        for (uint32_t i = 0; i < ngxInstExtCount; ++i) {
+            extraInstExts.push_back(ngxInstExts[i].extensionName);
+        }
+    }
 
+    LOG_INFO("[VulkanContext] createInstance begin");
     createInstance(extraInstExts);
+    LOG_INFO("[VulkanContext] createInstance complete");
+    LOG_INFO("[VulkanContext] volkLoadInstance begin");
     volkLoadInstance(m_instance);
+    LOG_INFO("[VulkanContext] volkLoadInstance complete");
 
 #ifdef _DEBUG
     setupDebugMessenger();
 #endif
 
+    LOG_INFO("[VulkanContext] selectPhysicalDevice begin");
     selectPhysicalDevice();
+    LOG_INFO("[VulkanContext] selectPhysicalDevice complete");
 
-    // Query NGX required device extensions
-    // DLSS SR §3.4 — must query before vkCreateDevice
-    uint32_t ngxDevExtCount = 0;
-    const char** ngxDevExts = nullptr;
-    NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(
-        m_physicalDevice, nullptr, &ngxDevExtCount, &ngxDevExts);
-    
     std::vector<const char*> extraDevExts;
-    for (uint32_t i = 0; i < ngxDevExtCount; ++i)
-        extraDevExts.push_back(ngxDevExts[i]);
+    uint32_t ngxDevExtCount = 0;
+    VkExtensionProperties* ngxDevExts = nullptr;
+    if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(
+            m_instance, m_physicalDevice, &discoveryInfo, &ngxDevExtCount, &ngxDevExts))) {
+        for (uint32_t i = 0; i < ngxDevExtCount; ++i) {
+            extraDevExts.push_back(ngxDevExts[i].extensionName);
+        }
+    }
     
     // Always add external memory win32 (required by NGX on Windows)
-    extraDevExts.push_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+    extraDevExts.push_back("VK_KHR_external_memory_win32");
     extraDevExts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
+    LOG_INFO("[VulkanContext] createLogicalDevice begin");
     createLogicalDevice(extraDevExts);
+    LOG_INFO("[VulkanContext] createLogicalDevice complete");
+    LOG_INFO("[VulkanContext] volkLoadDevice begin");
     volkLoadDevice(m_device);
+    LOG_INFO("[VulkanContext] volkLoadDevice complete");
+    LOG_INFO("[VulkanContext] createAllocator begin");
     createAllocator();
+    LOG_INFO("[VulkanContext] createAllocator complete");
 
     LOG_INFO("[VulkanContext] Initialized on GPU: {} (vendor=0x{:04X})",
              m_deviceProperties.deviceName, m_deviceProperties.vendorID);
@@ -237,6 +260,10 @@ void VulkanContext::createAllocator() {
     allocInfo.device = m_device;
     allocInfo.instance = m_instance;
     allocInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    VmaVulkanFunctions functions{};
+    functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+    allocInfo.pVulkanFunctions = &functions;
     
     VkResult r = vmaCreateAllocator(&allocInfo, &m_allocator);
     if (r != VK_SUCCESS)
@@ -312,6 +339,78 @@ VkCommandPool VulkanContext::createComputeCommandPool() const {
 
 void VulkanContext::waitIdle() const {
     vkDeviceWaitIdle(m_device);
+}
+
+void VulkanContext::destroyCommandPool(VkCommandPool pool) const {
+    vkDestroyCommandPool(m_device, pool, nullptr);
+}
+
+void VulkanContext::cmdPipelineBarrier2(VkCommandBuffer cmd, const VkDependencyInfo* dependencyInfo) const {
+    vkCmdPipelineBarrier2(cmd, dependencyInfo);
+}
+
+std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
+                                                              uint32_t width,
+                                                              uint32_t height) const {
+    const VkDeviceSize byteSize = static_cast<VkDeviceSize>(width) * height * 8u;
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(byteSize));
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = byteSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo{};
+    VkResult result = vmaCreateBuffer(m_allocator, &bufferInfo, &allocInfo, &buffer, &allocation, &allocationInfo);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("downloadImageRgba16f: failed to create readback buffer");
+    }
+
+    VkCommandPool pool = createTransferCommandPool();
+    VkCommandBuffer cmd = beginOneTimeCommands(pool);
+
+    VkImageMemoryBarrier2 toTransfer{};
+    toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    toTransfer.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    toTransfer.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image = image;
+    toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dependency{};
+    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = 1;
+    dependency.pImageMemoryBarriers = &toTransfer;
+    vkCmdPipelineBarrier2(cmd, &dependency);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
+
+    endOneTimeCommands(pool, cmd, transferQueue());
+    vkDestroyCommandPool(m_device, pool, nullptr);
+
+    if (allocationInfo.pMappedData != nullptr) {
+        std::memcpy(pixels.data(), allocationInfo.pMappedData, pixels.size());
+    }
+    vmaDestroyBuffer(m_allocator, buffer, allocation);
+    return pixels;
 }
 
 } // namespace dlss

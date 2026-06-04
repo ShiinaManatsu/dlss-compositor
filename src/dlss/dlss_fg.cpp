@@ -125,12 +125,6 @@ void DlssFgPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH
         NVSDK_NGX_DLSSG_Parameter_BackbufferFormat,
         VK_FORMAT_A2B10G10R10_UNORM_PACK32);
 
-    // DLSS FG §1 L518 - Multi-frame generation: multiplier-1 interp frames per input. // FG §1 L518
-    NVSDK_NGX_Parameter_SetUI( // DLSS §1; DLSS FG §1 L518 // FG §1 L518
-        m_ngxParams,
-        NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax,
-        static_cast<unsigned>(multiplier - 1));
-
     const uint32_t neverProvided =
         NVSDK_NGX_DLSSG_ResourceFlags_HUDLess |
         NVSDK_NGX_DLSSG_ResourceFlags_UI |

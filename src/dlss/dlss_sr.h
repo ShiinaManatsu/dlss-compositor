@@ -18,6 +18,8 @@ struct SrInputs {
     VkImageView motionVecDlss;         // 2ch DLSS MV at render resolution
     uint32_t renderW;
     uint32_t renderH;
+    uint32_t outputW;
+    uint32_t outputH;
     float jitterX;                     // DLSS SR §3.7 — pixel space [-0.5, +0.5]
     float jitterY;
     bool reset;                        // DLSS SR §3.13 — first frame / gap / camera cut

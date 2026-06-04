@@ -58,7 +58,7 @@ NgxContext::NgxContext(VkInstance instance, VkPhysicalDevice physicalDevice, VkD
 {
     // DLSS SR §3.5 — Init with ProjectID is recommended over legacy Init.
     NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_Init_with_ProjectID(
-        "dlss-compositor-v2",
+        "d4a7ef3e-2d2d-4e9d-b8bb-2d773ef3b2fd",
         NVSDK_NGX_ENGINE_TYPE_CUSTOM,
         "2.0.0",
         L".",
@@ -125,13 +125,19 @@ void NgxContext::queryCapabilities() {
         &fgAvail);
     m_fgAvailable = (r == NVSDK_NGX_Result_Success) && (fgAvail != 0);
 
-    int fgMax = 0;
-    // DLSS §1 L429 FG — Query max FG multiplier (2x/3x/4x).
+    int fgMaxGeneratedFrames = 0;
+    // DLSS FG §4 — MultiFrameCountMax is generated-frame count: 1 => 2x, 3 => 4x.
     r = NVSDK_NGX_Parameter_GetI(
         m_ngxParams,
         NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax,
-        &fgMax);
-    m_fgMaxMultiplier = (r == NVSDK_NGX_Result_Success) ? std::max(0, fgMax) : 0;
+        &fgMaxGeneratedFrames);
+    if (m_fgAvailable) {
+        m_fgMaxMultiplier = (r == NVSDK_NGX_Result_Success)
+            ? std::max(2, fgMaxGeneratedFrames + 1)
+            : 2;
+    } else {
+        m_fgMaxMultiplier = 0;
+    }
 }
 
 NgxDllVersions NgxContext::queryDllVersions() const {

@@ -34,7 +34,7 @@ TEST_CASE("VulkanContext - command pool and one-time commands", "[gpu]") {
     REQUIRE(cmd != VK_NULL_HANDLE);
     ctx.endOneTimeCommands(pool, cmd, ctx.computeQueue());
     
-    vkDestroyCommandPool(ctx.device(), pool, nullptr);
+    ctx.destroyCommandPool(pool);
 }
 
 TEST_CASE("VulkanContext - VMA no leak on destroy", "[gpu]") {

@@ -90,7 +90,7 @@ TEST_CASE("DlssFgPass - 2x evaluate generates one interpolated frame", "[gpu]") 
     VkCommandBuffer cmd = ctx.beginOneTimeCommands(cmdPool);
     REQUIRE_NOTHROW(fg.evaluate(cmd, inputs));
     ctx.endOneTimeCommands(cmdPool, cmd, ctx.computeQueue());
-    vkDestroyCommandPool(ctx.device(), cmdPool, nullptr);
+    ctx.destroyCommandPool(cmdPool);
 
     pool.release(backbuffer);
     pool.release(depth);

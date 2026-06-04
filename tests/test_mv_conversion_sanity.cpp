@@ -97,7 +97,7 @@ TEST_CASE("MV conversion pass - executes on GPU", "[gpu]") {
     auto cmd = ctx.beginOneTimeCommands(pool2);
     REQUIRE_NOTHROW(pass.execute(cmd, src, dst));
     ctx.endOneTimeCommands(pool2, cmd, ctx.computeQueue());
-    vkDestroyCommandPool(ctx.device(), pool2, nullptr);
+    ctx.destroyCommandPool(pool2);
 
     pool.release(src);
     pool.release(dst);

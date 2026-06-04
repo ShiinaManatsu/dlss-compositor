@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 
 namespace dlss {
 
@@ -37,11 +38,15 @@ public:
     // Command helpers
     VkCommandBuffer beginOneTimeCommands(VkCommandPool pool) const;
     void            endOneTimeCommands(VkCommandPool pool, VkCommandBuffer cmd, VkQueue queue) const;
+    std::vector<std::uint8_t> downloadImageRgba16f(VkImage image, uint32_t width, uint32_t height) const;
 
     VkCommandPool   createTransferCommandPool() const;
     VkCommandPool   createComputeCommandPool() const;
 
     void waitIdle() const;
+
+    void destroyCommandPool(VkCommandPool pool) const;
+    void cmdPipelineBarrier2(VkCommandBuffer cmd, const VkDependencyInfo* dependencyInfo) const;
 
     // Physical device info
     VkPhysicalDeviceProperties deviceProperties() const { return m_deviceProperties; }

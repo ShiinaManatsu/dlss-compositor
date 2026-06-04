@@ -99,7 +99,7 @@ void DlssSrPass::evaluate(VkCommandBuffer cmd, const SrInputs& in) {
     auto colorResource = makeDlssResource(
         in.sceneColorRenderRes, in.renderW, in.renderH, VK_FORMAT_R16G16B16A16_SFLOAT, false);
     auto outputResource = makeDlssResource(
-        in.sceneColorOutputRes, in.renderW, in.renderH, VK_FORMAT_R16G16B16A16_SFLOAT, true);
+        in.sceneColorOutputRes, in.outputW, in.outputH, VK_FORMAT_R16G16B16A16_SFLOAT, true);
     auto depthResource = makeDlssResource(
         in.depthNdc, in.renderW, in.renderH, VK_FORMAT_R32_SFLOAT, false);
     auto motionVectorResource = makeDlssResource(
