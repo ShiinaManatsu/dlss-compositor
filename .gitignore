@@ -79,6 +79,8 @@ test_out.txt
 
 # Runtime logs
 dlss-compositor.log
+dlss-compositor-cli*.log
+dlss-compositor-gui*.log
 build_t31*.log
 
 .omo/run-continuation/
