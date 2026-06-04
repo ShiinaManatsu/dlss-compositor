@@ -63,8 +63,9 @@ def build_top_level_config(scene: Scene, props: object) -> dict[str, Any]:
 
 
 def merge_per_frame_jsons(output_dir: str, frame_numbers: list[int] | None = None) -> dict[str, Any]:
-    """Merge continuous per-frame cam.json files into a frames dict."""
+    """Merge continuous per-frame cam.json files that have matching EXR output."""
     frames_dir = Path(output_dir) / "frames"
+    output_path = Path(output_dir)
     frames: dict[str, Any] = {}
 
     if not frames_dir.exists():
@@ -99,7 +100,18 @@ def merge_per_frame_jsons(output_dir: str, frame_numbers: list[int] | None = Non
         continuous_numbers.append(frame_num)
         previous = frame_num
 
+    rendered_numbers: list[int] = []
     for frame_num in continuous_numbers:
+        exr_path = output_path / f"{frame_num:04d}.exr"
+        if not exr_path.exists():
+            log.warning(
+                "merge_per_frame_jsons: missing rendered EXR %s; discarding frame %04d and later",
+                exr_path, frame_num,
+            )
+            break
+        rendered_numbers.append(frame_num)
+
+    for frame_num in rendered_numbers:
         cam_file = frames_dir / f"{frame_num:04d}.cam.json"
         with open(cam_file, encoding="utf-8") as f:
             frame_data: dict[str, Any] = json.load(f)
