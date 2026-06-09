@@ -34,12 +34,13 @@ struct FgInputs {
 
     // Camera matrices from dlssconfig per-frame data
     float viewToClip[4][4];
+    float clipToCameraView[4][4];
     float clipToPrevClip[4][4];
     float prevClipToClip[4][4];
 
     float camNear;
     float camFar;
-    float fov;          // Field of view in degrees
+    float fov;          // Field of view in radians
     float aspectRatio;
     float camPosX, camPosY, camPosZ;
     float camUpX, camUpY, camUpZ;

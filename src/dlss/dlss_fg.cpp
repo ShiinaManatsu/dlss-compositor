@@ -11,6 +11,7 @@
 #include <nvsdk_ngx_defs_dlssg.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <stdexcept>
 #include <string>
 
@@ -186,7 +187,7 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
         auto depthResource = makeImageViewResource(
             in.depthNdcRenderRes,
             in.depthImage,
-            VK_IMAGE_ASPECT_DEPTH_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
             in.depthFormat,
             depthMotionWidth,
             depthMotionHeight,
@@ -235,7 +236,7 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
 
         // DLSS FG §6 L595 - Camera matrices from dlssconfig per-frame data. // FG §6 L595
         copyMatrix(optParams.cameraViewToClip, in.viewToClip);
-        setIdentity(optParams.clipToCameraView);
+        copyMatrix(optParams.clipToCameraView, in.clipToCameraView);
         setIdentity(optParams.clipToLensClip);
         copyMatrix(optParams.clipToPrevClip, in.clipToPrevClip);
         copyMatrix(optParams.prevClipToClip, in.prevClipToClip);
@@ -277,7 +278,7 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
         optParams.automodeOverrideReset = false;
         optParams.notRenderingGameFrames = false;
         optParams.orthoProjection = false;
-        optParams.motionVectorsInvalidValue = 0.0f;
+        optParams.motionVectorsInvalidValue = -FLT_MAX;
         optParams.minRelativeLinearDepthObjectSeparation = 40.0f;
 
         // DLSS FG §6 - Execute frame generation eval. // FG §6
