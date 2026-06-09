@@ -39,6 +39,11 @@ public:
     VkCommandBuffer beginOneTimeCommands(VkCommandPool pool) const;
     void            endOneTimeCommands(VkCommandPool pool, VkCommandBuffer cmd, VkQueue queue) const;
     std::vector<std::uint8_t> downloadImageRgba16f(VkImage image, uint32_t width, uint32_t height) const;
+    std::vector<std::uint8_t> downloadImageRaw(VkImage image,
+                                               uint32_t width,
+                                               uint32_t height,
+                                               uint32_t bytesPerPixel,
+                                               VkImageLayout oldLayout) const;
 
     VkCommandPool   createTransferCommandPool() const;
     VkCommandPool   createComputeCommandPool() const;

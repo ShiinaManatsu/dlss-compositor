@@ -45,6 +45,34 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
+bool hasInstanceLayer(const char* name) {
+    uint32_t count = 0;
+    if (vkEnumerateInstanceLayerProperties(&count, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    std::vector<VkLayerProperties> layers(count);
+    if (vkEnumerateInstanceLayerProperties(&count, layers.data()) != VK_SUCCESS) {
+        return false;
+    }
+    return std::any_of(layers.begin(), layers.end(), [name](const VkLayerProperties& layer) {
+        return std::strcmp(layer.layerName, name) == 0;
+    });
+}
+
+bool hasInstanceExtension(const char* name) {
+    uint32_t count = 0;
+    if (vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS) {
+        return false;
+    }
+    std::vector<VkExtensionProperties> extensions(count);
+    if (vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data()) != VK_SUCCESS) {
+        return false;
+    }
+    return std::any_of(extensions.begin(), extensions.end(), [name](const VkExtensionProperties& extension) {
+        return std::strcmp(extension.extensionName, name) == 0;
+    });
+}
+
 } // anonymous namespace
 
 VulkanContext::VulkanContext() {
@@ -144,12 +172,21 @@ void VulkanContext::createInstance(const std::vector<const char*>& extraExtensio
     std::vector<const char*> extensions = extraExtensions;
     // Always add debug utils for validation in debug builds
 #ifdef _DEBUG
-    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    if (hasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    } else {
+        LOG_WARN("[VulkanContext] {} unavailable; continuing without debug messenger",
+                 VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
 #endif
 
     std::vector<const char*> layers;
 #ifdef _DEBUG
-    layers.push_back("VK_LAYER_KHRONOS_validation");
+    if (hasInstanceLayer("VK_LAYER_KHRONOS_validation")) {
+        layers.push_back("VK_LAYER_KHRONOS_validation");
+    } else {
+        LOG_WARN("[VulkanContext] VK_LAYER_KHRONOS_validation unavailable; continuing without validation layer");
+    }
 #endif
 
     VkInstanceCreateInfo createInfo{};
@@ -383,6 +420,72 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
     toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
     toTransfer.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image = image;
+    toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dependency{};
+    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = 1;
+    dependency.pImageMemoryBarriers = &toTransfer;
+    vkCmdPipelineBarrier2(cmd, &dependency);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
+
+    endOneTimeCommands(pool, cmd, transferQueue());
+    vkDestroyCommandPool(m_device, pool, nullptr);
+
+    if (allocationInfo.pMappedData != nullptr) {
+        std::memcpy(pixels.data(), allocationInfo.pMappedData, pixels.size());
+    }
+    vmaDestroyBuffer(m_allocator, buffer, allocation);
+    return pixels;
+}
+
+std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,
+                                                          uint32_t width,
+                                                          uint32_t height,
+                                                          uint32_t bytesPerPixel,
+                                                          VkImageLayout oldLayout) const {
+    const VkDeviceSize byteSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(byteSize));
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = byteSize;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo{};
+    VkResult result = vmaCreateBuffer(m_allocator, &bufferInfo, &allocInfo, &buffer, &allocation, &allocationInfo);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("downloadImageRaw: failed to create readback buffer");
+    }
+
+    VkCommandPool pool = createTransferCommandPool();
+    VkCommandBuffer cmd = beginOneTimeCommands(pool);
+
+    VkImageMemoryBarrier2 toTransfer{};
+    toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    toTransfer.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+    toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+    toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+    toTransfer.oldLayout = oldLayout;
     toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
