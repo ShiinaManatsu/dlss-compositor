@@ -70,6 +70,29 @@ std::string defaultTemplateFor(OutputFormat format) {
     return "frame_####.exr";
 }
 
+std::string extensionFor(OutputFormat format) {
+    if (format == OutputFormat::Png16) {
+        return ".png";
+    }
+    return ".exr";
+}
+
+std::string withFormatExtension(std::string filenameTemplate, OutputFormat format) {
+    if (filenameTemplate.empty()) {
+        return defaultTemplateFor(format);
+    }
+    const std::string ext = extensionFor(format);
+    const auto dot = filenameTemplate.find_last_of('.');
+    if (dot != std::string::npos) {
+        const std::string currentExt = filenameTemplate.substr(dot);
+        if (currentExt == ".png" || currentExt == ".exr" || currentExt == ".mov") {
+            filenameTemplate.replace(dot, std::string::npos, ext);
+            return filenameTemplate;
+        }
+    }
+    return filenameTemplate + ext;
+}
+
 bool needsSr(const DlssConfig& config) {
     return config.render_resolution.width != config.output_resolution.width ||
            config.render_resolution.height != config.output_resolution.height;
@@ -123,9 +146,7 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
         const std::filesystem::path outputDir = options.outputDir.empty()
             ? defaultOutputDir(options.configPath)
             : options.outputDir;
-        const std::string filenameTemplate = options.outputTemplate.empty()
-            ? defaultTemplateFor(format)
-            : options.outputTemplate;
+        const std::string filenameTemplate = withFormatExtension(options.outputTemplate, format);
         PreviewPublisher preview(options.previewSharedMemoryName);
         auto previewCallback = [&preview, &options](const std::vector<std::uint8_t>& pixels,
                                                     std::uint32_t width,

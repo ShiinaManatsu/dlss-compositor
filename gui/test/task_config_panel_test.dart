@@ -120,7 +120,7 @@ void main() {
     await tester.pumpWidget(buildTestApp(appState));
     await tester.pumpAndSettle();
 
-    // Initial state: frame_#### -> frame_0001.png (because PNG is first for LDR)
+    // Initial state: extensionless frame_#### -> frame_0001.png (because PNG is first for LDR)
     expect(find.text('→ frame_0001.png'), findsOneWidget);
 
     // Change template
@@ -128,7 +128,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('→ img_0001.png'), findsOneWidget);
 
-    // Add explicit extension
+    // Explicit extension in the template is normalized to the selected format.
     await tester.enterText(find.byType(TextField), 'img_####.exr');
     await tester.pumpAndSettle();
     expect(find.text('→ img_0001.png'), findsOneWidget);
@@ -147,6 +147,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('→ frame_0001.exr'), findsOneWidget);
+  });
+
+  testWidgets('Template text remains extensionless when output format changes', (WidgetTester tester) async {
+    final appState = AppState();
+    appState.setDlssConfig('C:\\config.json', {'is_hdr': false}, null);
+
+    await tester.pumpWidget(buildTestApp(appState));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'shot_####.png');
+    await tester.pumpAndSettle();
+    expect(appState.template, 'shot_####');
+    expect(find.text('→ shot_0001.png'), findsOneWidget);
+
+    await tester.tap(find.text('PNG (16-bit)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('EXR (scene-linear)').last);
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller?.text, 'shot_####');
+    expect(appState.template, 'shot_####');
+    expect(find.text('→ shot_0001.exr'), findsOneWidget);
   });
 
 }

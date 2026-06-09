@@ -35,7 +35,7 @@ class AppState extends ChangeNotifier {
   String outputFormat = 'png_16';
   String overwriteMode = 'overwrite';
   String outputDir = '';
-  String template = 'frame_####.png';
+  String template = 'frame_####';
 
   // Load DLSS status from native plugin
   Future<void> loadStatus() async {

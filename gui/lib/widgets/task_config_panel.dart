@@ -51,8 +51,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final state = Provider.of<AppState>(context, listen: false);
-    if (_templateController.text != state.template) {
-      _templateController.text = state.template;
+    final normalized = _stripKnownExtension(state.template);
+    if (_templateController.text != normalized) {
+      _templateController.text = normalized;
     }
   }
 
@@ -64,9 +65,20 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   void _onTemplateChanged() {
     final state = Provider.of<AppState>(context, listen: false);
-    if (state.template != _templateController.text) {
-      state.setTaskConfig(template: _templateController.text);
+    final normalized = _stripKnownExtension(_templateController.text);
+    if (_templateController.text != normalized) {
+      _templateController.value = TextEditingValue(
+        text: normalized,
+        selection: TextSelection.collapsed(offset: normalized.length),
+      );
     }
+    if (state.template != normalized) {
+      state.setTaskConfig(template: normalized);
+    }
+  }
+
+  String _stripKnownExtension(String template) {
+    return template.trim().replaceFirst(RegExp(r'\.(png|exr|mov)$', caseSensitive: false), '');
   }
 
   String? _templateError(String text) {
@@ -121,16 +133,14 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   String _templateSample(AppState state) {
     final tmpl = _templateForFormat(state.template, state.outputFormat);
     final formatted = tmpl.replaceAll('####', '0001');
-    final ext = state.outputFormat == 'png_16' ? '.png'
-              : '.exr';
-    return formatted.contains('.') ? formatted : '$formatted$ext';
+    return formatted;
   }
 
   String _templateForFormat(String template, String format) {
-    final trimmed = template.trim().isEmpty ? 'frame_####' : template.trim();
+    final trimmed = _stripKnownExtension(template).isEmpty ? 'frame_####' : _stripKnownExtension(template);
     final expectedExt = format == 'png_16' ? '.png'
         : '.exr';
-    return trimmed.replaceFirst(RegExp(r'\.(png|exr|mov)$', caseSensitive: false), expectedExt);
+    return '$trimmed$expectedExt';
   }
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
