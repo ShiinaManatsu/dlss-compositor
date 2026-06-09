@@ -237,8 +237,7 @@ def _finalize(scene: Scene) -> None:
         if props and props.output_dir:  # type: ignore[attr-defined]
             from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
             top_level = build_top_level_config(scene, props)
-            written_frames = list(scene.get("_dlss_written_frames", []))
-            frames = merge_per_frame_jsons(props.output_dir, written_frames)  # type: ignore[attr-defined]
+            frames = merge_per_frame_jsons(props.output_dir)  # type: ignore[attr-defined]
             log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
             write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]
             log.info("_finalize: dlssconfig.json written (%d frames)", len(frames))
