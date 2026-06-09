@@ -9,6 +9,7 @@
     "openexr",
     "catch2",
     "spdlog",
+    "zlib",
     "volk",
     "vulkan-memory-allocator",
     {

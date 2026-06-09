@@ -108,6 +108,7 @@ find_package(volk          CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Imath         CONFIG REQUIRED)
 find_package(OpenEXR       CONFIG REQUIRED)
+find_package(ZLIB          REQUIRED)
 
 # Vulkan headers come transitively from volk, so find_package(Vulkan) is optional.
 find_package(Vulkan QUIET)
@@ -135,6 +136,7 @@ target_link_libraries(dlss_cli_support
         GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
+        ZLIB::ZLIB
     PRIVATE
         dlss_warnings)
 
@@ -183,6 +185,7 @@ target_link_libraries(dlss_engine_lib
         GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
+        ZLIB::ZLIB
     PRIVATE
         dlss_warnings
         $<$<CONFIG:Debug>:${DLSS_LIB_DEBUG}>

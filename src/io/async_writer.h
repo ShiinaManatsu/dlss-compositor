@@ -10,7 +10,7 @@
 //
 // Constraints (T29):
 //   - HDR + PNG combination is REJECTED at enqueue() time (throws).
-//   - Only ExrLinear / Png16 / ProRes422HQ are registered encoders.
+//   - Only ExrLinear / Png16 are registered encoders.
 //   - Thread count: ctor param > env DLSS_COMPOSITOR_WRITER_THREADS > 4 default.
 // =============================================================================
 

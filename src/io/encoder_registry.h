@@ -2,7 +2,7 @@
 // =============================================================================
 // EncoderRegistry — extensible map of OutputFormat → encoder function.
 //
-// v2 implements ONLY: ExrLinear, Png16, ProRes422HQ.
+// v2 implements ONLY: ExrLinear and Png16.
 // All other OutputFormat values (Jpeg, H264Mp4, H265Mp4, Av1Mp4, Avif,
 // ProRes4444XQ, DNxHR) are enum-only placeholders for future extensions and
 // are NOT registered in globalEncoderRegistry().
@@ -33,7 +33,7 @@ struct EncodeParams {
 using EncoderFn = std::function<void(const EncodeParams&, const std::filesystem::path&)>;
 
 /// Registry of encoder functions. Extensible for future codecs.
-/// v2 implements ONLY: ExrLinear, Png16, ProRes422HQ.
+/// v2 implements ONLY: ExrLinear and Png16.
 class EncoderRegistry {
 public:
     void registerEncoder(OutputFormat fmt, EncoderFn fn);
@@ -48,7 +48,7 @@ private:
 };
 
 /// Get the global encoder registry (initialized lazily with v2 encoders).
-/// Contains ONLY: ExrLinear, Png16, ProRes422HQ.
+/// Contains ONLY: ExrLinear and Png16.
 /// OutputFormat::Jpeg / H264Mp4 / H265Mp4 / Av1Mp4 / Avif / ProRes4444XQ /
 /// DNxHR are enum placeholders — NOT registered.
 EncoderRegistry& globalEncoderRegistry();

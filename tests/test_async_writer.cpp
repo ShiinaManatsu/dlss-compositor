@@ -8,6 +8,7 @@
 #include "../src/io/encoder_registry.h"
 
 #include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 
@@ -44,10 +45,10 @@ TEST_CASE("EncoderRegistry - only v2 formats registered", "[unit]")
 {
     auto& reg = dlss::globalEncoderRegistry();
 
-    // v2 implements ONLY these 3.
+    // v2 implements ONLY these image-sequence formats.
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::ExrLinear));
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::Png16));
-    REQUIRE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ));
+    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ));
 
     // Extension placeholders must NOT be registered.
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::Jpeg));
@@ -57,6 +58,46 @@ TEST_CASE("EncoderRegistry - only v2 formats registered", "[unit]")
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::Avif));
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes4444XQ));
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::DNxHR));
+}
+
+TEST_CASE("AsyncFrameWriter - writes real PNG16", "[unit]")
+{
+    const auto output = std::filesystem::temp_directory_path() / "test_async_writer_png16.png";
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+
+    dlss::AsyncFrameWriter writer(1);
+    dlss::WriteJob job;
+    job.format = dlss::OutputFormat::Png16;
+    job.is_hdr = false;
+    job.width = 1;
+    job.height = 1;
+    job.outputPath = output;
+    job.pixels = {
+        0x00, 0x3c, // R = 1.0 half
+        0x00, 0x00, // G = 0.0 half
+        0x00, 0x00, // B = 0.0 half
+        0x00, 0x3c, // A = 1.0 half
+    };
+
+    REQUIRE_NOTHROW(writer.enqueue(job));
+    REQUIRE_NOTHROW(writer.flush());
+    REQUIRE_FALSE(writer.hasErrors());
+
+    std::ifstream in(output, std::ios::binary);
+    REQUIRE(in.good());
+    std::string header(33, '\0');
+    in.read(header.data(), static_cast<std::streamsize>(header.size()));
+    REQUIRE(static_cast<std::size_t>(in.gcount()) == header.size());
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(header.data());
+    REQUIRE(bytes[0] == 0x89);
+    REQUIRE(bytes[1] == 'P');
+    REQUIRE(bytes[2] == 'N');
+    REQUIRE(bytes[3] == 'G');
+    REQUIRE(bytes[24] == 16); // IHDR bit depth
+    REQUIRE(bytes[25] == 6);  // IHDR RGBA color type
+
+    std::filesystem::remove(output, ec);
 }
 
 TEST_CASE("AsyncFrameWriter - flush waits for all jobs", "[unit]")

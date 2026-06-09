@@ -1,7 +1,7 @@
 // =============================================================================
 // AsyncFrameWriter implementation + globalEncoderRegistry.
 //
-// v2 registers ONLY: ExrLinear, Png16 (stub), ProRes422HQ (stub).
+// v2 registers ONLY: ExrLinear and Png16.
 // Other OutputFormat values are enum placeholders and intentionally NOT
 // registered.
 // =============================================================================
@@ -16,12 +16,16 @@
 #include <OpenEXR/ImfOutputFile.h>
 #include <OpenEXR/ImfPixelType.h>
 
+#include <zlib.h>
+
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -112,61 +116,149 @@ void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputP
     file.writePixels(static_cast<int>(p.height));
 }
 
-// ---------- PNG16 (stub) ----------------------------------------------------
-// TODO: link libpng for true 16-bit RGBA encoding.  Stub writes a marker file
-// so downstream wiring can verify completion without a hard dependency.
-void encodePng16Stub(const EncodeParams& p, const std::filesystem::path& outputPath)
+float halfToFloat(std::uint16_t bits)
 {
-    std::error_code ec;
-    if (outputPath.has_parent_path()) {
-        std::filesystem::create_directories(outputPath.parent_path(), ec);
+    const std::uint32_t sign = static_cast<std::uint32_t>(bits & 0x8000u) << 16;
+    std::uint32_t exp = (bits >> 10) & 0x1fu;
+    std::uint32_t mant = bits & 0x03ffu;
+
+    std::uint32_t out = 0;
+    if (exp == 0) {
+        if (mant == 0) {
+            out = sign;
+        } else {
+            exp = 127u - 15u + 1u;
+            while ((mant & 0x0400u) == 0) {
+                mant <<= 1;
+                --exp;
+            }
+            mant &= 0x03ffu;
+            out = sign | (exp << 23) | (mant << 13);
+        }
+    } else if (exp == 31u) {
+        out = sign | 0x7f800000u | (mant << 13);
+    } else {
+        exp += 127u - 15u;
+        out = sign | (exp << 23) | (mant << 13);
     }
-    std::ofstream f(outputPath, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        throw std::runtime_error("encodePng16Stub: cannot open output: " + outputPath.string());
-    }
-    // 8-byte PNG signature so the file at least sniffs as PNG.
-    static const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    f.write(reinterpret_cast<const char*>(sig), sizeof(sig));
-    // Minimal placeholder payload: width / height as little-endian u32s + pixel byte size.
-    const std::uint32_t w = p.width;
-    const std::uint32_t h = p.height;
-    f.write(reinterpret_cast<const char*>(&w), sizeof(w));
-    f.write(reinterpret_cast<const char*>(&h), sizeof(h));
-    LOG_WARN("PNG16 encoder is a stub (libpng not yet linked); wrote placeholder to {}",
-             outputPath.string());
+
+    float value = 0.0f;
+    std::memcpy(&value, &out, sizeof(value));
+    return value;
 }
 
-// ---------- ProRes 422 HQ (stub) --------------------------------------------
-// TODO: link FFmpeg / libavcodec prores_ks for true ProRes 422 HQ encoding.
-// Stub writes a marker file so downstream wiring can verify completion.
-void encodeProRes422HQStub(const EncodeParams& p, const std::filesystem::path& outputPath)
+std::uint16_t readLe16(const std::uint8_t* p) noexcept
 {
+    return static_cast<std::uint16_t>(p[0] | (static_cast<std::uint16_t>(p[1]) << 8));
+}
+
+float srgbEncode(float linear) noexcept
+{
+    if (!std::isfinite(linear)) {
+        return 0.0f;
+    }
+    const float c = std::clamp(linear, 0.0f, 1.0f);
+    if (c <= 0.0031308f) {
+        return c * 12.92f;
+    }
+    return 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+}
+
+std::uint16_t toPng16(float value, bool encodeSrgb) noexcept
+{
+    const float encoded = encodeSrgb ? srgbEncode(value) : std::clamp(value, 0.0f, 1.0f);
+    return static_cast<std::uint16_t>(std::clamp(encoded, 0.0f, 1.0f) * 65535.0f + 0.5f);
+}
+
+void appendU32BE(std::vector<std::uint8_t>& bytes, std::uint32_t value)
+{
+    bytes.push_back(static_cast<std::uint8_t>((value >> 24) & 0xffu));
+    bytes.push_back(static_cast<std::uint8_t>((value >> 16) & 0xffu));
+    bytes.push_back(static_cast<std::uint8_t>((value >> 8) & 0xffu));
+    bytes.push_back(static_cast<std::uint8_t>(value & 0xffu));
+}
+
+void appendChunk(std::vector<std::uint8_t>& png, const char type[4], const std::vector<std::uint8_t>& payload)
+{
+    appendU32BE(png, static_cast<std::uint32_t>(payload.size()));
+    const std::size_t typeOffset = png.size();
+    png.insert(png.end(), type, type + 4);
+    png.insert(png.end(), payload.begin(), payload.end());
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, png.data() + typeOffset, static_cast<uInt>(png.size() - typeOffset));
+    appendU32BE(png, static_cast<std::uint32_t>(crc));
+}
+
+// ---------- PNG16 ------------------------------------------------------------
+void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
+{
+    if (p.pixels == nullptr || p.width == 0 || p.height == 0) {
+        throw std::runtime_error("encodePng16: empty pixel buffer or zero dimensions");
+    }
+    const std::size_t expectedBytes =
+        static_cast<std::size_t>(p.width) * static_cast<std::size_t>(p.height) * 4u * sizeof(std::uint16_t);
+    if (p.pixelByteSize < expectedBytes) {
+        throw std::runtime_error("encodePng16: pixel buffer too small for declared dimensions");
+    }
+
     std::error_code ec;
     if (outputPath.has_parent_path()) {
         std::filesystem::create_directories(outputPath.parent_path(), ec);
     }
+
+    const std::size_t rowBytes = static_cast<std::size_t>(p.width) * 4u * sizeof(std::uint16_t);
+    if (rowBytes > std::numeric_limits<std::size_t>::max() - 1u) {
+        throw std::runtime_error("encodePng16: row too wide");
+    }
+    std::vector<std::uint8_t> scanlines((rowBytes + 1u) * static_cast<std::size_t>(p.height));
+    for (std::uint32_t y = 0; y < p.height; ++y) {
+        std::uint8_t* row = scanlines.data() + static_cast<std::size_t>(y) * (rowBytes + 1u);
+        row[0] = 0; // PNG filter type: None.
+        for (std::uint32_t x = 0; x < p.width; ++x) {
+            const std::size_t pixelIndex = (static_cast<std::size_t>(y) * p.width + x) * 4u;
+            for (std::uint32_t ch = 0; ch < 4; ++ch) {
+                const auto half = readLe16(p.pixels + (pixelIndex + ch) * sizeof(std::uint16_t));
+                const bool encodeSrgb = ch < 3;
+                const std::uint16_t value = toPng16(halfToFloat(half), encodeSrgb);
+                const std::size_t dst = 1u + (static_cast<std::size_t>(x) * 4u + ch) * sizeof(std::uint16_t);
+                row[dst + 0] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
+                row[dst + 1] = static_cast<std::uint8_t>(value & 0xffu);
+            }
+        }
+    }
+
+    uLongf compressedSize = compressBound(static_cast<uLong>(scanlines.size()));
+    std::vector<std::uint8_t> compressed(static_cast<std::size_t>(compressedSize));
+    const int zlibResult = compress2(compressed.data(), &compressedSize,
+                                     scanlines.data(), static_cast<uLong>(scanlines.size()),
+                                     Z_BEST_SPEED);
+    if (zlibResult != Z_OK) {
+        throw std::runtime_error("encodePng16: zlib compression failed: " + std::to_string(zlibResult));
+    }
+    compressed.resize(static_cast<std::size_t>(compressedSize));
+
+    std::vector<std::uint8_t> png;
+    static const std::uint8_t signature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    png.insert(png.end(), signature, signature + sizeof(signature));
+
+    std::vector<std::uint8_t> ihdr;
+    ihdr.reserve(13);
+    appendU32BE(ihdr, p.width);
+    appendU32BE(ihdr, p.height);
+    ihdr.push_back(16); // bit depth
+    ihdr.push_back(6);  // RGBA
+    ihdr.push_back(0);  // deflate
+    ihdr.push_back(0);  // adaptive filtering
+    ihdr.push_back(0);  // no interlace
+    appendChunk(png, "IHDR", ihdr);
+    appendChunk(png, "IDAT", compressed);
+    appendChunk(png, "IEND", {});
+
     std::ofstream f(outputPath, std::ios::binary | std::ios::trunc);
     if (!f) {
-        throw std::runtime_error("encodeProRes422HQStub: cannot open output: " +
-                                 outputPath.string());
+        throw std::runtime_error("encodePng16: cannot open output: " + outputPath.string());
     }
-    // QuickTime "ftyp" placeholder so ffprobe sniffs the file.
-    static const char ftyp[] = {'\0', '\0', '\0', '\x18',
-                                'f', 't', 'y', 'p',
-                                'q', 't', ' ', ' ',
-                                '\0', '\0', '\0', '\0',
-                                'q', 't', ' ', ' ',
-                                '\0', '\0', '\0', '\0'};
-    f.write(ftyp, sizeof(ftyp));
-    const std::uint32_t w   = p.width;
-    const std::uint32_t h   = p.height;
-    const std::int32_t  fps = p.fps;
-    f.write(reinterpret_cast<const char*>(&w),   sizeof(w));
-    f.write(reinterpret_cast<const char*>(&h),   sizeof(h));
-    f.write(reinterpret_cast<const char*>(&fps), sizeof(fps));
-    LOG_WARN("ProRes422HQ encoder is a stub (FFmpeg not yet linked); wrote placeholder to {}",
-             outputPath.string());
+    f.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
 }
 
 } // namespace
@@ -176,8 +268,7 @@ EncoderRegistry& globalEncoderRegistry()
     static EncoderRegistry s_registry = [] {
         EncoderRegistry r;
         r.registerEncoder(OutputFormat::ExrLinear,   &encodeExrLinear);
-        r.registerEncoder(OutputFormat::Png16,       &encodePng16Stub);
-        r.registerEncoder(OutputFormat::ProRes422HQ, &encodeProRes422HQStub);
+        r.registerEncoder(OutputFormat::Png16,       &encodePng16);
         // INTENTIONAL: Jpeg/H264Mp4/H265Mp4/Av1Mp4/Avif/ProRes4444XQ/DNxHR are
         // enum-only placeholders for future extensions and are NOT registered.
         return r;
