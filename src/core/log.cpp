@@ -10,6 +10,13 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <spdlog/logger.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -24,24 +31,24 @@ constexpr auto kLogFileName = "dlss-compositor-cli.log";
 constexpr std::size_t kMaxFileSize = 5U * 1024U * 1024U;
 constexpr std::size_t kMaxFiles = 3U;
 
-std::filesystem::path findProjectRoot() {
-    auto dir = std::filesystem::current_path();
-    while (!dir.empty()) {
-        if (std::filesystem::exists(dir / "AGENTS.md") &&
-            std::filesystem::exists(dir / "CMakeLists.txt")) {
-            return dir;
-        }
-        const auto parent = dir.parent_path();
-        if (parent == dir) {
-            break;
-        }
-        dir = parent;
+std::filesystem::path executableDir() {
+#if defined(_WIN32)
+    wchar_t exePath[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    if (length != 0 && length < MAX_PATH) {
+        return std::filesystem::path(exePath).parent_path();
     }
+#endif
     return std::filesystem::current_path();
 }
 
 std::filesystem::path logPath() {
-    return findProjectRoot() / kLogFileName;
+    if (const char* dir = std::getenv("DLSS_COMPOSITOR_LOG_DIR")) {
+        if (*dir != '\0') {
+            return std::filesystem::path(dir) / kLogFileName;
+        }
+    }
+    return executableDir() / "logs" / kLogFileName;
 }
 
 void resetLogFiles(const std::filesystem::path& path) {
@@ -152,6 +159,8 @@ private:
         }
 
         const auto filePath = logPath();
+        std::error_code ignored;
+        std::filesystem::create_directories(filePath.parent_path(), ignored);
         if (resetFile) {
             resetLogFiles(filePath);
         }

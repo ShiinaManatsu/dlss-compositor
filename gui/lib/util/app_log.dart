@@ -57,25 +57,15 @@ class AppLog {
   }
 
   static File _resolveLogFile() {
-    final root = _findProjectRoot(Directory.current) ??
-        _findProjectRoot(File(Platform.resolvedExecutable).parent) ??
-        Directory.current;
-    return File('${root.path}${Platform.pathSeparator}$_fileName');
+    final exeDir = File(Platform.resolvedExecutable).parent;
+    final logDir = Directory('${exeDir.path}${Platform.pathSeparator}logs');
+    if (!logDir.existsSync()) {
+      logDir.createSync(recursive: true);
+    }
+    return File('${logDir.path}${Platform.pathSeparator}$_fileName');
   }
 
   static bool get _shouldLog =>
       kDebugMode || _enabledByBuild || Platform.environment['DLSS_COMPOSITOR_GUI_LOG'] == '1';
 
-  static Directory? _findProjectRoot(Directory start) {
-    var dir = start.absolute;
-    while (true) {
-      if (File('${dir.path}${Platform.pathSeparator}AGENTS.md').existsSync() &&
-          File('${dir.path}${Platform.pathSeparator}CMakeLists.txt').existsSync()) {
-        return dir;
-      }
-      final parent = dir.parent;
-      if (parent.path == dir.path) return null;
-      dir = parent;
-    }
-  }
 }
