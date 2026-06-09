@@ -58,6 +58,11 @@ class DlssCompositorPlugin {
     return result ?? false;
   }
 
+  Future<bool> cancelTask() async {
+    final result = await _methodChannel.invokeMethod<bool>('cancelTask');
+    return result ?? false;
+  }
+
   Future<PreviewFrame?> getPreviewFrame() async {
     final result = await _methodChannel.invokeMapMethod<String, dynamic>(
       'getPreviewFrame',

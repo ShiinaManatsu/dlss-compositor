@@ -18,9 +18,8 @@ class DlssCompositor {
   static Map<String, dynamic>? _taskParams;
   static Process? _runningProcess;
 
-  /// Current processing path launches the CLI as a child process. The native
-  /// plugin reads preview frames from a named shared memory block populated by
-  /// the CLI, so live preview is available even with the external backend.
+  /// Native plugin execution is the default. The CLI subprocess path remains as
+  /// an explicit debug fallback via DLSS_COMPOSITOR_GUI_BACKEND=cli.
   static bool get supportsLivePreview => true;
 
   /// Send a task configuration to the native engine.
@@ -59,6 +58,31 @@ class DlssCompositor {
   /// Start the render task.
   static Future<bool> startTask() async {
     AppLog.phase('plugin', 'startTask begin');
+    if (_useCliBackend) {
+      return _startCliTask();
+    }
+    final result = await _plugin.startTask();
+    AppLog.phase('plugin', 'startTask complete', {'backend': 'native', 'ok': result});
+    return result;
+  }
+
+  /// Cancel the active render task.
+  static Future<bool> cancelTask() async {
+    AppLog.phase('plugin', 'cancelTask begin');
+    final process = _runningProcess;
+    if (_useCliBackend && process != null) {
+      process.kill();
+      _runningProcess = null;
+      AppLog.phase('plugin', 'cancelTask killed CLI fallback');
+      return true;
+    }
+    final result = await _plugin.cancelTask();
+    AppLog.phase('plugin', 'cancelTask complete', {'backend': 'native', 'ok': result});
+    return result;
+  }
+
+  static Future<bool> _startCliTask() async {
+    AppLog.phase('plugin', 'startTask using CLI fallback');
     if (_runningProcess != null) {
       AppLog.phase('plugin', 'startTask rejected: already running');
       return false;
@@ -100,6 +124,11 @@ class DlssCompositor {
       AppLog.phase('plugin', 'startTask spawn failed', e.message);
       return false;
     }
+  }
+
+  static bool get _useCliBackend {
+    final value = Platform.environment['DLSS_COMPOSITOR_GUI_BACKEND']?.toLowerCase();
+    return value == 'cli' || value == 'process' || value == 'subprocess';
   }
 
   /// Preflight output path collisions for the current task settings.

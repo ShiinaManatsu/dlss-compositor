@@ -57,6 +57,32 @@ void main() {
     expect(event['total_frames'], 10);
   });
 
+  test('startTask uses native method channel by default', () async {
+    MethodCall? receivedCall;
+    messenger.setMockMethodCallHandler(methodChannel, (call) async {
+      receivedCall = call;
+      return true;
+    });
+
+    final ok = await DlssCompositor.startTask();
+
+    expect(ok, isTrue);
+    expect(receivedCall?.method, 'startTask');
+  });
+
+  test('cancelTask forwards to native method channel', () async {
+    MethodCall? receivedCall;
+    messenger.setMockMethodCallHandler(methodChannel, (call) async {
+      receivedCall = call;
+      return true;
+    });
+
+    final ok = await DlssCompositor.cancelTask();
+
+    expect(ok, isTrue);
+    expect(receivedCall?.method, 'cancelTask');
+  });
+
   test('checkOutputCollisions scans output directory from task params', () async {
     final dir = Directory.systemTemp.createTempSync('dlss_gui_collision_test');
     addTearDown(() => dir.deleteSync(recursive: true));
