@@ -1,148 +1,94 @@
 # AGENTS.md — DLSS Compositor v2
 
-This file documents conventions for AI agents working in this codebase.
+High-signal notes for future OpenCode sessions. Keep this file compact; prefer verified build/config facts over plans.
 
-## Codebase Overview
+## Repository shape
 
-- `src/`: C++ engine (dlss_engine_lib static + dlss-compositor-cli.exe)
-- `gui/`: Flutter Windows GUI
-- `blender/`: Blender 5.1+ extension (Python)
-- `docs/dlss-refs/`: DLSS SDK doc mirrors (must reference for any NGX work)
-- `DLSS/`: NVIDIA DLSS SDK v310.6.0 submodule
+- `src/`: C++23 Vulkan/NGX engine, `dlss_engine_lib`, and `dlss-compositor-cli.exe`.
+- `gui/`: Flutter Windows GUI. Default backend is the native Windows plugin; CLI subprocess is only a debug fallback via `DLSS_COMPOSITOR_GUI_BACKEND=cli`.
+- `blender/`: Blender 5.1+ extension that writes multilayer EXR input and `dlssconfig.json`.
+- `docs/dlss-refs/`: local DLSS SDK doc mirrors; cite these before changing NGX calls.
+- `DLSS/`: NVIDIA DLSS SDK v310.6.0 submodule. Initialize submodules before configuring CMake.
 
-## Critical Conventions
+## Build and verification flow
 
-### 1. DLSS §-citation Comments (MANDATORY)
-Every `NVSDK_NGX_*` API call MUST have a `// DLSS §X.X` reference comment on the same
-or preceding line. This prevents UE cargo-cult bug re-introduction. The F1 reviewer
-will `grep` for violations and REJECT if any are missing.
-Example: `p.InMVScaleX = 1.0f; // DLSS SR §3.6.3 - pixel-unit MVs`
+- Requirements: Windows + MSVC, `VCPKG_ROOT`, Flutter, DLSS submodule, and either Vulkan SDK `glslc` or vcpkg `glslang[tools]`.
+- CMake presets use Ninja Multi-Config and vcpkg triplet `x64-windows-static-md`.
 
-### 2. stdout = RPC Only
-stdout is exclusively reserved for JSON-RPC Content-Length framed protocol.
-All diagnostic output MUST use `spdlog` → stderr + rotating file sink.
-`std::cout`, `printf`, `fprintf(stdout, ...)` are forbidden in src/.
+```powershell
+# Normal local configure/build/test. Without -B, preset output is build/x64-windows-msvc-release.
+cmake --preset x64-windows-msvc-release
+cmake --build --preset x64-windows-msvc-release --parallel
+ctest --preset x64-windows-msvc-release --output-on-failure
 
-### 3. No Per-Frame vkCreateImage
-All GPU texture allocation MUST go through `TexturePool::acquire/release`.
-Per-frame `vkCreateImage` is a performance regression from v1.
-
-### 4. Jitter Base=8 (Phase Count)
-"base=8" refers to the MINIMUM phase count (DLAA/UQ = 8 phases), NOT the Halton
-radix base. Halton uses radix 2 for X, radix 3 for Y. Phase counts per §3.7.1.1:
-DLAA=8, UQ=14, Q=18, B=24, P=32, UP=72.
-Note: UltraQuality (1.3x scale) is not in §3.7.1.1 official table (removed from SDK
-docs in 2.3.2), but NGX enum value 4 still exists. Phase count = round(8 * 1.3^2) = 14.
-
-### 5. MV Mapping: DLSS_MV = (Blender.X, -Blender.Y)
-Empirically verified in `blender/tests/MV_SANITY_RESULT.md`.
-DO NOT use `-blenderMv` (double negation = v1 bug masked by InMVScale error).
-X passes through directly (two sign flips cancel). Only Y is negated.
-
-### 6. InReset = First Frame / Gap / Camera Cut Only
-`InReset = true` ONLY on: first frame, frame gap in sequence, or camera discontinuity.
-NEVER set `InReset = true` every frame — this destroys temporal history.
-
-### 7. SR Before Tonemap, Tonemap Before FG
-Per §3.1: SR input must be scene-linear (no EOTF applied yet).
-Per FG §HDR: FG backbuffer must be display-ready (after tonemap + EOTF).
-
-### 8. No dnxhr/h264/h265/av1/avif/jpeg/webp in EncoderRegistry
-These are enum placeholders only. Do NOT register them in EncoderRegistry.
-Do NOT list them in RPC `getStatus().video_encoders` or `export_formats_*`.
-See "扩展 Codec 多维政策表" in `.omo/plans/dlss-compositor-v2.md`.
-
-### 9. Schema Single Source of Truth
-`src/core/dlssconfig.schema.json` is the SINGLE source for all three layers.
-Do NOT copy it to `blender/` or `gui/assets/` — reference it via relative path.
-
-### 10. Agent QA Scenarios
-Every task implementation MUST include:
-- At least 1 happy path scenario
-- At least 1 failure/edge case scenario
-- Evidence saved to `.omo/evidence/task-{N}-*.{ext}`
-
-## Build System
-
-```bash
-# Configure + build
+# CI-style equivalent writes to build/ instead.
 cmake -B build --preset x64-windows-msvc-release -DDLSS_SDK_ROOT=DLSS
-cmake --build build --config Release
-
-# Run C++ tests (GPU tests tagged [gpu], skip in CI without NVIDIA)
+cmake --build build --config Release --parallel
 ctest --test-dir build --config Release --output-on-failure
 
-# Flutter
-cd gui && flutter pub get && flutter analyze && flutter test
+# Focused native builds used during iteration.
+cmake --build build/x64-windows-msvc-release --config Release --target dlss-compositor-cli dlss_engine_tests dlss_cli_tests
+cmake --build build/x64-windows-msvc-release --config Release --target dlss_engine_lib
 
-# Blender pytest (local only, not in CI)
-python -m pytest blender/tests/
+# If plain cmake/MSVC env is missing, run inside vcvars64 or use VS bundled CMake:
+cmd /c 'call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul && "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build "D:\Github\dlss-compositor-opus-rework\build\x64-windows-msvc-release" --config Release --target dlss-compositor-cli dlss_engine_tests dlss_cli_tests'
 ```
 
-## False Claims to Never Repeat
+```powershell
+# Flutter GUI
+cd gui
+flutter pub get
+flutter analyze
+flutter test
+flutter build windows --release
 
-- "FG clamps HDR to 10 nits" — FALSE. v2 uses ACES Filmic + PQ ST.2084, full range.
-- "Supports DX12 output" — NOT supported in v2. Vulkan only.
-- "Electron GUI" — NOT true. GUI is Flutter on Windows.
-- "NIS upscaling" — NOT present. SR is DLSS only.
-- "DNxHR/H264/H265 export" — enum placeholders only, not registered in v2.
-
-## Blender 5.1 API Changes (Breaking vs 4.x)
-
-These APIs changed in Blender 5.1 and will silently break if you use the old names:
-
-| Old (4.x) | New (5.1) | Notes |
-|---|---|---|
-| `scene.node_tree` | `scene.compositing_node_group` | AttributeError if you use old name |
-| `scene.use_nodes = True` | `scene.render.use_compositing = True` | `use_nodes` deprecated, setting has no effect |
-| `fo.base_path` | `fo.directory` + `fo.file_name` | File Output node |
-| `fo.file_slots` | `fo.file_output_items` | File Output node; `.new(socket_type, name)` |
-| `fo.format.file_format = "OPEN_EXR"` | `"OPEN_EXR_MULTILAYER"` | File Output node only accepts multilayer |
-| socket type `"VALUE"` | `"FLOAT"` | In `file_output_items.new()` |
-| `view_transform = "NONE"` | `view_transform = "Raw"` | **Stubs say "NONE" but runtime requires "Raw"** |
-
-**Handler decorators**: ALL `bpy.app.handlers.*` callbacks MUST have `@bpy.app.handlers.persistent`
-or they are silently dropped on file load.
-
-**bpy-stubs location**: `C:\Python313\Lib\site-packages\bpy-stubs\` — use for LSP type checking.
-**Warning**: stubs are sometimes wrong (e.g. `view_transform: Literal["NONE"]` is wrong at runtime).
-Always verify enum values against actual Blender errors, not just stubs.
-
-## Blender Extension: Wheels
-
-**Blender does NOT pull from pip automatically.** Wheels must be pre-bundled in the extension.
-
-```
-blender/dlss_compositor/wheels/   ← bundled here, listed in blender_manifest.toml
+# Useful focused GUI checks
+flutter test test/task_config_panel_test.dart test/dlss_compositor_plugin_test.dart
 ```
 
-Current bundled dependencies (jsonschema + its deps):
-- `jsonschema-4.26.0-py3-none-any.whl`
-- `attrs-26.1.0-py3-none-any.whl`
-- `jsonschema_specifications-2025.9.1-py3-none-any.whl`
-- `referencing-0.37.0-py3-none-any.whl`
-- `rpds_py-2026.5.1-cp313-cp313-win_amd64.whl` ← **native, Python-version-specific**
+- GPU/NGX tests are tagged `[gpu]` and require NVIDIA RTX + drivers; run locally with `ctest -C Release --label-regex gpu` from the configured build dir.
+- `dlss-compositor-cli --self-check` is not yet a real capability probe; trust `NgxContext`/status logs and targeted tests instead.
+- For clangd, generate or expose `compile_commands.json`; otherwise diagnostics miss MSVC/vcpkg include paths and C++23 flags.
 
-**Blender 5.1 = Python 3.13** (`cp313`). If Blender version changes, re-download:
-```bash
-pip download jsonschema --dest blender/dlss_compositor/wheels \
-  --only-binary :all: --python-version 3.13 --platform win_amd64 --abi cp313
-```
-Then update the wheel filename in `blender_manifest.toml` and re-commit.
+## DLSS / Vulkan invariants
 
-**TOML gotcha**: `wheels = [...]` MUST be declared before any `[section]` headers in
-`blender_manifest.toml`. TOML sections absorb all following keys — putting `wheels`
-after `[permissions]` makes it `permissions.wheels` (Blender rejects this).
+- Every `NVSDK_NGX_*` API call needs a nearby `// DLSS §...` citation comment. Use `docs/dlss-refs/` for section numbers.
+- stdout is reserved for JSON-RPC `Content-Length` frames. Diagnostics go through `spdlog` to stderr + rotating log files. Do not add `std::cout`, `printf`, or `fprintf(stdout, ...)` in `src/` except the RPC transport itself.
+- Do not allocate GPU images per frame. Use `TexturePool::acquire/release`; per-frame `vkCreateImage` is a regression.
+- Motion vectors are pixel-space curr→prev. Keep `InMVScaleX/Y = 1.0` and FG `mvecScale = {1,1}` unless the MV resource units actually change.
+- Current Blender MV mapping is `DLSS_MV = (Blender.X, -Blender.Y)`. Do not whole-vector negate.
+- `InReset` is only for first frame, frame gaps, or camera cuts; never set it every frame.
+- SR input is scene-linear before tonemap. FG input is display-ready after tonemap/EOTF.
+- Guide-buffer dumps are gated by `DLSS_COMPOSITOR_DUMP_GUIDES=1` and write under the output dir.
 
-## Blender Extension: Dev Setup
+## Output formats and schema
 
-```bash
-# Symlink source dir into local extension repo (run once, needs no-admin via Developer Mode)
-cmd /c mklink /D "E:\blender-localtest\dlss_compositor" \
-  "D:\Github\dlss-compositor-opus-rework\blender\dlss_compositor"
-# Add E:\blender-localtest as local repo in Blender → Edit → Preferences → Extensions
-# Hot-reload: F3 → Reload Scripts (no reinstall needed for .py changes)
-# Wheels: disable + re-enable extension in Blender to trigger wheel installation
-```
+- Implemented outputs today: EXR scene-linear and PNG16 for LDR. HDR + PNG is rejected.
+- ProRes/DNxHR/H264/H265/AV1/AVIF/JPEG/WebP are placeholders/future formats. Do not register them in `EncoderRegistry` and do not expose them through `getStatus().video_encoders` or `export_formats_*`.
+- `src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `gui/` or `blender/`.
+- GUI template text is stored extensionless (`frame_####`); selected output format appends/replaces `.png` or `.exr` when launching the task.
 
-Debug log written to `E:\blender-localtest\dlss_compositor_debug.log` on every reload (truncated).
+## GUI/runtime/logging gotchas
+
+- Native plugin owns a resident `VulkanContext` + `NgxContext`; `checkReady`, `getStatus`, and `startTask` should reuse that runtime. Avoid one-off NGX status probes.
+- GUI/native logs go beside the GUI exe under `logs/`; native C++ honors `DLSS_COMPOSITOR_LOG_DIR`. Debug runner sets `DLSS_COMPOSITOR_LOG=debug` and `DLSS_COMPOSITOR_GUI_LOG=1` if missing.
+- Release diagnostic packages belong under `.omo/release/` and are ignored. Do not commit generated `.omo/evidence/`, `.omo/release/`, or `.omo/run-continuation/` artifacts.
+
+## Blender extension gotchas
+
+- Blender 5.1 API names matter:
+  - `scene.compositing_node_group`, not `scene.node_tree`.
+  - `scene.render.use_compositing`, not `scene.use_nodes`.
+  - File Output uses `directory`, `file_name`, and `file_output_items`; create items with socket types like `"FLOAT"`.
+  - File Output format is `OPEN_EXR_MULTILAYER`.
+  - Runtime wants `view_transform = "Raw"` even when stubs imply `"NONE"`.
+- All `bpy.app.handlers.*` callbacks must have `@bpy.app.handlers.persistent` or Blender drops them on file load.
+- If adding bundled Blender wheels, list `wheels = [...]` before any `[section]` in `blender_manifest.toml`; Blender 5.1 uses Python 3.13 (`cp313`) for native wheels.
+
+## False claims to avoid
+
+- Not Electron: GUI is Flutter on Windows.
+- Not DX12 output: v2 is Vulkan only.
+- Not NIS: SR is DLSS only.
+- Not video export yet: ProRes and other video codecs are not implemented/exposed.
+- FG does not “clamp HDR to 10 nits”; current HDR transport is scene-linear -> display-ready for FG, then inverse for EXR output.
