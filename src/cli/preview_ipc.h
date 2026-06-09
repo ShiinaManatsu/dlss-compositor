@@ -8,6 +8,16 @@ namespace dlss {
 
 inline constexpr const char* kDefaultPreviewSharedMemoryName = "Local\\DLSSCompositorPreview";
 
+struct PreviewFrameRgba8 {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::vector<std::uint8_t> pixels;
+};
+
+PreviewFrameRgba8 makePreviewRgba8FromRgba16f(const std::vector<std::uint8_t>& rgba16f,
+                                              std::uint32_t width,
+                                              std::uint32_t height);
+
 class PreviewPublisher {
 public:
     explicit PreviewPublisher(std::string sharedMemoryName);

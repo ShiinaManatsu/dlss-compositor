@@ -1,14 +1,25 @@
 #include "sr_fg_pipeline.h"
 
 #include "../core/log.h"
+#include "../gpu/passes/preview_pass.h"
+#include "fg_camera.h"
 
 #include <volk.h>
+#include <OpenEXR/ImfChannelList.h>
+#include <OpenEXR/ImfFrameBuffer.h>
+#include <OpenEXR/ImfHeader.h>
+#include <OpenEXR/ImfOutputFile.h>
+#include <OpenEXR/ImfPixelType.h>
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <filesystem>
+#include <cstdlib>
+#include <cstring>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -228,7 +239,7 @@ void transitionForFgEvaluate(VkCommandBuffer cmd,
 }
 
 void transitionFgOutputsForInverse(VkCommandBuffer cmd,
-                                   const std::vector<PooledTextureHandle>& interpOutputs) {
+                                    const std::vector<PooledTextureHandle>& interpOutputs) {
     std::array<VkImageMemoryBarrier2, 3> barriers{};
     std::size_t count = 0;
     for (const auto& interp : interpOutputs) {
@@ -254,32 +265,182 @@ void transitionFgOutputsForInverse(VkCommandBuffer cmd,
     vkCmdPipelineBarrier2(cmd, &dependency);
 }
 
-void fillFgCameraInputs(FgInputs& fgIn, const CameraData* cam) {
-    float fallback[4][4];
-    identity(fallback);
+bool shouldDumpGuideBuffers() {
+    const char* value = std::getenv("DLSS_COMPOSITOR_DUMP_GUIDES");
+    return value && value[0] != '\0' && std::strcmp(value, "0") != 0;
+}
 
-    if (cam) {
-        copyMatrix(fgIn.viewToClip, cam->projection);
-    } else {
-        copyMatrix(fgIn.viewToClip, fallback);
+void writeBytes(const std::filesystem::path& path, const std::vector<std::uint8_t>& bytes) {
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        throw std::runtime_error("Failed to open guide dump: " + path.string());
     }
-    copyMatrix(fgIn.clipToPrevClip, fallback);
-    copyMatrix(fgIn.prevClipToClip, fallback);
+    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
 
-    fgIn.camNear     = cam ? cam->near_clip : 0.1f;
-    fgIn.camFar      = cam ? cam->far_clip : 100.0f;
-    fgIn.fov         = cam ? cam->fov : 1.0471976f;
-    fgIn.aspectRatio = cam ? cam->aspect_ratio : 1.0f;
-    fgIn.camPosX = fgIn.camPosY = fgIn.camPosZ = 0.0f;
-    fgIn.camUpX = 0.0f;
-    fgIn.camUpY = 1.0f;
-    fgIn.camUpZ = 0.0f;
-    fgIn.camRightX = 1.0f;
-    fgIn.camRightY = 0.0f;
-    fgIn.camRightZ = 0.0f;
-    fgIn.camFwdX = 0.0f;
-    fgIn.camFwdY = 0.0f;
-    fgIn.camFwdZ = -1.0f;
+std::uint8_t clampByte(float value) {
+    return static_cast<std::uint8_t>(std::clamp(value, 0.0f, 255.0f));
+}
+
+float halfToFloat(std::uint16_t bits) {
+    const std::uint32_t sign = static_cast<std::uint32_t>(bits & 0x8000u) << 16;
+    std::uint32_t exp = (bits >> 10) & 0x1fu;
+    std::uint32_t mant = bits & 0x03ffu;
+
+    std::uint32_t out = 0;
+    if (exp == 0) {
+        if (mant == 0) {
+            out = sign;
+        } else {
+            exp = 127u - 15u + 1u;
+            while ((mant & 0x0400u) == 0) {
+                mant <<= 1;
+                --exp;
+            }
+            mant &= 0x03ffu;
+            out = sign | (exp << 23) | (mant << 13);
+        }
+    } else if (exp == 31u) {
+        out = sign | 0x7f800000u | (mant << 13);
+    } else {
+        exp = exp + (127u - 15u);
+        out = sign | (exp << 23) | (mant << 13);
+    }
+
+    float value = 0.0f;
+    std::memcpy(&value, &out, sizeof(value));
+    return value;
+}
+
+void writePgm16(const std::filesystem::path& path,
+                const std::vector<std::uint16_t>& pixels,
+                uint32_t width,
+                uint32_t height) {
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        throw std::runtime_error("Failed to open guide image: " + path.string());
+    }
+    out << "P5\n" << width << " " << height << "\n65535\n";
+    for (std::uint16_t value : pixels) {
+        const char bytes[2] = {
+            static_cast<char>((value >> 8) & 0xffu),
+            static_cast<char>(value & 0xffu),
+        };
+        out.write(bytes, sizeof(bytes));
+    }
+}
+
+void writePpm8(const std::filesystem::path& path,
+               const std::vector<std::uint8_t>& rgb,
+               uint32_t width,
+               uint32_t height) {
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        throw std::runtime_error("Failed to open guide image: " + path.string());
+    }
+    out << "P6\n" << width << " " << height << "\n255\n";
+    out.write(reinterpret_cast<const char*>(rgb.data()), static_cast<std::streamsize>(rgb.size()));
+}
+
+void writeFloatExr(const std::filesystem::path& path,
+                   uint32_t width,
+                   uint32_t height,
+                   const std::vector<std::pair<std::string, std::vector<float>>>& channels) {
+    if (channels.empty()) {
+        throw std::runtime_error("writeFloatExr: no channels for " + path.string());
+    }
+    const std::size_t pixelCount = static_cast<std::size_t>(width) * height;
+    for (const auto& [name, pixels] : channels) {
+        if (pixels.size() != pixelCount) {
+            throw std::runtime_error("writeFloatExr: channel size mismatch for " + name);
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+
+    Imf::Header header(static_cast<int>(width), static_cast<int>(height));
+    for (const auto& [name, pixels] : channels) {
+        (void)pixels;
+        header.channels().insert(name.c_str(), Imf::Channel(Imf::FLOAT));
+    }
+
+    Imf::FrameBuffer fb;
+    const std::size_t xStride = sizeof(float);
+    const std::size_t yStride = xStride * static_cast<std::size_t>(width);
+    for (const auto& [name, pixels] : channels) {
+        fb.insert(name.c_str(),
+                  Imf::Slice(Imf::FLOAT,
+                             const_cast<char*>(reinterpret_cast<const char*>(pixels.data())),
+                             xStride,
+                             yStride));
+    }
+
+    Imf::OutputFile file(path.string().c_str(), header);
+    file.setFrameBuffer(fb);
+    file.writePixels(static_cast<int>(height));
+}
+
+void dumpGuideBuffers(VulkanContext* ctx,
+                      const std::filesystem::path& outputDir,
+                      int frameNumber,
+                      uint32_t width,
+                      uint32_t height,
+                      const PooledTextureHandle& depthNdc,
+                      const PooledTextureHandle& mvDlss) {
+    const auto guideDir = outputDir / "guide_buffers";
+    const auto stem = AsyncFrameWriter::formatPath("frame_####", frameNumber);
+    const auto depth = ctx->downloadImageRaw(depthNdc->image, width, height, sizeof(float), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    const auto mv = ctx->downloadImageRaw(mvDlss->image, width, height, 2u * sizeof(std::uint16_t), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    writeBytes(guideDir / (stem + "_depth_r32f.raw"), depth);
+    writeBytes(guideDir / (stem + "_mv_rg16f.raw"), mv);
+
+    const std::size_t pixelCount = static_cast<std::size_t>(width) * height;
+    std::vector<float> depthFloat(pixelCount);
+    const float* depthFloats = reinterpret_cast<const float*>(depth.data());
+    std::copy(depthFloats, depthFloats + pixelCount, depthFloat.begin());
+    writeFloatExr(guideDir / (stem + "_depth_float.exr"),
+                  width,
+                  height,
+                  {{"R", depthFloat}, {"G", depthFloat}, {"B", depthFloat}, {"Z", depthFloat}});
+
+    std::vector<std::uint16_t> depthPreview(static_cast<std::size_t>(width) * height);
+    for (std::size_t i = 0; i < depthPreview.size(); ++i) {
+        depthPreview[i] = static_cast<std::uint16_t>(std::clamp(depthFloats[i], 0.0f, 1.0f) * 65535.0f + 0.5f);
+    }
+    writePgm16(guideDir / (stem + "_depth_u16.pgm"), depthPreview, width, height);
+
+    std::vector<std::uint16_t> mvMag(static_cast<std::size_t>(width) * height);
+    std::vector<std::uint8_t> mvXy(static_cast<std::size_t>(width) * height * 3u);
+    std::vector<float> mvX(pixelCount);
+    std::vector<float> mvY(pixelCount);
+    std::vector<float> mvMagnitude(pixelCount);
+    const std::uint16_t* mvHalfs = reinterpret_cast<const std::uint16_t*>(mv.data());
+    for (std::size_t i = 0; i < mvMag.size(); ++i) {
+        const float x = halfToFloat(mvHalfs[i * 2u + 0u]);
+        const float y = halfToFloat(mvHalfs[i * 2u + 1u]);
+        const float mag = std::sqrt(x * x + y * y);
+        mvX[i] = x;
+        mvY[i] = y;
+        mvMagnitude[i] = mag;
+        mvMag[i] = static_cast<std::uint16_t>(std::clamp(mag / 128.0f, 0.0f, 1.0f) * 65535.0f + 0.5f);
+        mvXy[i * 3u + 0u] = clampByte(128.0f + x * 2.0f);
+        mvXy[i * 3u + 1u] = clampByte(128.0f + y * 2.0f);
+        mvXy[i * 3u + 2u] = clampByte(std::min(mag, 127.0f) * 2.0f);
+    }
+    writeFloatExr(guideDir / (stem + "_mv_float.exr"),
+                  width,
+                  height,
+                  {{"R", mvX}, {"G", mvY}, {"B", mvMagnitude}, {"X", mvX}, {"Y", mvY}, {"Magnitude", mvMagnitude}});
+    writePgm16(guideDir / (stem + "_mv_mag_u16.pgm"), mvMag, width, height);
+    writePpm8(guideDir / (stem + "_mv_xy.ppm"), mvXy, width, height);
+    LOG_INFO("[SR+FG] Dumped guide buffers for frame {}: {}x{} to {}", frameNumber, width, height, guideDir.string());
 }
 
 } // namespace
@@ -340,6 +501,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         TonemapMode tonemapMode = dlssCfg.is_hdr ? TonemapMode::HDR : TonemapMode::LDR;
         TonemapPass tonemapPass(m_ctx);               // Stage 4
         InverseTonemapPass inversePass(m_ctx);         // Stage 6
+        PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;                       // Stage 7
 
         const uint32_t rW = dlssCfg.render_resolution.width;
@@ -348,7 +510,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         const uint32_t oH = dlssCfg.output_resolution.height;
 
         srPass.create(rW, rH, oW, oH, dlssCfg.quality);
-        fgPass.create(oW, oH, oW, oH, config.fgMultiplier);
+        fgPass.create(rW, rH, oW, oH, config.fgMultiplier);
 
         FramePrefetcher prefetcher(buildFramePaths(dlssCfg, inferInputDir(config)), kPrefetchDepth);
 
@@ -365,13 +527,13 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             rW,
             rH,
             VK_FORMAT_R32_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc mvBlenderDesc{rW, rH, VK_FORMAT_R16G16B16A16_SFLOAT, sampledUpload};
         TextureDesc mvDlssDesc{
             rW,
             rH,
             VK_FORMAT_R16G16_SFLOAT,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc displayDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
             VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT};
         TextureDesc interpDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
@@ -382,15 +544,9 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps);  // DLSS SR §3.14 — from fps, NEVER hardcoded
         int outputFrameIdx = 0;
+        const bool dumpGuides = shouldDumpGuideBuffers();
 
-        auto writeWithInverse = [&](PooledTextureHandle srcDisplay) {
-            VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-            auto sceneLinear = pool.acquire(sceneLinearDesc);
-            transitionStorageImageForWrite(cmd, sceneLinear);
-            inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
-            transitionStorageToShaderRead(cmd, sceneLinear);
-            m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
-
+        auto enqueueSceneLinear = [&](PooledTextureHandle sceneLinear) {
             ++outputFrameIdx;
             WriteJob job;
             job.format        = config.outputFormat;
@@ -401,14 +557,32 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             job.fps           = dlssCfg.fps;
             job.is_hdr        = dlssCfg.is_hdr;
             job.overwriteMode = config.overwriteMode;
-            job.previewCallback = config.previewCallback;
             job.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH);
             writer.enqueue(std::move(job));
 
-            pool.release(sceneLinear);
             m_dispatcher->progress().current_frame.store(outputFrameIdx);
             m_dispatcher->progress().percent.store(
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
+        };
+
+        auto writeWithInverse = [&](PooledTextureHandle srcDisplay) {
+            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
+                PreviewReadback preview = previewPass.renderAndReadback(srcDisplay, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
+                if (!preview.rgba8.empty()) {
+                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
+                }
+            }
+
+            VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
+            auto sceneLinear = pool.acquire(sceneLinearDesc);
+            transitionStorageImageForWrite(cmd, sceneLinear);
+            inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
+            transitionStorageToShaderRead(cmd, sceneLinear);
+            m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+
+            enqueueSceneLinear(sceneLinear);
+
+            pool.release(sceneLinear);
         };
 
         int processedInputs = 0;
@@ -451,6 +625,9 @@ void SrFgPipeline::run(const SrFgConfig& config) {
 
             const std::string& frameKey = frameKeys[static_cast<std::size_t>(frameIdx)].second;
             const CameraData* cam = findCamera(dlssCfg, frameKey);
+            const CameraData* prevCam = frameIdx > 0
+                ? findCamera(dlssCfg, frameKeys[static_cast<std::size_t>(frameIdx - 1)].second)
+                : nullptr;
             float defaultProjection[4][4];
             identity(defaultProjection);
             const float (*projection)[4] = cam ? cam->projection : defaultProjection;
@@ -519,11 +696,21 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             fgIn.is_hdr           = dlssCfg.is_hdr;
             fgIn.reset            = reset;
             fgIn.multiplier       = config.fgMultiplier;
-            fillFgCameraInputs(fgIn, cam);
+            fillFgCameraInputs(fgIn, cam, prevCam);
 
             fgPass.evaluate(cmd, fgIn);
             transitionFgOutputsForInverse(cmd, interpHandles);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+
+            if (dumpGuides && frameIdx < 3) {
+                dumpGuideBuffers(m_ctx,
+                                 std::filesystem::path(config.outputDir),
+                                 frameIdx + 1,
+                                 rW,
+                                 rH,
+                                 depthNdc,
+                                 mvDlss);
+            }
 
             // === STAGE 6: Inverse Tonemap + STAGE 7: Write ===
             const bool writeGeneratedFrames = frameIdx > 0 && !reset;
@@ -532,7 +719,13 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                     writeWithInverse(handle);
                 }
             }
-            writeWithInverse(displayTex);
+            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
+                PreviewReadback preview = previewPass.renderAndReadback(displayTex, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
+                if (!preview.rgba8.empty()) {
+                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
+                }
+            }
+            enqueueSceneLinear(sceneColorOutput);
             ++processedInputs;
             if (!writeGeneratedFrames && frameIdx > 0) {
                 LOG_WARN("[SR+FG] Skipped generated frames at reset/gap input {}", frameIdx + 1);

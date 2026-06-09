@@ -1,6 +1,7 @@
 #include "sr_only_pipeline.h"
 
 #include "../core/log.h"
+#include "../gpu/passes/preview_pass.h"
 
 #include <volk.h>
 
@@ -266,6 +267,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
     try {
         TexturePool pool(m_ctx);
         DlssSrPass srPass(m_ngx, m_ctx, &pool);
+        PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;
 
         srPass.create(dlssCfg.render_resolution.width,
@@ -377,6 +379,13 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             srPass.evaluate(cmd, srIn);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
+            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
+                PreviewReadback preview = previewPass.renderAndReadback(colorOutput, PreviewInputMode::SceneLinear, dlssCfg.is_hdr);
+                if (!preview.rgba8.empty()) {
+                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
+                }
+            }
+
             WriteJob writeJob;
             writeJob.format        = config.outputFormat;
             writeJob.outputPath    = std::filesystem::path(config.outputDir) /
@@ -386,7 +395,6 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             writeJob.fps           = dlssCfg.fps;
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
-            writeJob.previewCallback = config.previewCallback;
             writeJob.pixels        = m_ctx->downloadImageRgba16f(colorOutput->image, writeJob.width, writeJob.height);
             writer.enqueue(std::move(writeJob));
             ++processedFrames;

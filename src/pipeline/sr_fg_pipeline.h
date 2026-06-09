@@ -30,6 +30,8 @@ struct SrFgConfig {
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     int fgMultiplier = 2;  // 2/3/4 for FG 2x/3x/4x
+    std::function<bool()> wantsPreviewFrame;
+    std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewRgba8Callback;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 

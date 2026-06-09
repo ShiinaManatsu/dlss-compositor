@@ -1,0 +1,74 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D srcImage;
+layout(set = 0, binding = 1, rgba8) uniform image2D dstPreview;
+
+layout(push_constant) uniform PushConstants {
+    int mode; // 0 = scene-linear, 1 = display-ready
+    int hdr;
+} pc;
+
+vec3 srgbEncode(vec3 linear) {
+    vec3 c = clamp(linear, vec3(0.0), vec3(1.0));
+    return mix(c * 12.92,
+               pow(max(c, vec3(0.0031308)), vec3(1.0 / 2.4)) * 1.055 - vec3(0.055),
+               step(vec3(0.0031308), c));
+}
+
+vec3 acesLike(vec3 x) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + vec3(b))) / (x * (c * x + vec3(d)) + vec3(e)), 0.0, 1.0);
+}
+
+vec3 hable(vec3 x) {
+    const float A = 0.15;
+    const float B = 0.50;
+    const float C = 0.10;
+    const float D = 0.20;
+    const float E = 0.02;
+    const float F = 0.30;
+    return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+vec3 hableTonemap(vec3 x) {
+    const vec3 denom = vec3(0.5208333); // hable(4.8)
+    return clamp(hable(max(x, vec3(0.0))) / denom, 0.0, 1.0);
+}
+
+vec3 pqToNits(vec3 pq) {
+    const float m1 = 0.1593017578125;
+    const float m2 = 78.84375;
+    const float c1 = 0.8359375;
+    const float c2 = 18.8515625;
+    const float c3 = 18.6875;
+    vec3 np = pow(clamp(pq, vec3(0.0), vec3(1.0)), vec3(1.0 / m2));
+    vec3 l = max(np - vec3(c1), vec3(0.0)) / max(vec3(1e-6), vec3(c2) - c3 * np);
+    return pow(l, vec3(1.0 / m1)) * 10000.0;
+}
+
+vec3 displayReadyToSdr(vec3 c) {
+    if (pc.hdr != 0) {
+        vec3 nits = pqToNits(c);
+        return hableTonemap(nits / 1000.0);
+    }
+    return c;
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstPreview);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 uv = (vec2(coord) + vec2(0.5)) / vec2(size);
+    vec4 src = texture(srcImage, uv);
+    vec3 rgb = pc.mode == 0
+        ? srgbEncode(acesLike(src.rgb))
+        : srgbEncode(displayReadyToSdr(src.rgb));
+    imageStore(dstPreview, coord, vec4(rgb, clamp(src.a, 0.0, 1.0)));
+}

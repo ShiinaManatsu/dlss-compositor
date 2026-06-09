@@ -66,11 +66,65 @@ std::uint8_t toByte(float v) noexcept {
     return static_cast<std::uint8_t>(std::lround(clamped * 255.0f));
 }
 
+std::uint8_t toDisplayByte(float sceneLinear) noexcept {
+    if (!std::isfinite(sceneLinear)) {
+        return 0;
+    }
+    const float nonNegative = std::max(sceneLinear, 0.0f);
+    const float mapped = nonNegative / (1.0f + nonNegative);
+    const float srgb = mapped <= 0.0031308f
+        ? mapped * 12.92f
+        : 1.055f * std::pow(mapped, 1.0f / 2.4f) - 0.055f;
+    return toByte(srgb);
+}
+
 std::uint16_t readLe16(const std::uint8_t* p) noexcept {
     return static_cast<std::uint16_t>(p[0] | (static_cast<std::uint16_t>(p[1]) << 8));
 }
 
 } // namespace
+
+PreviewFrameRgba8 makePreviewRgba8FromRgba16f(const std::vector<std::uint8_t>& rgba16f,
+                                              std::uint32_t width,
+                                              std::uint32_t height) {
+    PreviewFrameRgba8 frame;
+    const std::uint64_t srcPixels = static_cast<std::uint64_t>(width) * height;
+    if (srcPixels == 0 || rgba16f.size() < srcPixels * 8ull) {
+        return frame;
+    }
+
+    std::uint32_t outW = width;
+    std::uint32_t outH = height;
+    if (srcPixels > kPreviewMaxPixels) {
+        const double scale = std::sqrt(static_cast<double>(kPreviewMaxPixels) /
+                                       static_cast<double>(srcPixels));
+        outW = std::max(1u, static_cast<std::uint32_t>(std::floor(width * scale)));
+        outH = std::max(1u, static_cast<std::uint32_t>(std::floor(height * scale)));
+    }
+
+    frame.width = outW;
+    frame.height = outH;
+    frame.pixels.resize(static_cast<std::size_t>(outW) * outH * 4u);
+
+    for (std::uint32_t y = 0; y < outH; ++y) {
+        const std::uint32_t srcY = static_cast<std::uint32_t>(
+            (static_cast<std::uint64_t>(y) * height) / outH);
+        for (std::uint32_t x = 0; x < outW; ++x) {
+            const std::uint32_t srcX = static_cast<std::uint32_t>(
+                (static_cast<std::uint64_t>(x) * width) / outW);
+            const std::uint64_t srcOffset =
+                (static_cast<std::uint64_t>(srcY) * width + srcX) * 8ull;
+            const std::uint64_t dstOffset =
+                (static_cast<std::uint64_t>(y) * outW + x) * 4ull;
+
+            frame.pixels[dstOffset + 0] = toDisplayByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 0)])));
+            frame.pixels[dstOffset + 1] = toDisplayByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 2)])));
+            frame.pixels[dstOffset + 2] = toDisplayByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 4)])));
+            frame.pixels[dstOffset + 3] = toByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 6)])));
+        }
+    }
+    return frame;
+}
 
 PreviewPublisher::PreviewPublisher(std::string sharedMemoryName)
     : m_sharedMemoryName(std::move(sharedMemoryName)) {}
@@ -98,47 +152,21 @@ void PreviewPublisher::publishRgba16f(const std::vector<std::uint8_t>& rgba16f,
         return;
     }
 
-    const std::uint64_t srcPixels = static_cast<std::uint64_t>(width) * height;
-    if (srcPixels == 0 || rgba16f.size() < srcPixels * 8ull) {
+    PreviewFrameRgba8 preview = makePreviewRgba8FromRgba16f(rgba16f, width, height);
+    if (preview.pixels.empty()) {
         return;
-    }
-
-    std::uint32_t outW = width;
-    std::uint32_t outH = height;
-    if (srcPixels > kPreviewMaxPixels) {
-        const double scale = std::sqrt(static_cast<double>(kPreviewMaxPixels) /
-                                       static_cast<double>(srcPixels));
-        outW = std::max(1u, static_cast<std::uint32_t>(std::floor(width * scale)));
-        outH = std::max(1u, static_cast<std::uint32_t>(std::floor(height * scale)));
     }
 
     PreviewHeader header;
     header.generation = ++m_generation;
-    header.width = outW;
-    header.height = outH;
-    header.byteSize = outW * outH * 4u;
+    header.width = preview.width;
+    header.height = preview.height;
+    header.byteSize = static_cast<std::uint32_t>(preview.pixels.size());
 
     auto* base = static_cast<std::uint8_t*>(m_view);
     std::memcpy(base, &header, sizeof(header));
     auto* dst = base + sizeof(PreviewHeader);
-
-    for (std::uint32_t y = 0; y < outH; ++y) {
-        const std::uint32_t srcY = static_cast<std::uint32_t>(
-            (static_cast<std::uint64_t>(y) * height) / outH);
-        for (std::uint32_t x = 0; x < outW; ++x) {
-            const std::uint32_t srcX = static_cast<std::uint32_t>(
-                (static_cast<std::uint64_t>(x) * width) / outW);
-            const std::uint64_t srcOffset =
-                (static_cast<std::uint64_t>(srcY) * width + srcX) * 8ull;
-            const std::uint64_t dstOffset =
-                (static_cast<std::uint64_t>(y) * outW + x) * 4ull;
-
-            dst[dstOffset + 0] = toByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 0)])));
-            dst[dstOffset + 1] = toByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 2)])));
-            dst[dstOffset + 2] = toByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 4)])));
-            dst[dstOffset + 3] = toByte(halfToFloat(readLe16(&rgba16f[static_cast<std::size_t>(srcOffset + 6)])));
-        }
-    }
+    std::memcpy(dst, preview.pixels.data(), preview.pixels.size());
 #else
     (void)rgba16f;
     (void)width;

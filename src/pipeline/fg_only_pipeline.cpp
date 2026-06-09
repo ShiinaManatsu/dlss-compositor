@@ -1,6 +1,8 @@
 #include "fg_only_pipeline.h"
 
 #include "../core/log.h"
+#include "../gpu/passes/preview_pass.h"
+#include "fg_camera.h"
 
 #include <volk.h>
 
@@ -228,34 +230,6 @@ void transitionFgOutputsForInverse(VkCommandBuffer cmd,
     vkCmdPipelineBarrier2(cmd, &dependency);
 }
 
-void fillFgCameraInputs(FgInputs& fgIn, const CameraData* cam) {
-    float fallback[4][4];
-    identity(fallback);
-
-    if (cam) {
-        copyMatrix(fgIn.viewToClip, cam->projection);
-    } else {
-        copyMatrix(fgIn.viewToClip, fallback);
-    }
-    copyMatrix(fgIn.clipToPrevClip, fallback);
-    copyMatrix(fgIn.prevClipToClip, fallback);
-
-    fgIn.camNear     = cam ? cam->near_clip : 0.1f;
-    fgIn.camFar      = cam ? cam->far_clip : 100.0f;
-    fgIn.fov         = cam ? cam->fov : 1.0471976f;
-    fgIn.aspectRatio = cam ? cam->aspect_ratio : 1.0f;
-    fgIn.camPosX = fgIn.camPosY = fgIn.camPosZ = 0.0f;
-    fgIn.camUpX = 0.0f;
-    fgIn.camUpY = 1.0f;
-    fgIn.camUpZ = 0.0f;
-    fgIn.camRightX = 1.0f;
-    fgIn.camRightY = 0.0f;
-    fgIn.camRightZ = 0.0f;
-    fgIn.camFwdX = 0.0f;
-    fgIn.camFwdY = 0.0f;
-    fgIn.camFwdZ = -1.0f;
-}
-
 } // namespace
 
 FgOnlyPipeline::FgOnlyPipeline(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher)
@@ -302,6 +276,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         TonemapMode tonemapMode = dlssCfg.is_hdr ? TonemapMode::HDR : TonemapMode::LDR;
         TonemapPass tonemapPass(m_ctx);
         InverseTonemapPass inversePass(m_ctx);
+        PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;
 
         const uint32_t w = dlssCfg.output_resolution.width;
@@ -356,14 +331,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         int outputFrameIdx = 0;
 
-        auto writeFrameSceneLinear = [&](PooledTextureHandle srcDisplay) {
-            VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-            auto sceneLinear = pool.acquire(sceneLinearDesc);
-            transitionStorageImageForWrite(cmd, sceneLinear);
-            inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
-            transitionStorageToShaderRead(cmd, sceneLinear);
-            m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
-
+        auto enqueueSceneLinear = [&](PooledTextureHandle sceneLinear) {
             ++outputFrameIdx;
             WriteJob writeJob;
             writeJob.format        = config.outputFormat;
@@ -374,14 +342,32 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             writeJob.fps           = dlssCfg.fps;
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
-            writeJob.previewCallback = config.previewCallback;
             writeJob.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, w, h);
             writer.enqueue(std::move(writeJob));
 
-            pool.release(sceneLinear);
             m_dispatcher->progress().current_frame.store(outputFrameIdx);
             m_dispatcher->progress().percent.store(
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
+        };
+
+        auto writeFrameSceneLinear = [&](PooledTextureHandle srcDisplay) {
+            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
+                PreviewReadback preview = previewPass.renderAndReadback(srcDisplay, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
+                if (!preview.rgba8.empty()) {
+                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
+                }
+            }
+
+            VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
+            auto sceneLinear = pool.acquire(sceneLinearDesc);
+            transitionStorageImageForWrite(cmd, sceneLinear);
+            inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
+            transitionStorageToShaderRead(cmd, sceneLinear);
+            m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+
+            enqueueSceneLinear(sceneLinear);
+
+            pool.release(sceneLinear);
         };
 
         int processedInputs = 0;
@@ -420,6 +406,9 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
 
             const std::string& frameKey = frameKeys[static_cast<std::size_t>(frameIdx)].second;
             const CameraData* cam = findCamera(dlssCfg, frameKey);
+            const CameraData* prevCam = frameIdx > 0
+                ? findCamera(dlssCfg, frameKeys[static_cast<std::size_t>(frameIdx - 1)].second)
+                : nullptr;
             float defaultProjection[4][4];
             identity(defaultProjection);
             const float (*projection)[4] = cam ? cam->projection : defaultProjection;
@@ -461,7 +450,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             fgIn.is_hdr           = dlssCfg.is_hdr;
             fgIn.reset            = (frameIdx == 0);
             fgIn.multiplier       = config.multiplier;
-            fillFgCameraInputs(fgIn, cam);
+            fillFgCameraInputs(fgIn, cam, prevCam);
 
             // Stage 5: multi-frame FG eval writes multiplier-1 interpolated frames.
             fgPass.evaluate(cmd, fgIn);
@@ -474,7 +463,13 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                     writeFrameSceneLinear(handle);
                 }
             }
-            writeFrameSceneLinear(displayTex);
+            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
+                PreviewReadback preview = previewPass.renderAndReadback(displayTex, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
+                if (!preview.rgba8.empty()) {
+                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
+                }
+            }
+            enqueueSceneLinear(colorTex);
             ++processedInputs;
 
             pool.release(colorTex);
