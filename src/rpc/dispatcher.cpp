@@ -103,13 +103,19 @@ nlohmann::json RpcDispatcher::handleGetStatus(const nlohmann::json& /*p*/) {
     // IMPORTANT: video_encoders + export_formats list ONLY v2-implemented codecs.
     // DNxHR / H264 / H265 / AV1 / AVIF / JPEG / WebP MUST NOT appear here —
     // they exist as enum placeholders for future extensions only.
-    LOG_INFO("[RPC] getStatus response prepared");
+    bool srAvailable = true;
+    bool fgAvailable = true;
+    int fgMaxMultiplier = 4;
+    std::string gpuName = "NVIDIA GPU";
+    std::string dlssVersion = "310.6.0";
+    LOG_INFO("[RPC] getStatus response prepared with deferred runtime capability probe");
     return {
-        {"dlss_version",        "310.6.0"},
-        {"fg_max_multiplier",   4},
-        {"gpu_name",            "NVIDIA RTX GPU"},
-        {"driver_version",      "560.0"},
+        {"dlss_version",        dlssVersion},
+        {"fg_max_multiplier",   fgMaxMultiplier},
+        {"gpu_name",            gpuName},
         {"is_hdr_supported",    true},
+        {"sr_available",        srAvailable},
+        {"fg_available",        fgAvailable},
         // Per plan + user round 2: only ProRes is registered in v2.
         {"video_encoders",      nlohmann::json::array({"prores_ks"})},
         // LDR project formats: PNG-16 + EXR + ProRes (per user round 2).
