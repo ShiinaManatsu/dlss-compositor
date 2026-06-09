@@ -19,6 +19,7 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -97,7 +98,7 @@ void emitDoneEvent() {
 
 } // namespace
 
-int executeConfig(const ConfigExecutionOptions& options) {
+int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, NgxContext& ngx) {
     auto loaded = DlssConfigLoader::Load(options.configPath);
     if (!loaded.has_value()) {
         const std::string message = loaded.error().message;
@@ -129,9 +130,18 @@ int executeConfig(const ConfigExecutionOptions& options) {
             ? defaultTemplateFor(format)
             : options.outputTemplate;
         PreviewPublisher preview(options.previewSharedMemoryName);
-        auto previewCallback = [&preview](const std::vector<std::uint8_t>& pixels,
-                                          std::uint32_t width,
-                                          std::uint32_t height) {
+        auto previewCallback = [&preview, &options](const std::vector<std::uint8_t>& pixels,
+                                                    std::uint32_t width,
+                                                    std::uint32_t height) {
+            if (!preview.enabled() && !options.previewCallback) {
+                return;
+            }
+            if (options.wantsPreviewFrame && !options.wantsPreviewFrame()) {
+                return;
+            }
+            if (options.previewCallback) {
+                options.previewCallback(pixels, width, height);
+            }
             preview.publishRgba16f(pixels, width, height);
         };
         const int totalFrames = outputFrameCount(inputFrames, options.fgEnabled, options.fgMultiplier);
@@ -144,13 +154,20 @@ int executeConfig(const ConfigExecutionOptions& options) {
                  outputDirString,
                  formatString);
 
-        LOG_INFO("[cli] Creating Vulkan context");
-        VulkanContext vulkan;
-        LOG_INFO("[cli] Vulkan context ready");
-        LOG_INFO("[cli] Creating NGX context");
-        NgxContext ngx(vulkan.instance(), vulkan.physicalDevice(), vulkan.device());
-        LOG_INFO("[cli] NGX context ready");
+        LOG_INFO("[cli] Using provided Vulkan/NGX runtime");
         RpcDispatcher dispatcher;
+        std::mutex stopMutex;
+        std::function<void()> stopCurrentPipeline;
+
+        auto requestStopIfNeeded = [&] {
+            if (!options.cancelRequested || !options.cancelRequested()) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(stopMutex);
+            if (stopCurrentPipeline) {
+                stopCurrentPipeline();
+            }
+        };
 
         auto runPipeline = [&] {
         if (options.fgEnabled && needsSr(config)) {
@@ -162,8 +179,15 @@ int executeConfig(const ConfigExecutionOptions& options) {
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.previewCallback = previewCallback;
+            pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
+            pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
             pipelineConfig.fgMultiplier = options.fgMultiplier;
-            SrFgPipeline(&vulkan, &ngx, &dispatcher).run(pipelineConfig);
+            SrFgPipeline pipeline(&vulkan, &ngx, &dispatcher);
+            {
+                std::lock_guard<std::mutex> lock(stopMutex);
+                stopCurrentPipeline = [&pipeline] { pipeline.stop(); };
+            }
+            pipeline.run(pipelineConfig);
         } else if (options.fgEnabled) {
             FgOnlyConfig pipelineConfig;
             pipelineConfig.dlssConfig = config;
@@ -173,8 +197,15 @@ int executeConfig(const ConfigExecutionOptions& options) {
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.previewCallback = previewCallback;
+            pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
+            pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
             pipelineConfig.multiplier = options.fgMultiplier;
-            FgOnlyPipeline(&vulkan, &ngx, &dispatcher).run(pipelineConfig);
+            FgOnlyPipeline pipeline(&vulkan, &ngx, &dispatcher);
+            {
+                std::lock_guard<std::mutex> lock(stopMutex);
+                stopCurrentPipeline = [&pipeline] { pipeline.stop(); };
+            }
+            pipeline.run(pipelineConfig);
         } else {
             SrOnlyConfig pipelineConfig;
             pipelineConfig.dlssConfig = config;
@@ -184,7 +215,18 @@ int executeConfig(const ConfigExecutionOptions& options) {
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.previewCallback = previewCallback;
-            SrOnlyPipeline(&vulkan, &ngx, &dispatcher).run(pipelineConfig);
+            pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
+            pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
+            SrOnlyPipeline pipeline(&vulkan, &ngx, &dispatcher);
+            {
+                std::lock_guard<std::mutex> lock(stopMutex);
+                stopCurrentPipeline = [&pipeline] { pipeline.stop(); };
+            }
+            pipeline.run(pipelineConfig);
+        }
+        {
+            std::lock_guard<std::mutex> lock(stopMutex);
+            stopCurrentPipeline = nullptr;
         }
         };
 
@@ -202,9 +244,13 @@ int executeConfig(const ConfigExecutionOptions& options) {
 
             int lastFrame = -1;
             while (!done.load()) {
+                requestStopIfNeeded();
                 const int current = dispatcher.progress().current_frame.load();
                 const int total = dispatcher.progress().total_frames.load();
                 if (total > 0 && current != lastFrame) {
+                    if (options.progressCallback) {
+                        options.progressCallback(current, total);
+                    }
                     emitProgressEvent(current, total);
                     lastFrame = current;
                 }
@@ -217,10 +263,45 @@ int executeConfig(const ConfigExecutionOptions& options) {
             const int current = dispatcher.progress().current_frame.load();
             const int total = dispatcher.progress().total_frames.load();
             if (total > 0 && current != lastFrame) {
+                if (options.progressCallback) {
+                    options.progressCallback(current, total);
+                }
                 emitProgressEvent(current, total);
             }
         } else {
-            runPipeline();
+            std::atomic<bool> done{false};
+            std::exception_ptr failure;
+            std::thread worker([&] {
+                try {
+                    runPipeline();
+                } catch (...) {
+                    failure = std::current_exception();
+                }
+                done.store(true);
+            });
+
+            int lastFrame = -1;
+            while (!done.load()) {
+                requestStopIfNeeded();
+                const int current = dispatcher.progress().current_frame.load();
+                const int total = dispatcher.progress().total_frames.load();
+                if (total > 0 && current != lastFrame) {
+                    if (options.progressCallback) {
+                        options.progressCallback(current, total);
+                    }
+                    lastFrame = current;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            worker.join();
+            if (failure) {
+                std::rethrow_exception(failure);
+            }
+            const int current = dispatcher.progress().current_frame.load();
+            const int total = dispatcher.progress().total_frames.load();
+            if (total > 0 && current != lastFrame && options.progressCallback) {
+                options.progressCallback(current, total);
+            }
         }
 
         LOG_INFO("[cli] Complete: {} output frame(s)", totalFrames);
@@ -230,6 +311,21 @@ int executeConfig(const ConfigExecutionOptions& options) {
         return 0;
     } catch (const std::exception& error) {
         LOG_ERROR("[cli] Config execution failed: {}", error.what());
+        return 4;
+    }
+}
+
+int executeConfig(const ConfigExecutionOptions& options) {
+    try {
+        LOG_INFO("[cli] Creating Vulkan context");
+        VulkanContext vulkan;
+        LOG_INFO("[cli] Vulkan context ready");
+        LOG_INFO("[cli] Creating NGX context");
+        NgxContext ngx(vulkan.instance(), vulkan.physicalDevice(), vulkan.device());
+        LOG_INFO("[cli] NGX context ready");
+        return executeConfig(options, vulkan, ngx);
+    } catch (const std::exception& error) {
+        LOG_ERROR("[cli] Runtime initialization failed: {}", error.what());
         return 4;
     }
 }

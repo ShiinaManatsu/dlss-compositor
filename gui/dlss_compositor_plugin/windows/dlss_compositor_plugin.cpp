@@ -16,6 +16,12 @@
 
 #include <windows.h>
 
+#include "cli/config_executor.h"
+#include "cli/preview_ipc.h"
+#include "dlss/ngx_wrapper.h"
+#include "gpu/vulkan_context.h"
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -28,6 +34,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace dlss_compositor_plugin {
 
@@ -97,14 +104,19 @@ std::string ExecutableDir() {
   return ParentPath(exe_path);
 }
 
-std::string GuiLogPath() {
-  char cwd[MAX_PATH] = {};
-  GetCurrentDirectoryA(MAX_PATH, cwd);
-  const std::string cwd_root = FindProjectRoot(cwd);
-  if (FileExists(cwd_root + "\\AGENTS.md")) {
-    return cwd_root + "\\dlss-compositor-gui.log";
+std::string EnvVar(const char* name) {
+  char buffer[4096] = {};
+  const DWORD length = GetEnvironmentVariableA(name, buffer, static_cast<DWORD>(sizeof(buffer)));
+  if (length == 0 || length >= sizeof(buffer)) {
+    return "";
   }
-  return FindProjectRoot(ExecutableDir()) + "\\dlss-compositor-gui.log";
+  return buffer;
+}
+
+std::string GuiLogPath() {
+  const std::string logDir = ExecutableDir() + "\\logs";
+  CreateDirectoryA(logDir.c_str(), nullptr);
+  return logDir + "\\dlss-compositor-gui.log";
 }
 
 void RootLog(const std::string& stage, const std::string& message) {
@@ -159,10 +171,24 @@ class DlssCompositorPlugin : public flutter::Plugin {
   void PostToFlutterThread(std::function<void()> fn);
   void DrainUiThreadTasks();
   void StopRenderThread();
+  bool EnsureRuntimeInitialized();
+  void EmitEvent(flutter::EncodableMap event);
+  void PublishPreviewRgba8Frame(const std::vector<std::uint8_t>& pixels,
+                           std::uint32_t width,
+                           std::uint32_t height);
+  dlss::ConfigExecutionOptions BuildExecutionOptions() const;
   static std::string ReadStringArgument(
       const flutter::EncodableMap* args,
       const std::string& key,
       const std::string& fallback = "");
+  static bool ReadBoolArgument(
+      const flutter::EncodableMap* args,
+      const std::string& key,
+      bool fallback = false);
+  static int ReadIntArgument(
+      const flutter::EncodableMap* args,
+      const std::string& key,
+      int fallback = 0);
 
   flutter::PluginRegistrarWindows* registrar_;
   int window_proc_delegate_id_ = -1;
@@ -179,6 +205,24 @@ class DlssCompositorPlugin : public flutter::Plugin {
 
   std::unique_ptr<PreviewRingBuffer> ring_buffer_;
 
+  mutable std::mutex task_mutex_;
+  flutter::EncodableMap task_params_;
+  std::atomic<int> current_frame_{0};
+  std::atomic<int> total_frames_{0};
+  std::atomic<bool> task_running_{false};
+
+  std::mutex runtime_mutex_;
+  std::unique_ptr<dlss::VulkanContext> vulkan_;
+  std::unique_ptr<dlss::NgxContext> ngx_;
+  bool runtime_attempted_ = false;
+  bool runtime_ready_ = false;
+  std::string runtime_error_;
+  std::string runtime_gpu_name_ = "NVIDIA GPU";
+  std::string runtime_dlss_version_ = "unknown";
+  bool runtime_sr_available_ = false;
+  bool runtime_fg_available_ = false;
+  int runtime_fg_max_multiplier_ = 0;
+
   std::thread render_thread_;
   std::atomic<bool> stop_render_{false};
 };
@@ -186,6 +230,10 @@ class DlssCompositorPlugin : public flutter::Plugin {
 void DlssCompositorPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar) {
   RootLog("startup", "RegisterWithRegistrar");
+  RootLog("startup", "plugin exe_dir=" + ExecutableDir());
+  RootLog("startup", "plugin gui_log_path=" + GuiLogPath());
+  RootLog("startup", "env DLSS_COMPOSITOR_LOG=" + EnvVar("DLSS_COMPOSITOR_LOG"));
+  RootLog("startup", "env DLSS_COMPOSITOR_LOG_DIR=" + EnvVar("DLSS_COMPOSITOR_LOG_DIR"));
   auto plugin = std::make_unique<DlssCompositorPlugin>(registrar);
   registrar->AddPlugin(std::move(plugin));
 }
@@ -249,6 +297,12 @@ DlssCompositorPlugin::DlssCompositorPlugin(
 DlssCompositorPlugin::~DlssCompositorPlugin() {
   RootLog("shutdown", "Destroying native plugin");
   StopRenderThread();
+  {
+    std::lock_guard<std::mutex> lock(runtime_mutex_);
+    ngx_.reset();
+    vulkan_.reset();
+    runtime_ready_ = false;
+  }
   if (window_proc_delegate_id_ >= 0) {
     registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_delegate_id_);
   }
@@ -292,6 +346,69 @@ void DlssCompositorPlugin::StopRenderThread() {
   if (render_thread_.joinable()) {
     render_thread_.join();
   }
+  task_running_.store(false);
+}
+
+bool DlssCompositorPlugin::EnsureRuntimeInitialized() {
+  std::lock_guard<std::mutex> lock(runtime_mutex_);
+  if (runtime_ready_) {
+    return true;
+  }
+  runtime_attempted_ = true;
+  runtime_error_.clear();
+  try {
+    RootLog("runtime", "initializing Vulkan/NGX runtime");
+    vulkan_ = std::make_unique<dlss::VulkanContext>();
+    ngx_ = std::make_unique<dlss::NgxContext>(
+        vulkan_->instance(), vulkan_->physicalDevice(), vulkan_->device());
+    runtime_gpu_name_ = vulkan_->deviceProperties().deviceName;
+    const auto versions = ngx_->getDllVersions();
+    runtime_dlss_version_ = versions.sr;
+    runtime_sr_available_ = ngx_->isSrAvailable();
+    runtime_fg_available_ = ngx_->isFgAvailable();
+    runtime_fg_max_multiplier_ = ngx_->getFgMaxMultiplier();
+    runtime_ready_ = true;
+    RootLog("runtime", "runtime ready");
+    return true;
+  } catch (const std::exception& e) {
+    runtime_error_ = e.what();
+    RootLog("runtime", std::string("runtime init failed: ") + runtime_error_);
+  } catch (...) {
+    runtime_error_ = "non-standard exception";
+    RootLog("runtime", "runtime init failed: non-standard exception");
+  }
+  ngx_.reset();
+  vulkan_.reset();
+  runtime_ready_ = false;
+  runtime_sr_available_ = false;
+  runtime_fg_available_ = false;
+  runtime_fg_max_multiplier_ = 0;
+  return false;
+}
+
+void DlssCompositorPlugin::EmitEvent(flutter::EncodableMap event) {
+  PostToFlutterThread([this, event = std::move(event)]() mutable {
+    std::lock_guard<std::mutex> lock(event_sink_mutex_);
+    if (event_sink_) {
+      event_sink_->Success(flutter::EncodableValue(event));
+    }
+  });
+}
+
+void DlssCompositorPlugin::PublishPreviewRgba8Frame(
+    const std::vector<std::uint8_t>& pixels,
+    std::uint32_t width,
+    std::uint32_t height) {
+  if (pixels.empty() || width == 0 || height == 0) {
+    return;
+  }
+  const size_t byteSize = (pixels.size() < kPreviewFrameSize) ? pixels.size() : kPreviewFrameSize;
+  const int slot = ring_buffer_->writeSlot.fetch_add(1) % kRingBufferSlots;
+  std::memcpy(ring_buffer_->slots[slot], pixels.data(), byteSize);
+  ring_buffer_->width.store(width);
+  ring_buffer_->height.store(height);
+  ring_buffer_->byteSize.store(static_cast<uint32_t>(byteSize));
+  ring_buffer_->readSlot.store(slot);
 }
 
 std::string DlssCompositorPlugin::ReadStringArgument(
@@ -313,6 +430,63 @@ std::string DlssCompositorPlugin::ReadStringArgument(
   return fallback;
 }
 
+bool DlssCompositorPlugin::ReadBoolArgument(
+    const flutter::EncodableMap* args,
+    const std::string& key,
+    bool fallback) {
+  if (!args) {
+    return fallback;
+  }
+  const auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* value = std::get_if<bool>(&it->second)) {
+    return *value;
+  }
+  return fallback;
+}
+
+int DlssCompositorPlugin::ReadIntArgument(
+    const flutter::EncodableMap* args,
+    const std::string& key,
+    int fallback) {
+  if (!args) {
+    return fallback;
+  }
+  const auto it = args->find(flutter::EncodableValue(key));
+  if (it == args->end()) {
+    return fallback;
+  }
+  if (const auto* value = std::get_if<int32_t>(&it->second)) {
+    return *value;
+  }
+  if (const auto* value = std::get_if<int64_t>(&it->second)) {
+    return static_cast<int>(*value);
+  }
+  return fallback;
+}
+
+dlss::ConfigExecutionOptions DlssCompositorPlugin::BuildExecutionOptions() const {
+  flutter::EncodableMap params;
+  {
+    std::lock_guard<std::mutex> lock(task_mutex_);
+    params = task_params_;
+  }
+  const auto* args = &params;
+  dlss::ConfigExecutionOptions options;
+  options.configPath = ReadStringArgument(args, "config");
+  options.outputDir = ReadStringArgument(args, "output_dir");
+  options.outputTemplate = ReadStringArgument(
+      args, "output_template", ReadStringArgument(args, "template"));
+  options.outputFormat = ReadStringArgument(args, "output_format", "exr");
+  options.overwriteMode = ReadStringArgument(args, "overwrite_mode", "overwrite");
+  options.fgEnabled = ReadBoolArgument(args, "fg_enabled", false);
+  options.fgMultiplier = ReadIntArgument(args, "fg_multiplier", 2);
+  options.emitEvents = false;
+  return options;
+}
+
 void DlssCompositorPlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -323,6 +497,14 @@ void DlssCompositorPlugin::HandleMethodCall(
     if (method == "setTask") {
       const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
       const std::string config_path = ReadStringArgument(args, "config");
+      if (config_path.empty()) {
+        result->Success(flutter::EncodableValue(false));
+        return;
+      }
+      {
+        std::lock_guard<std::mutex> lock(task_mutex_);
+        task_params_ = args ? *args : flutter::EncodableMap{};
+      }
       std::string log = "DLSS Compositor setTask received";
       if (!config_path.empty()) {
         log += " with config";
@@ -332,22 +514,30 @@ void DlssCompositorPlugin::HandleMethodCall(
       result->Success(flutter::EncodableValue(true));
 
     } else if (method == "checkReady") {
-      RootLog("method", "checkReady -> true");
-      result->Success(flutter::EncodableValue(true));
+      const bool ready = EnsureRuntimeInitialized();
+      RootLog("method", std::string("checkReady -> ") + (ready ? "true" : "false"));
+      result->Success(flutter::EncodableValue(ready));
 
     } else if (method == "getStatus") {
       RootLog("method", "getStatus building response");
+      const bool ready = EnsureRuntimeInitialized();
+      std::lock_guard<std::mutex> runtimeLock(runtime_mutex_);
+      RootLog("method", std::string("getStatus using resident runtime ready=") + (ready ? "true" : "false"));
       flutter::EncodableMap status;
       status[flutter::EncodableValue("dlss_version")] =
-          flutter::EncodableValue(std::string("310.6.0"));
+          flutter::EncodableValue(runtime_dlss_version_);
       status[flutter::EncodableValue("gpu_name")] =
-          flutter::EncodableValue(std::string("NVIDIA GPU (queried at runtime)"));
+          flutter::EncodableValue(runtime_gpu_name_);
       status[flutter::EncodableValue("sr_available")] =
-          flutter::EncodableValue(true);
+          flutter::EncodableValue(runtime_sr_available_);
       status[flutter::EncodableValue("fg_available")] =
-          flutter::EncodableValue(true);
+          flutter::EncodableValue(runtime_fg_available_);
       status[flutter::EncodableValue("fg_max_multiplier")] =
-          flutter::EncodableValue(static_cast<int32_t>(2));
+          flutter::EncodableValue(static_cast<int32_t>(runtime_fg_max_multiplier_));
+      status[flutter::EncodableValue("runtime_ready")] =
+          flutter::EncodableValue(runtime_ready_);
+      status[flutter::EncodableValue("runtime_error")] =
+          flutter::EncodableValue(runtime_error_);
       status[flutter::EncodableValue("video_encoders")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("prores_ks"))});
       status[flutter::EncodableValue("export_formats_ldr")] = flutter::EncodableValue(
@@ -360,15 +550,17 @@ void DlssCompositorPlugin::HandleMethodCall(
       result->Success(flutter::EncodableValue(status));
 
     } else if (method == "getProgress") {
-      RootLog("method", "getProgress idle response");
+      RootLog("method", "getProgress response");
       flutter::EncodableMap progress;
       progress[flutter::EncodableValue("current_frame")] =
-          flutter::EncodableValue(static_cast<int32_t>(0));
+          flutter::EncodableValue(static_cast<int32_t>(current_frame_.load()));
       progress[flutter::EncodableValue("total_frames")] =
-          flutter::EncodableValue(static_cast<int32_t>(0));
-      progress[flutter::EncodableValue("percent")] = flutter::EncodableValue(0.0);
+          flutter::EncodableValue(static_cast<int32_t>(total_frames_.load()));
+      const int total = total_frames_.load();
+      progress[flutter::EncodableValue("percent")] = flutter::EncodableValue(
+          total > 0 ? static_cast<double>(current_frame_.load()) / static_cast<double>(total) : 0.0);
       progress[flutter::EncodableValue("state")] =
-          flutter::EncodableValue(std::string("idle"));
+          flutter::EncodableValue(std::string(task_running_.load() ? "running" : "idle"));
       result->Success(flutter::EncodableValue(progress));
 
     } else if (method == "checkOutputCollisions") {
@@ -425,9 +617,84 @@ void DlssCompositorPlugin::HandleMethodCall(
       }
 
     } else if (method == "startTask") {
-      RootLog("render", "startTask rejected: engine bridge not wired");
+      if (task_running_.load()) {
+        RootLog("render", "startTask rejected: already running");
+        result->Success(flutter::EncodableValue(false));
+        return;
+      }
+      dlss::ConfigExecutionOptions options = BuildExecutionOptions();
+      if (options.configPath.empty()) {
+        RootLog("render", "startTask rejected: missing config");
+        result->Success(flutter::EncodableValue(false));
+        return;
+      }
       StopRenderThread();
-      result->Success(flutter::EncodableValue(false));
+      stop_render_.store(false);
+      task_running_.store(true);
+      current_frame_.store(0);
+      total_frames_.store(0);
+      render_thread_ = std::thread([this, options = std::move(options)]() mutable {
+        RootLog("render", "native engine worker started");
+        try {
+          options.progressCallback = [this](int current, int total) {
+            current_frame_.store(current);
+            total_frames_.store(total);
+            flutter::EncodableMap event;
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("progress"));
+            event[flutter::EncodableValue("current_frame")] = flutter::EncodableValue(static_cast<int32_t>(current));
+            event[flutter::EncodableValue("total_frames")] = flutter::EncodableValue(static_cast<int32_t>(total));
+            event[flutter::EncodableValue("percent")] = flutter::EncodableValue(
+                total > 0 ? static_cast<double>(current) / static_cast<double>(total) : 0.0);
+            EmitEvent(std::move(event));
+          };
+          options.previewRgba8Callback = [this](const std::vector<std::uint8_t>& pixels,
+                                                std::uint32_t width,
+                                                std::uint32_t height) {
+            PublishPreviewRgba8Frame(pixels, width, height);
+          };
+          options.cancelRequested = [this]() {
+            return stop_render_.load();
+          };
+          if (!EnsureRuntimeInitialized()) {
+            throw std::runtime_error(runtime_error_.empty() ? "DLSS runtime unavailable" : runtime_error_);
+          }
+          const int exitCode = dlss::executeConfig(options, *vulkan_, *ngx_);
+          task_running_.store(false);
+          flutter::EncodableMap event;
+          if (exitCode == 0) {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("done"));
+          } else {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
+            event[flutter::EncodableValue("message")] = flutter::EncodableValue(
+                std::string("Native engine exited with code ") + std::to_string(exitCode));
+          }
+          EmitEvent(std::move(event));
+        } catch (const std::exception& e) {
+          task_running_.store(false);
+          RootLog("render", std::string("native engine exception: ") + e.what());
+          flutter::EncodableMap event;
+          event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
+          event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string(e.what()));
+          EmitEvent(std::move(event));
+        } catch (...) {
+          task_running_.store(false);
+          RootLog("render", "native engine exception: non-standard exception");
+          flutter::EncodableMap event;
+          event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
+          event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string("Native engine aborted with a non-standard exception"));
+          EmitEvent(std::move(event));
+        }
+        RootLog("render", "native engine worker finished");
+      });
+      result->Success(flutter::EncodableValue(true));
+
+    } else if (method == "cancelTask") {
+      RootLog("render", "cancelTask requested");
+      StopRenderThread();
+      flutter::EncodableMap event;
+      event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("cancelled"));
+      EmitEvent(std::move(event));
+      result->Success(flutter::EncodableValue(true));
 
     } else if (method == "setDebugMode") {
       RootLog("method", "setDebugMode not implemented");
