@@ -62,8 +62,7 @@
       "type": "string",
       "enum": [
         "exr_linear",
-        "png_16",
-        "prores_422hq"
+        "png_16"
       ]
     },
     "frames": {

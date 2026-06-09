@@ -9,7 +9,7 @@ import '../util/app_log.dart';
 import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
-enum OutputFormat { png16, exrLinear, prores422hq }
+enum OutputFormat { png16, exrLinear }
 enum FgMultiplier { two, three, four }
 
 extension OutputFormatExt on OutputFormat {
@@ -17,14 +17,12 @@ extension OutputFormatExt on OutputFormat {
     switch (this) {
       case OutputFormat.png16:       return 'PNG (16-bit)';
       case OutputFormat.exrLinear:   return 'EXR (scene-linear)';
-      case OutputFormat.prores422hq: return 'ProRes 422 HQ';
     }
   }
   String get value {
     switch (this) {
       case OutputFormat.png16:       return 'png_16';
       case OutputFormat.exrLinear:   return 'exr';
-      case OutputFormat.prores422hq: return 'prores_422hq';
     }
   }
 }
@@ -124,7 +122,6 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final tmpl = _templateForFormat(state.template, state.outputFormat);
     final formatted = tmpl.replaceAll('####', '0001');
     final ext = state.outputFormat == 'png_16' ? '.png'
-              : state.outputFormat == 'prores_422hq' ? '.mov'
               : '.exr';
     return formatted.contains('.') ? formatted : '$formatted$ext';
   }
@@ -132,18 +129,17 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   String _templateForFormat(String template, String format) {
     final trimmed = template.trim().isEmpty ? 'frame_####' : template.trim();
     final expectedExt = format == 'png_16' ? '.png'
-        : format == 'prores_422hq' ? '.mov'
         : '.exr';
     return trimmed.replaceFirst(RegExp(r'\.(png|exr|mov)$', caseSensitive: false), expectedExt);
   }
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
     if (isHdr) {
-      // HDR: EXR + ProRes only (NO PNG for HDR projects)
-      return [OutputFormat.exrLinear, OutputFormat.prores422hq];
+      // HDR: EXR only (NO PNG for HDR projects)
+      return [OutputFormat.exrLinear];
     } else {
-      // LDR: PNG + EXR + ProRes (LDR gets PNG per user round 2 decision)
-      return [OutputFormat.png16, OutputFormat.exrLinear, OutputFormat.prores422hq];
+      // LDR: PNG + EXR
+      return [OutputFormat.png16, OutputFormat.exrLinear];
     }
     // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
   }

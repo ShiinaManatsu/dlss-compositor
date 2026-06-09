@@ -39,7 +39,7 @@ void printHelp() {
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
-        << "  --output-format <fmt>        exr | png_16 | prores_422hq.\n"
+        << "  --output-format <fmt>        exr | png_16 (PNG is LDR only).\n"
         << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
         << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
         << "  --fg <2x|3x|4x>              Enable frame generation multiplier.\n"

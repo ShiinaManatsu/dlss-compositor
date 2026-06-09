@@ -116,12 +116,9 @@ nlohmann::json RpcDispatcher::handleGetStatus(const nlohmann::json& /*p*/) {
         {"is_hdr_supported",    true},
         {"sr_available",        srAvailable},
         {"fg_available",        fgAvailable},
-        // Per plan + user round 2: only ProRes is registered in v2.
-        {"video_encoders",      nlohmann::json::array({"prores_ks"})},
-        // LDR project formats: PNG-16 + EXR + ProRes (per user round 2).
-        {"export_formats_ldr",  nlohmann::json::array({"png_16", "exr", "prores_422hq"})},
-        // HDR project formats: EXR + ProRes (HDR has no PNG path).
-        {"export_formats_hdr",  nlohmann::json::array({"exr", "prores_422hq"})},
+        {"video_encoders",      nlohmann::json::array()},
+        {"export_formats_ldr",  nlohmann::json::array({"png_16", "exr"})},
+        {"export_formats_hdr",  nlohmann::json::array({"exr"})},
     };
 }
 

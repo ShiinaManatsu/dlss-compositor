@@ -40,7 +40,7 @@ OutputFormat parseOutputFormat(const std::string& value, bool isHdr) {
         return OutputFormat::Png16;
     }
     if (value == "prores" || value == "prores_422hq") {
-        return OutputFormat::ProRes422HQ;
+        throw std::runtime_error("ProRes 422 HQ output is not implemented yet; use exr or png_16");
     }
     throw std::runtime_error("Unsupported output format: " + value);
 }
@@ -64,9 +64,6 @@ std::filesystem::path defaultOutputDir(const std::filesystem::path& configPath) 
 }
 
 std::string defaultTemplateFor(OutputFormat format) {
-    if (format == OutputFormat::ProRes422HQ) {
-        return "output.mov";
-    }
     if (format == OutputFormat::Png16) {
         return "frame_####.png";
     }

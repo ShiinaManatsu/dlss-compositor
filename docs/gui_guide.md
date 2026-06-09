@@ -55,8 +55,8 @@ After loading a valid `dlssconfig.json`:
 - **Filename Template**: `frame_####` (4-digit zero-padded) or `{frame:04d}`
   - Live preview shows "Sample: frame_0001.exr"
 - **Output Format**:
-  - LDR project: `PNG (16-bit)` (default) / `EXR (scene-linear)` / `ProRes 422 HQ`
-  - HDR project: `EXR (scene-linear)` (default) / `ProRes 422 HQ`
+  - LDR project: `PNG (16-bit)` (default) / `EXR (scene-linear)`
+  - HDR project: `EXR (scene-linear)` (default)
 - **Overwrite Mode**:
   - `Overwrite` (default): Replace existing files
   - `Skip`: Skip if file exists (logs a warning)

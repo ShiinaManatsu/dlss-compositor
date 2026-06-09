@@ -71,7 +71,7 @@ Print usage summary.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output-dir <path>` | same as config dir | Directory for output frames |
-| `--output-format <fmt>` | `exr` (HDR) / `png` (LDR) | `png`, `exr`, `prores` |
+| `--output-format <fmt>` | `exr` (HDR) / `png` (LDR) | `png`, `exr` |
 | `--output-template <tmpl>` | `frame_####` | Filename template (`####` = zero-padded frame, `{frame:04d}` = same) |
 | `--overwrite-mode <mode>` | `overwrite` | `skip`, `overwrite`, `auto-version` |
 | `--preset <preset>` | `auto` | `auto`, `J`, `K`, `L`, `M` |
@@ -84,9 +84,6 @@ Print usage summary.
 ```powershell
 # SR only, default EXR output
 dlss-compositor-cli.exe --config dlssconfig.json --output-dir out/
-
-# SR + FG 2x, ProRes output
-dlss-compositor-cli.exe --config dlssconfig.json --output-dir out/ --fg 2x --output-format prores
 
 # LDR project with PNG output, auto-version on conflict
 dlss-compositor-cli.exe --config dlssconfig.json --output-dir out/ --output-format png --overwrite-mode auto-version
@@ -101,7 +98,7 @@ The following v1 flags are **not** available in v2 (configuration moved to `dlss
 - `--scale` — upscale ratio is determined by Quality Mode in dlssconfig
 - `--quality` — quality mode is set in Blender extension, stored in dlssconfig
 - `--inspect-exr` — use Python with OpenEXR directly for EXR inspection
-- `--encode-video` — use `--output-format prores` instead
+- `--encode-video` — video encoding is not implemented yet
 - `--sharpness` — DLSS SR §3.11 deprecated InSharpness; v2 omits this option
 
 ---
@@ -140,7 +137,6 @@ All diagnostic output goes to stderr and the rotating log file. stdout is exclus
 |--------|------|-------|
 | EXR (scene-linear) | `--output-format exr` | R16G16B16A16 HALF, full HDR range |
 | PNG (16-bit) | `--output-format png` | LDR projects only |
-| ProRes 422 HQ | `--output-format prores` | `.mov` container, 10-bit |
 
 ---
 
@@ -148,6 +144,7 @@ All diagnostic output goes to stderr and the rotating log file. stdout is exclus
 
 The following formats are reserved for future releases and are not available in v2:
 - DNxHR
+- ProRes 422 HQ
 - ProRes 4444 XQ
 - JPEG / AVIF
 - H.264 / H.265 / AV1

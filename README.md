@@ -4,7 +4,7 @@
 
 ## What It Does
 
-DLSS Compositor v2 reads multi-channel EXR sequences from Blender Cycles (Combined RGBA + Depth + Motion Vector passes), applies NVIDIA DLSS SR for upscaling and/or DLSS FG for frame interpolation, and outputs scene-linear EXR or ProRes 422 HQ video sequences.
+DLSS Compositor v2 reads multi-channel EXR sequences from Blender Cycles (Combined RGBA + Depth + Motion Vector passes), applies NVIDIA DLSS SR for upscaling and/or DLSS FG for frame interpolation, and outputs scene-linear EXR or 16-bit PNG image sequences.
 
 **Three-layer architecture:**
 - **Blender 5.1+ Extension** — Quality mode selection, render pass configuration, transparent jitter injection, silent `dlssconfig.json` export
@@ -22,7 +22,7 @@ Blender Cycles render
   → [Stage 4] Tonemap + EOTF (for FG path only)
   → [Stage 5] DLSS FG (display-ready → interpolated frames)
   → [Stage 6] Inverse Tonemap (for FG path only, EXR output)
-  → [Stage 7] Async write (EXR/ProRes)
+  → [Stage 7] Async write (EXR/PNG)
 ```
 
 ## Requirements
@@ -48,8 +48,8 @@ Blender Cycles render
 
 | Mode | Formats |
 |------|---------|
-| LDR project | PNG (16-bit), EXR (scene-linear), ProRes 422 HQ |
-| HDR project | EXR (scene-linear), ProRes 422 HQ |
+| LDR project | PNG (16-bit), EXR (scene-linear) |
+| HDR project | EXR (scene-linear) |
 
 ## Features
 
@@ -60,7 +60,7 @@ Blender Cycles render
 - Per-quality NGX presets (DLAA/Q/B/UQ→K, P→M, UP→L per §3.12)
 - Scene-linear HDR pipeline (no internal clamp — full dynamic range preserved)
 - ACES Filmic + PQ ST.2084 tonemap for FG HDR path
-- Async EXR writer with async frame prefetcher
+- Async EXR/PNG writer with async frame prefetcher
 - Flutter GUI with live preview (FFI zero-copy shared memory)
 - JSON-RPC stdio fallback for automation
 

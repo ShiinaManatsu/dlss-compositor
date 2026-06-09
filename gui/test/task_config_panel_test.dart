@@ -49,7 +49,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Check available formats in the dropdown
-    // LDR should have PNG, EXR, ProRes
+    // LDR should have PNG and EXR.
     expect(find.text('PNG (16-bit)'), findsOneWidget);
     
     // Check elements
@@ -78,9 +78,9 @@ void main() {
     await tester.tap(find.text('EXR (scene-linear)'));
     await tester.pumpAndSettle();
     
-    // Dropdown items should only include EXR and ProRes
+    // Dropdown items should only include EXR.
     expect(find.text('EXR (scene-linear)'), findsWidgets);
-    expect(find.text('ProRes 422 HQ'), findsWidgets);
+    expect(find.text('ProRes 422 HQ'), findsNothing);
     // PNG should not be available
     expect(find.text('PNG (16-bit)'), findsNothing);
   });

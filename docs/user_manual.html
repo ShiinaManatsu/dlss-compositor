@@ -77,7 +77,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
 
   <!-- CH1 -->
   <h2 id="zh-ch1">第一章：什么是 DLSS Compositor？</h2>
-  <p>DLSS Compositor v2 是一个将 Blender Cycles 离线渲染序列通过 NVIDIA DLSS 超分辨率（SR）和帧生成（FG）处理的开源工具。它读取 Blender 渲染的多通道 EXR 序列，在 GPU 上使用 DLSS AI 提升画质和帧率，输出场景线性 EXR 或 ProRes 422 HQ 序列。</p>
+  <p>DLSS Compositor v2 是一个将 Blender Cycles 离线渲染序列通过 NVIDIA DLSS 超分辨率（SR）和帧生成（FG）处理的开源工具。它读取 Blender 渲染的多通道 EXR 序列，在 GPU 上使用 DLSS AI 提升画质和帧率，输出场景线性 EXR 或 16 位 PNG 序列。</p>
   <p>整个系统由三层组成：</p>
   <ul>
     <li><strong>Blender 扩展</strong>：配置渲染通道、自动导出相机数据（静默进行）</li>
@@ -117,7 +117,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
      ├── Tonemap（ACES Filmic + PQ ST.2084）
      └── DLSS FG（调色后，显示就绪输入）
          ↓
-  输出：EXR（场景线性）/ ProRes 422 HQ</pre>
+  输出：EXR（场景线性）/ PNG（16 位，LDR）</pre>
   <table>
     <tr><th>层次</th><th>组件</th><th>职责</th></tr>
     <tr><td>Blender 扩展</td><td><code>blender/dlss_compositor/</code></td><td>配置渲染通道、自动导出相机数据、生成 dlssconfig.json</td></tr>
@@ -165,7 +165,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
     <tr><th>格式</th><th>颜色空间</th><th>适用场景</th></tr>
     <tr><td>EXR（16位半精度）</td><td>场景线性</td><td>后期合成、进一步处理</td></tr>
     <tr><td>PNG（16位）</td><td>取决于 OCIO 配置</td><td>LDR 最终输出</td></tr>
-    <tr><td>ProRes 422 HQ</td><td>场景线性（HDR）</td><td>视频后期、交付</td></tr>
   </table>
 
   <!-- CH5 -->
@@ -214,7 +213,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
     <dd>确认已选择正确的质量模式（例如 Ultra Performance 用于草稿），并检查 GPU 是否被其他应用程序占用。</dd>
 
     <dt>输出文件大小异常</dt>
-    <dd>EXR（16 位半精度）是预期的大文件格式。如果需要更小的文件，选择 ProRes 422 HQ 或 PNG。</dd>
+    <dd>EXR（16 位半精度）是预期的大文件格式。LDR 项目如果需要更小的文件，可以选择 PNG。</dd>
   </dl>
 
   <!-- CH7 -->
@@ -267,7 +266,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
 
   <!-- CH1 -->
   <h2 id="en-ch1">Chapter 1: What is DLSS Compositor?</h2>
-  <p>DLSS Compositor v2 processes offline Blender Cycles renders through NVIDIA DLSS Super Resolution (SR) and Frame Generation (FG). It reads multi-channel EXR sequences from Blender, upscales and/or interpolates frames using DLSS AI on your GPU, then outputs scene-linear EXR or ProRes 422 HQ sequences.</p>
+  <p>DLSS Compositor v2 processes offline Blender Cycles renders through NVIDIA DLSS Super Resolution (SR) and Frame Generation (FG). It reads multi-channel EXR sequences from Blender, upscales and/or interpolates frames using DLSS AI on your GPU, then outputs scene-linear EXR or 16-bit PNG sequences.</p>
   <p>The system has three layers:</p>
   <ul>
     <li><strong>Blender extension</strong>: configures render passes, exports camera data silently during render</li>
@@ -306,7 +305,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
      ├── Tonemap  (ACES Filmic + PQ ST.2084)
      └── DLSS FG  (display-ready input, after tonemap)
          ↓
-  Output: EXR (scene-linear) / ProRes 422 HQ</pre>
+  Output: EXR (scene-linear) / PNG (16-bit, LDR)</pre>
 
   <table>
     <tr><th>Layer</th><th>Component</th><th>Responsibility</th></tr>
@@ -356,7 +355,6 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
     <tr><th>Format</th><th>Color Space</th><th>Use Case</th></tr>
     <tr><td>EXR (16-bit half-float)</td><td>Scene-linear</td><td>VFX compositing, further processing</td></tr>
     <tr><td>PNG (16-bit)</td><td>Depends on OCIO config</td><td>LDR final output</td></tr>
-    <tr><td>ProRes 422 HQ</td><td>Scene-linear (HDR)</td><td>Video post, delivery</td></tr>
   </table>
 
   <!-- CH5 -->
@@ -405,7 +403,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
     <dd>Confirm you've selected the right quality mode for your task (Ultra Performance for drafts). Check whether another application is competing for the GPU.</dd>
 
     <dt>Output files are very large</dt>
-    <dd>EXR (16-bit half-float) is inherently large. Choose ProRes 422 HQ or PNG for more compact output.</dd>
+    <dd>EXR (16-bit half-float) is inherently large. For LDR projects, choose PNG for more compact output.</dd>
   </dl>
 
   <!-- CH7 -->
@@ -474,7 +472,6 @@ Jitter: Halton sequence, radix 2 (X), radix 3 (Y).
 ## Output Formats (v2)
 - EXR (16-bit half-float, scene-linear)
 - PNG (16-bit)
-- ProRes 422 HQ
 
 NOT in v2 (enum placeholders only, not registered):
 - DNxHR, H.264, H.265, AV1, AVIF, JPEG, WebP

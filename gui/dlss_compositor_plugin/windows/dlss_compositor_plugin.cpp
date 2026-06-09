@@ -539,14 +539,12 @@ void DlssCompositorPlugin::HandleMethodCall(
       status[flutter::EncodableValue("runtime_error")] =
           flutter::EncodableValue(runtime_error_);
       status[flutter::EncodableValue("video_encoders")] = flutter::EncodableValue(
-          flutter::EncodableList{flutter::EncodableValue(std::string("prores_ks"))});
+          flutter::EncodableList{});
       status[flutter::EncodableValue("export_formats_ldr")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("png_16")),
-                                 flutter::EncodableValue(std::string("exr")),
-                                 flutter::EncodableValue(std::string("prores_422hq"))});
+                                 flutter::EncodableValue(std::string("exr"))});
       status[flutter::EncodableValue("export_formats_hdr")] = flutter::EncodableValue(
-          flutter::EncodableList{flutter::EncodableValue(std::string("exr")),
-                                 flutter::EncodableValue(std::string("prores_422hq"))});
+          flutter::EncodableList{flutter::EncodableValue(std::string("exr"))});
       result->Success(flutter::EncodableValue(status));
 
     } else if (method == "getProgress") {
