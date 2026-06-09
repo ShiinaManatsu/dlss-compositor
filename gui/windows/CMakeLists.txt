@@ -1,5 +1,21 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
+
+# The native Windows plugin links the C++ DLSS engine directly. Make sure the
+# vcpkg toolchain is active before project() so the engine's manifest packages
+# resolve during Flutter's CMake configure step.
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      CACHE STRING "vcpkg toolchain")
+endif()
+if(NOT DEFINED VCPKG_MANIFEST_DIR)
+  get_filename_component(DLSS_COMPOSITOR_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+  set(VCPKG_MANIFEST_DIR "${DLSS_COMPOSITOR_ROOT}" CACHE PATH "vcpkg manifest root")
+endif()
+if(NOT DEFINED VCPKG_TARGET_TRIPLET)
+  set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "vcpkg target triplet")
+endif()
+
 project(dlss_compositor_gui LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change

@@ -14,6 +14,8 @@ project(DlssCompositor
     DESCRIPTION "Headless DLSS Super-Resolution + Frame-Generation compute compositor"
     LANGUAGES   CXX)
 
+set(DLSS_COMPOSITOR_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
 # -----------------------------------------------------------------------------
 # Global C++ settings
 # -----------------------------------------------------------------------------
@@ -47,8 +49,8 @@ if(DEFINED DLSS_SDK_ROOT AND DLSS_SDK_ROOT STREQUAL "")
 endif()
 
 if(NOT DEFINED DLSS_SDK_ROOT)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/DLSS/include/nvsdk_ngx_vk.h")
-        set(DLSS_SDK_ROOT "${CMAKE_SOURCE_DIR}/DLSS" CACHE PATH "DLSS SDK root")
+    if(EXISTS "${DLSS_COMPOSITOR_SOURCE_DIR}/DLSS/include/nvsdk_ngx_vk.h")
+        set(DLSS_SDK_ROOT "${DLSS_COMPOSITOR_SOURCE_DIR}/DLSS" CACHE PATH "DLSS SDK root")
         message(STATUS "DLSS_SDK_ROOT not set; defaulting to submodule at ${DLSS_SDK_ROOT}")
     else()
         message(FATAL_ERROR
@@ -125,11 +127,12 @@ add_library(dlss_cli_support STATIC
     src/core/log.cpp
     src/io/async_writer.cpp)
 
-target_include_directories(dlss_cli_support PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/src)
 target_link_libraries(dlss_cli_support
     PUBLIC
         nlohmann_json::nlohmann_json
         spdlog::spdlog
+        GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
     PRIVATE
@@ -151,11 +154,13 @@ add_library(dlss_engine_lib STATIC
     src/gpu/texture_pool.cpp
     src/gpu/passes/depth_pass.cpp
     src/gpu/passes/mv_pass.cpp
+    src/gpu/passes/preview_pass.cpp
     src/gpu/passes/tonemap_pass.cpp
     src/gpu/passes/inverse_tonemap_pass.cpp
     src/io/frame_prefetcher.cpp
     src/io/channel_mapper.cpp
     src/io/async_writer.cpp
+    src/pipeline/fg_camera.cpp
     src/pipeline/fg_only_pipeline.cpp
     src/pipeline/sr_fg_pipeline.cpp
     src/pipeline/sr_only_pipeline.cpp
@@ -165,7 +170,7 @@ add_library(dlss_engine_lib STATIC
 
 target_include_directories(dlss_engine_lib
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/src)
+        ${DLSS_COMPOSITOR_SOURCE_DIR}/src)
 
 target_include_directories(dlss_engine_lib SYSTEM PUBLIC
         ${DLSS_SDK_ROOT}/include)
@@ -256,8 +261,8 @@ function(dlss_add_shader TARGET SHADER_SRC)
         OUTPUT  "${_spv}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/shaders"
         COMMAND ${DLSS_SHADER_COMPILER} ${DLSS_SHADER_COMPILER_ARGS}
-                "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_SRC}" -o "${_spv}"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_SRC}"
+                "${DLSS_COMPOSITOR_SOURCE_DIR}/${SHADER_SRC}" -o "${_spv}"
+        DEPENDS "${DLSS_COMPOSITOR_SOURCE_DIR}/${SHADER_SRC}"
         COMMENT "GLSL ${SHADER_SRC} -> ${_spv}"
         VERBATIM)
     target_sources(${TARGET} PRIVATE "${_spv}")
@@ -269,6 +274,7 @@ endfunction()
 # -----------------------------------------------------------------------------
 dlss_add_shader(dlss_engine_lib src/shaders/depth_world_to_ndc.comp)
 dlss_add_shader(dlss_engine_lib src/shaders/mv_blender_to_dlss.comp)
+dlss_add_shader(dlss_engine_lib src/shaders/preview_display.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 4 tonemap + EOTF
@@ -281,18 +287,20 @@ dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
 dlss_add_shader(dlss_engine_lib src/shaders/inverse_tonemap_eotf.comp)
 
 get_property(_dlss_shader_spv_files GLOBAL PROPERTY DLSS_SHADER_SPV_FILES)
-add_custom_command(
-    TARGET dlss_engine_lib POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:dlss-compositor-cli>"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_dlss_shader_spv_files} "$<TARGET_FILE_DIR:dlss-compositor-cli>"
-    COMMENT "Copying compute shader SPIR-V next to executables"
-    VERBATIM)
+if(TARGET dlss-compositor-cli)
+    add_custom_command(
+        TARGET dlss-compositor-cli POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_dlss_shader_spv_files} "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+        COMMENT "Copying compute shader SPIR-V next to CLI executable"
+        VERBATIM)
+endif()
 
 # -----------------------------------------------------------------------------
 # Tests
 # -----------------------------------------------------------------------------
 enable_testing()
-if(EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
+if(PROJECT_IS_TOP_LEVEL AND EXISTS "${DLSS_COMPOSITOR_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
 endif()
 
