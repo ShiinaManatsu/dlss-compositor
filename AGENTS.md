@@ -12,7 +12,7 @@ High-signal notes for future OpenCode sessions. Keep this file compact; prefer v
 
 ## Build and verification flow
 
-- Requirements: Windows + MSVC, `VCPKG_ROOT`, Flutter, DLSS submodule, and either Vulkan SDK `glslc` or vcpkg `glslang[tools]`.
+- Requirements: Windows + MSVC, CMake 3.25+ for presets, `VCPKG_ROOT`, Flutter, DLSS submodule/LFS files, and either Vulkan SDK `glslc` or vcpkg `glslang[tools]`.
 - CMake presets use Ninja Multi-Config and vcpkg triplet `x64-windows-static-md`.
 
 ```powershell
@@ -22,6 +22,8 @@ cmake --build --preset x64-windows-msvc-release --parallel
 ctest --preset x64-windows-msvc-release --output-on-failure
 
 # CI-style equivalent writes to build/ instead.
+git submodule update --init --recursive
+git lfs pull
 cmake -B build --preset x64-windows-msvc-release -DDLSS_SDK_ROOT=DLSS
 cmake --build build --config Release --parallel
 ctest --test-dir build --config Release --output-on-failure
@@ -48,6 +50,7 @@ flutter test test/task_config_panel_test.dart test/dlss_compositor_plugin_test.d
 
 - GPU/NGX tests are tagged `[gpu]` and require NVIDIA RTX + drivers; run locally with `ctest -C Release --label-regex gpu` from the configured build dir.
 - `dlss-compositor-cli --self-check` is not yet a real capability probe; trust `NgxContext`/status logs and targeted tests instead.
+- Do not rely on `--rpc-stdio`, `-DBUILD_TESTS=OFF`, or `python -m pytest blender/tests/` as verified flows; current executable config does not support them as documented.
 - For clangd, generate or expose `compile_commands.json`; otherwise diagnostics miss MSVC/vcpkg include paths and C++23 flags.
 
 ## DLSS / Vulkan invariants
