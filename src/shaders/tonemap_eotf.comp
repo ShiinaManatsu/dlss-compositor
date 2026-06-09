@@ -8,11 +8,11 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // Input: scene-linear HDR (R16G16B16A16_SFLOAT)
 layout(set = 0, binding = 0) uniform sampler2D srcLinear;
 
-// Output: display-ready (sRGB encoded LDR or PQ encoded HDR)
-layout(set = 0, binding = 1, rgba8) uniform image2D dstDisplay;
+// Output: display-ready RGB10A2 (sRGB encoded LDR or PQ encoded HDR)
+layout(set = 0, binding = 1, rgb10_a2) uniform image2D dstDisplay;
 
 layout(push_constant) uniform PushConstants {
-    int mode;  // 0 = LDR (sRGB EOTF only), 1 = HDR (ACES Filmic + PQ ST.2084)
+    int mode;  // 0 = LDR (ACES-like + sRGB), 1 = HDR (ACES-like + PQ ST.2084)
 } pc;
 
 // --- sRGB EOTF (linear → sRGB encoded) ---
@@ -44,19 +44,21 @@ vec3 acesFilmic(vec3 x) {
 
 // --- PQ (ST.2084) EOTF ---
 // Reference: ITU-R BT.2100, SMPTE ST.2084
-// Blender convention: 1.0 scene-linear = 100 nits diffuse white
+// Blender convention: 1.0 scene-linear = 100 nits diffuse white.
+// HDR FG transport uses Rec.2100-PQ: 10000 nit peak with reference white at 100 nits.
+// Offline scene-linear values may exceed display-referred reference white by thousands
+// (sun/sky highlights). Use a fixed sequence-level transport range so PQ remains
+// reversible for FG-generated frames without per-frame pumping.
+const float HDR_TRANSPORT_SCENE_MAX = 4096.0;
 // PQ normalized: L_PQ = L_nits / 10000
-// Per Blender displays_views.rst:271-272: 1.0 scene-linear = 100 nits
-vec3 pqEotf(vec3 linear_scene) {
+vec3 pqEncodeSceneLinear(vec3 sceneLinear) {
     const float m1 = 0.1593017578125;
     const float m2 = 78.84375;
     const float c1 = 0.8359375;
     const float c2 = 18.8515625;
     const float c3 = 18.6875;
 
-    // Convert scene-linear to nits: 1.0 = 100 nits → L_norm = linear * 0.01
-    vec3 L = linear_scene * 0.01;  // = nits / 10000
-    L = max(L, vec3(0.0));
+    vec3 L = clamp(sceneLinear / HDR_TRANSPORT_SCENE_MAX, vec3(0.0), vec3(1.0));
 
     vec3 Lm1 = pow(L, vec3(m1));
     return pow((vec3(c1) + c2 * Lm1) / (vec3(1.0) + c3 * Lm1), vec3(m2));
@@ -73,14 +75,12 @@ void main() {
     vec3 result;
 
     if (pc.mode == 0) {
-        // LDR path: clamp to [0,1] + sRGB EOTF (no tonemap)
-        // Per user decision: LDR projects use sRGB EOTF only, no ACES
-        result = srgbEotf(linear.rgb);
+        // LDR path: scene-linear EXR -> display-referred SDR for FG transport.
+        result = srgbEotf(acesFilmic(linear.rgb));
     } else {
-        // HDR path: ACES Filmic tonemap + PQ ST.2084 EOTF
+        // HDR path: scene-linear -> Rec.2100-PQ transport for FG.
         // DLSS FG §HDR L1448-1500: FG needs display-ready HDR (PQ encoded)
-        vec3 tonemapped = acesFilmic(linear.rgb);
-        result = pqEotf(tonemapped);
+        result = pqEncodeSceneLinear(linear.rgb);
     }
 
     imageStore(dstDisplay, coord, vec4(result, linear.a));

@@ -7,9 +7,10 @@
 // scene-linear for EXR writing.
 // EXR outputs must be scene-linear; FG outputs are display-ready (PQ or sRGB encoded).
 //
-// LDR mode: inverse sRGB EOTF only (no inverse tonemap).
-// HDR mode: inverse PQ ST.2084 → inverse ACES Filmic (Narkowicz approximation).
-//           Blender convention: 1.0 scene-linear = 100 nits diffuse white.
+// LDR mode: inverse sRGB EOTF → inverse ACES Filmic.
+// HDR mode: inverse Rec.2100-PQ transport. PQ peak = 10000 nits,
+//           decoded normalized PQ is mapped back through the fixed offline transport range.
+const float HDR_TRANSPORT_SCENE_MAX = 4096.0;
 //
 // NaN guard: ACES inverse discriminant clamped to 0 to prevent sqrt(negative).
 // =============================================================================
@@ -23,7 +24,7 @@ layout(set = 0, binding = 0) uniform sampler2D srcDisplay;
 layout(set = 0, binding = 1, rgba16f) uniform image2D dstLinear;
 
 layout(push_constant) uniform PushConstants {
-    int mode;  // 0 = LDR (sRGB inverse EOTF), 1 = HDR (inverse PQ + inverse ACES Filmic)
+    int mode;  // 0 = LDR (inverse sRGB + inverse ACES), 1 = HDR (inverse Rec.2100-PQ transport)
 } pc;
 
 // --- sRGB Inverse EOTF (sRGB encoded → linear) ---
@@ -36,7 +37,7 @@ vec3 srgbInverse(vec3 encoded) {
     );
 }
 
-// --- Inverse PQ ST.2084 EOTF (PQ encoded [0,1] → tonemapped linear [0,1]) ---
+// --- Inverse PQ ST.2084 EOTF (PQ encoded [0,1] → scene-linear transport) ---
 // Reverses the PQ encoding from Stage 4.
 // Output is the intermediate "tonemapped" value (after ACES, before PQ in forward direction).
 // i.e., output ∈ [0,1], not yet scene-linear — ACES inverse must follow.
@@ -55,10 +56,8 @@ vec3 pqInverse(vec3 encoded) {
     den = max(den, vec3(1e-10));
     vec3 L = pow(num / den, vec3(1.0 / m1));
 
-    // Convert L_norm (nits/10000) back to tonemapped linear [0,1]:
-    // Forward: scene_linear * 0.01 = L  => tonemapped_linear = L * 100
-    // (Stage 4: L = scene_linear_after_aces * 0.01 → PQ, so inverse gives scene_linear_after_aces)
-    return L * 100.0;  // = L_norm * 10000 / 100 = L_norm * 100
+    // Forward maps scene-linear HDR_TRANSPORT_SCENE_MAX to 10000 nits.
+    return L * HDR_TRANSPORT_SCENE_MAX;
 }
 
 // --- Inverse ACES Filmic (numerical inversion of Narkowicz approximation) ---
@@ -96,16 +95,11 @@ void main() {
     vec3 result;
 
     if (pc.mode == 0) {
-        // LDR path: inverse sRGB EOTF only (no tonemap was applied in Stage 4 LDR)
-        result = srgbInverse(display.rgb);
+        // LDR path: inverse sRGB EOTF, then approximate inverse of the ACES-like tone curve.
+        result = acesInverse(clamp(srgbInverse(display.rgb), vec3(0.0), vec3(1.0)));
     } else {
-        // HDR path: inverse PQ → inverse ACES Filmic
-        // Step 1: Decode PQ → tonemapped linear (the value that was ACES tonemapped)
-        vec3 tonemapped = pqInverse(display.rgb);
-        // Clamp tonemapped to [0,1] range expected by ACES inverse
-        tonemapped = clamp(tonemapped, vec3(0.0), vec3(1.0));
-        // Step 2: Inverse ACES Filmic → scene-linear
-        result = acesInverse(tonemapped);
+        // HDR path: inverse Rec.2100-PQ transport back to scene-linear.
+        result = pqInverse(display.rgb);
     }
 
     imageStore(dstLinear, coord, vec4(result, display.a));

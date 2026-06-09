@@ -1,16 +1,7 @@
 #version 450
-// DLSS SR §3.6 - per-pixel motion vectors curr→prev in pixel-units, X positive = right, Y positive = down
-// Blender Vector pass (verified empirically per blender/tests/MV_SANITY_RESULT.md, T13):
-//   Vector.X = prev→curr X displacement, X positive = LEFT (Blender screen space convention)
-//   Vector.Y = prev→curr Y displacement, Y positive = DOWN
-//   Vector.Z, Vector.W = curr→next (unused by DLSS)
-// Mapping derivation (DLSS SR §3.6 + T13 MV_SANITY_RESULT.md):
-//   X axis: Blender X+=left + DLSS X+=right + time reversal (prev→curr → curr→prev)
-//           Two sign flips cancel → DLSS_MV.X = Blender.X (direct passthrough)
-//   Y axis: Blender Y+=down + DLSS Y+=down, but time reversal flips sign once
-//           → DLSS_MV.Y = -Blender.Y
-// MAPPING: DLSS_MV = (Blender.X, -Blender.Y)
-// NOTE: v1 used -blenderMv (both axes negated) — that was WRONG (see MV_SANITY_RESULT.md)
+// DLSS SR/FG §3.6/§6 - per-pixel motion vectors curr→prev in pixel-units.
+// Blender Vector pass X/Y are prev→curr in render-pixel units. DLSS expects
+// curr→prev in pixel-units, with Y inverted for Vulkan/DLSS screen space.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -33,12 +24,7 @@ void main() {
     //           Z=to-next X (unused), W=to-next Y (unused)
     vec4 blender = texture(srcMV4ch, uv);
     
-    // Apply mapping: DLSS_MV = (Blender.X, -Blender.Y)
-    // DLSS SR §3.6 - motion vectors in pixel units, X+=right, Y+=down, curr→prev direction
-    vec2 dlss = vec2(
-        blender.x,   // X: direct passthrough (two canceling sign flips)
-        -blender.y   // Y: negate (only time inversion applies)
-    );
+    vec2 dlss = vec2(blender.x, -blender.y);
     
     // Store 2-channel DLSS MV (RG16F format)
     imageStore(dstMV2ch, coord, vec4(dlss, 0.0, 0.0));
