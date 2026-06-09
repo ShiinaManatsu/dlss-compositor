@@ -1,6 +1,0 @@
-docs/gui_guide.md: 10980 bytes
-docs/blender_export_guide.md: 5649 bytes
-docs/development.md: 9047 bytes
-README.md: updated
-All files > 1000 bytes: YES
-Stale references removed: ExePathConfig, OPEN_EXR_MULTILAYER

@@ -1,8 +1,0 @@
-Completed Task 7:
-1. Created `gui/electron/camera-detector.ts` with `findCameraJson` and `readSourceResolution`.
-2. Updated `gui/electron/ipc-channels.ts` and `gui/src/ipc/channels.ts` to add `CAMERA_AUTO_DETECT`.
-3. Updated `gui/electron/main.ts` to register the handler.
-4. Updated `gui/electron/preload.ts` and `gui/src/types/window.d.ts`.
-5. Updated `gui/src/types/dlss-config.ts` and `gui/src/state/config-store.ts` with `sourceWidth` and `sourceHeight`.
-6. Updated `gui/src/components/InputOutputPanel.tsx` to call auto-detect after selecting a directory and display the hint `✓ Auto-detected camera.json from input directory`.
-7. Built and committed successfully.

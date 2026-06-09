@@ -1,2 +1,0 @@
-No matches found for pattern: render_width|render_height
-Search scope: gui/**/*.ts, gui/**/*.tsx

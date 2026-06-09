@@ -1,7 +1,0 @@
-Task 8: Add Target Resolution Presets and scale linkage.
-1. Updated `gui/src/types/dlss-config.ts` with `targetPreset`, `customTargetWidth`, `customTargetHeight`.
-2. Updated `gui/src/state/config-store.ts` to include actions for these, and a `computeScale` function that updates `scaleFactor` dynamically based on `targetPreset` and `sourceWidth`.
-3. Created `gui/src/components/ResolutionPanel.tsx` that presents the source resolution and allows the user to select target presets and input custom dimensions.
-4. Modified `gui/src/components/BasicSettings.tsx` to include `ResolutionPanel`.
-5. Built successfully with `npm run build` and checked for zero TypeScript errors.
-6. Committed changes with `feat(gui): target resolution + scale linkage (4K/1440p/1080p preset)`.

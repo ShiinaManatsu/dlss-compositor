@@ -1,8 +1,0 @@
-Evidence for Task 17: Vulkan compute-only context
-
-- Created `src/gpu/vulkan_context.h` and `src/gpu/vulkan_context.cpp`
-- No swapchain or surface created, headless compute initialized with required extensions
-- Implemented class `VulkanContext` using volk and VMA
-- Included external memory extension and sync2 required by NGX
-- Implemented tests in `tests/test_vulkan_context.cpp` tagged with `[gpu]`
-- Hooked files in `CMakeLists.txt` and `tests/CMakeLists.txt`

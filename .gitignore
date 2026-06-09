@@ -84,4 +84,5 @@ dlss-compositor-gui*.log
 build_t31*.log
 
 .omo/run-continuation/
-
+.omo/evidence/
+.omo/release/
