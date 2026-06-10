@@ -94,6 +94,9 @@ nlohmann::json RpcDispatcher::handleStartTask(const nlohmann::json& /*p*/) {
     m_progress.current_frame.store(0);
     m_progress.total_frames.store(100);
     m_progress.percent.store(0.0f);
+    m_progress.dlss_current_frame.store(0);
+    m_progress.dlss_total_frames.store(100);
+    m_progress.dlss_percent.store(0.0f);
 
     LOG_INFO("[RPC] startTask: {}", m_currentTaskId);
     return {{"ok", true}, {"task_id", m_currentTaskId}};
@@ -157,6 +160,9 @@ nlohmann::json RpcDispatcher::handleGetProgress(const nlohmann::json& /*p*/) {
         {"current_frame", m_progress.current_frame.load()},
         {"total_frames",  m_progress.total_frames.load()},
         {"percent",       m_progress.percent.load()},
+        {"dlss_current_frame", m_progress.dlss_current_frame.load()},
+        {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
+        {"dlss_percent",       m_progress.dlss_percent.load()},
         {"state",         m_progress.state.load()},
     };
 }

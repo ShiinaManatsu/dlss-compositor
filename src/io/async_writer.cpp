@@ -413,6 +413,9 @@ void AsyncFrameWriter::workerLoop()
 
         try {
             processJob(job);
+            if (job.completionCallback) {
+                job.completionCallback();
+            }
         } catch (const std::exception& e) {
             recordError(WriteError{
                 WriteErrorCode::EncoderFailed,

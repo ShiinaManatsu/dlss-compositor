@@ -26,6 +26,9 @@ class AppState extends ChangeNotifier {
   int currentFrame = 0;
   int totalFrames = 0;
   double progressPercent = 0.0;
+  int dlssCurrentFrame = 0;
+  int dlssTotalFrames = 0;
+  double dlssProgressPercent = 0.0;
   String? taskError;
 
   // Task configuration fields
@@ -80,15 +83,28 @@ class AppState extends ChangeNotifier {
   }
 
   // Update progress
-  void updateProgress(int frame, int total, double percent) {
+  void updateProgress(
+    int frame,
+    int total,
+    double percent, {
+    int? dlssFrame,
+    int? dlssTotal,
+    double? dlssPercent,
+  }) {
     AppLog.phase('progress', 'updateProgress', {
       'frame': frame,
       'total': total,
       'percent': percent,
+      'dlss_frame': dlssFrame,
+      'dlss_total': dlssTotal,
+      'dlss_percent': dlssPercent,
     });
     currentFrame = frame;
     totalFrames = total;
     progressPercent = percent;
+    dlssCurrentFrame = dlssFrame ?? frame;
+    dlssTotalFrames = dlssTotal ?? total;
+    dlssProgressPercent = dlssPercent ?? percent;
     notifyListeners();
   }
 

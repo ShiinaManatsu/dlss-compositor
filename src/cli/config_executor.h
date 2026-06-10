@@ -21,7 +21,10 @@ struct ConfigExecutionOptions {
     int fgMultiplier = 2;
     bool emitEvents = false;
     std::string previewSharedMemoryName;
-    std::function<void(int currentFrame, int totalFrames)> progressCallback;
+    std::function<void(int currentFrame,
+                       int totalFrames,
+                       int dlssCurrentFrame,
+                       int dlssTotalFrames)> progressCallback;
     std::function<bool()> cancelRequested;
     std::function<bool()> wantsPreviewFrame;
     std::function<void(const std::vector<std::uint8_t>& pixels,

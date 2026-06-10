@@ -262,6 +262,9 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
     m_dispatcher->progress().current_frame.store(0);
     m_dispatcher->progress().total_frames.store(totalFrames);
     m_dispatcher->progress().percent.store(0.0f);
+    m_dispatcher->progress().dlss_current_frame.store(0);
+    m_dispatcher->progress().dlss_total_frames.store(totalFrames);
+    m_dispatcher->progress().dlss_percent.store(0.0f);
     m_dispatcher->progress().state.store(1);
 
     try {
@@ -315,6 +318,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
 
         int processedFrames = 0;
+        std::atomic<int> writtenFrames{0};
         for (int frameIdx = 0; frameIdx < totalFrames && !m_stop.load(); ++frameIdx) {
             const auto frameResult = prefetcher.getNext();
             if (!frameResult.has_value()) {
@@ -396,6 +400,12 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
             writeJob.pixels        = m_ctx->downloadImageRgba16f(colorOutput->image, writeJob.width, writeJob.height);
+            writeJob.completionCallback = [this, totalFrames, &writtenFrames]() {
+                const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
+                m_dispatcher->progress().current_frame.store(written);
+                m_dispatcher->progress().percent.store(
+                    static_cast<float>(written) / static_cast<float>(totalFrames));
+            };
             writer.enqueue(std::move(writeJob));
             ++processedFrames;
 
@@ -406,8 +416,8 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             pool.release(mvBlender);
             pool.release(mvDlss);
 
-            m_dispatcher->progress().current_frame.store(frameIdx + 1);
-            m_dispatcher->progress().percent.store(
+            m_dispatcher->progress().dlss_current_frame.store(frameIdx + 1);
+            m_dispatcher->progress().dlss_percent.store(
                 static_cast<float>(frameIdx + 1) / static_cast<float>(totalFrames));
             LOG_INFO("[SR-only] Frame {}/{} done", frameIdx + 1, totalFrames);
         }

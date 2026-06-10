@@ -261,16 +261,20 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             });
 
             int lastFrame = -1;
+            int lastDlssFrame = -1;
             while (!done.load()) {
                 requestStopIfNeeded();
                 const int current = dispatcher.progress().current_frame.load();
                 const int total = dispatcher.progress().total_frames.load();
-                if (total > 0 && current != lastFrame) {
+                const int dlssCurrent = dispatcher.progress().dlss_current_frame.load();
+                const int dlssTotal = dispatcher.progress().dlss_total_frames.load();
+                if (total > 0 && (current != lastFrame || dlssCurrent != lastDlssFrame)) {
                     if (options.progressCallback) {
-                        options.progressCallback(current, total);
+                        options.progressCallback(current, total, dlssCurrent, dlssTotal);
                     }
                     emitProgressEvent(current, total);
                     lastFrame = current;
+                    lastDlssFrame = dlssCurrent;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
@@ -280,9 +284,11 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             }
             const int current = dispatcher.progress().current_frame.load();
             const int total = dispatcher.progress().total_frames.load();
-            if (total > 0 && current != lastFrame) {
+            const int dlssCurrent = dispatcher.progress().dlss_current_frame.load();
+            const int dlssTotal = dispatcher.progress().dlss_total_frames.load();
+            if (total > 0 && (current != lastFrame || dlssCurrent != lastDlssFrame)) {
                 if (options.progressCallback) {
-                    options.progressCallback(current, total);
+                    options.progressCallback(current, total, dlssCurrent, dlssTotal);
                 }
                 emitProgressEvent(current, total);
             }
@@ -299,15 +305,19 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             });
 
             int lastFrame = -1;
+            int lastDlssFrame = -1;
             while (!done.load()) {
                 requestStopIfNeeded();
                 const int current = dispatcher.progress().current_frame.load();
                 const int total = dispatcher.progress().total_frames.load();
-                if (total > 0 && current != lastFrame) {
+                const int dlssCurrent = dispatcher.progress().dlss_current_frame.load();
+                const int dlssTotal = dispatcher.progress().dlss_total_frames.load();
+                if (total > 0 && (current != lastFrame || dlssCurrent != lastDlssFrame)) {
                     if (options.progressCallback) {
-                        options.progressCallback(current, total);
+                        options.progressCallback(current, total, dlssCurrent, dlssTotal);
                     }
                     lastFrame = current;
+                    lastDlssFrame = dlssCurrent;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
@@ -317,8 +327,10 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             }
             const int current = dispatcher.progress().current_frame.load();
             const int total = dispatcher.progress().total_frames.load();
-            if (total > 0 && current != lastFrame && options.progressCallback) {
-                options.progressCallback(current, total);
+            const int dlssCurrent = dispatcher.progress().dlss_current_frame.load();
+            const int dlssTotal = dispatcher.progress().dlss_total_frames.load();
+            if (total > 0 && (current != lastFrame || dlssCurrent != lastDlssFrame) && options.progressCallback) {
+                options.progressCallback(current, total, dlssCurrent, dlssTotal);
             }
         }
 

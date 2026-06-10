@@ -266,6 +266,9 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
     m_dispatcher->progress().current_frame.store(0);
     m_dispatcher->progress().total_frames.store(outputFrames);
     m_dispatcher->progress().percent.store(0.0f);
+    m_dispatcher->progress().dlss_current_frame.store(0);
+    m_dispatcher->progress().dlss_total_frames.store(outputFrames);
+    m_dispatcher->progress().dlss_percent.store(0.0f);
     m_dispatcher->progress().state.store(1);
 
     try {
@@ -330,6 +333,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
 
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         int outputFrameIdx = 0;
+        std::atomic<int> writtenFrames{0};
 
         auto enqueueSceneLinear = [&](PooledTextureHandle sceneLinear) {
             ++outputFrameIdx;
@@ -343,10 +347,16 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             writeJob.is_hdr        = dlssCfg.is_hdr;
             writeJob.overwriteMode = config.overwriteMode;
             writeJob.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, w, h);
+            writeJob.completionCallback = [this, outputFrames, &writtenFrames]() {
+                const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
+                m_dispatcher->progress().current_frame.store(written);
+                m_dispatcher->progress().percent.store(
+                    static_cast<float>(written) / static_cast<float>(outputFrames));
+            };
             writer.enqueue(std::move(writeJob));
 
-            m_dispatcher->progress().current_frame.store(outputFrameIdx);
-            m_dispatcher->progress().percent.store(
+            m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+            m_dispatcher->progress().dlss_percent.store(
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
         };
 

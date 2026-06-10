@@ -490,6 +490,9 @@ void SrFgPipeline::run(const SrFgConfig& config) {
     m_dispatcher->progress().current_frame.store(0);
     m_dispatcher->progress().total_frames.store(outputFrames);
     m_dispatcher->progress().percent.store(0.0f);
+    m_dispatcher->progress().dlss_current_frame.store(0);
+    m_dispatcher->progress().dlss_total_frames.store(outputFrames);
+    m_dispatcher->progress().dlss_percent.store(0.0f);
     m_dispatcher->progress().state.store(1);
 
     try {
@@ -544,6 +547,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
         const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps);  // DLSS SR §3.14 — from fps, NEVER hardcoded
         int outputFrameIdx = 0;
+        std::atomic<int> writtenFrames{0};
         const bool dumpGuides = shouldDumpGuideBuffers();
 
         auto enqueueSceneLinear = [&](PooledTextureHandle sceneLinear) {
@@ -558,10 +562,16 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             job.is_hdr        = dlssCfg.is_hdr;
             job.overwriteMode = config.overwriteMode;
             job.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH);
+            job.completionCallback = [this, outputFrames, &writtenFrames]() {
+                const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
+                m_dispatcher->progress().current_frame.store(written);
+                m_dispatcher->progress().percent.store(
+                    static_cast<float>(written) / static_cast<float>(outputFrames));
+            };
             writer.enqueue(std::move(job));
 
-            m_dispatcher->progress().current_frame.store(outputFrameIdx);
-            m_dispatcher->progress().percent.store(
+            m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+            m_dispatcher->progress().dlss_percent.store(
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
         };
 

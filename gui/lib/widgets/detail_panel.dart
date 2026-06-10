@@ -137,7 +137,17 @@ class _DetailPanelState extends State<DetailPanel> {
         final currentFrame = progress['current_frame'] as int? ?? appState.currentFrame;
         final total = progress['total_frames'] as int? ?? appState.totalFrames;
         final percent = progress['percent'] as double? ?? (total > 0 ? currentFrame / total : 0.0);
-        appState.updateProgress(currentFrame, total, percent);
+        final dlssCurrentFrame = progress['dlss_current_frame'] as int? ?? appState.dlssCurrentFrame;
+        final dlssTotal = progress['dlss_total_frames'] as int? ?? appState.dlssTotalFrames;
+        final dlssPercent = progress['dlss_percent'] as double? ?? (dlssTotal > 0 ? dlssCurrentFrame / dlssTotal : percent);
+        appState.updateProgress(
+          currentFrame,
+          total,
+          percent,
+          dlssFrame: dlssCurrentFrame,
+          dlssTotal: dlssTotal,
+          dlssPercent: dlssPercent,
+        );
         if (total > 0 && currentFrame == 0 && _startTime == null) {
           _startTime = DateTime.now();
         }
@@ -299,23 +309,7 @@ class _DetailPanelState extends State<DetailPanel> {
           ),
           if (state.taskState == TaskState.running || state.taskState == TaskState.done || state.taskState == TaskState.error) ...[
             const SizedBox(height: 4),
-            TweenAnimationBuilder<double>(
-              tween: Tween<double>(
-                begin: 0,
-                end: state.progressPercent.clamp(0.0, 1.0),
-              ),
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) {
-                return LinearProgressIndicator(
-                  value: value,
-                  backgroundColor: Colors.white12,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    state.taskState == TaskState.done ? Colors.green : Colors.blue,
-                  ),
-                );
-              },
-            ),
+            _buildDualProgressBar(state),
           ],
         ],
       ),
@@ -355,6 +349,39 @@ class _DetailPanelState extends State<DetailPanel> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDualProgressBar(AppState state) {
+    return Stack(
+      children: [
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: state.dlssProgressPercent.clamp(0.0, 1.0)),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, _) {
+            return LinearProgressIndicator(
+              minHeight: 6,
+              value: value,
+              backgroundColor: Colors.white12,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.withValues(alpha: 0.5)),
+            );
+          },
+        ),
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: state.progressPercent.clamp(0.0, 1.0)),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, _) {
+            return LinearProgressIndicator(
+              minHeight: 6,
+              value: value,
+              backgroundColor: Colors.transparent,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.green.withValues(alpha: 0.5)),
+            );
+          },
+        ),
+      ],
     );
   }
 

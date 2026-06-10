@@ -31,6 +31,9 @@ struct alignas(64) RenderProgress {
     std::atomic<int>   current_frame{0};
     std::atomic<int>   total_frames{0};
     std::atomic<float> percent{0.0f};
+    std::atomic<int>   dlss_current_frame{0};
+    std::atomic<int>   dlss_total_frames{0};
+    std::atomic<float> dlss_percent{0.0f};
     // State: 0=Idle, 1=Running, 2=Done, 3=Error
     std::atomic<int>   state{0};
 };

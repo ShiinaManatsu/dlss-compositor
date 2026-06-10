@@ -209,6 +209,8 @@ class DlssCompositorPlugin : public flutter::Plugin {
   flutter::EncodableMap task_params_;
   std::atomic<int> current_frame_{0};
   std::atomic<int> total_frames_{0};
+  std::atomic<int> dlss_current_frame_{0};
+  std::atomic<int> dlss_total_frames_{0};
   std::atomic<bool> task_running_{false};
 
   std::mutex runtime_mutex_;
@@ -557,6 +559,13 @@ void DlssCompositorPlugin::HandleMethodCall(
       const int total = total_frames_.load();
       progress[flutter::EncodableValue("percent")] = flutter::EncodableValue(
           total > 0 ? static_cast<double>(current_frame_.load()) / static_cast<double>(total) : 0.0);
+      progress[flutter::EncodableValue("dlss_current_frame")] =
+          flutter::EncodableValue(static_cast<int32_t>(dlss_current_frame_.load()));
+      progress[flutter::EncodableValue("dlss_total_frames")] =
+          flutter::EncodableValue(static_cast<int32_t>(dlss_total_frames_.load()));
+      const int dlssTotal = dlss_total_frames_.load();
+      progress[flutter::EncodableValue("dlss_percent")] = flutter::EncodableValue(
+          dlssTotal > 0 ? static_cast<double>(dlss_current_frame_.load()) / static_cast<double>(dlssTotal) : 0.0);
       progress[flutter::EncodableValue("state")] =
           flutter::EncodableValue(std::string(task_running_.load() ? "running" : "idle"));
       result->Success(flutter::EncodableValue(progress));
@@ -631,12 +640,16 @@ void DlssCompositorPlugin::HandleMethodCall(
       task_running_.store(true);
       current_frame_.store(0);
       total_frames_.store(0);
+      dlss_current_frame_.store(0);
+      dlss_total_frames_.store(0);
       render_thread_ = std::thread([this, options = std::move(options)]() mutable {
         RootLog("render", "native engine worker started");
         try {
-          options.progressCallback = [this](int current, int total) {
+          options.progressCallback = [this](int current, int total, int dlssCurrent, int dlssTotal) {
             current_frame_.store(current);
             total_frames_.store(total);
+            dlss_current_frame_.store(dlssCurrent);
+            dlss_total_frames_.store(dlssTotal);
           };
           options.previewRgba8Callback = [this](const std::vector<std::uint8_t>& pixels,
                                                 std::uint32_t width,
