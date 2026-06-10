@@ -20,27 +20,26 @@ void main() {
     );
 
     // Initial state: TaskState.idle
-    expect(find.text('Ready'), findsOneWidget);
-    expect(find.text('Log'), findsOneWidget);
-    expect(find.text('Preview frames will appear here during processing'), findsOneWidget);
+    expect(find.text('TERMINAL LOG'), findsOneWidget);
+    expect(find.text('Live Preview'), findsOneWidget);
 
     // Update to running state
     appState.taskState = TaskState.running;
     appState.updateProgress(10, 100, 0.1);
 
     await tester.pump();
-    expect(find.text('Processing: 10/100'), findsOneWidget);
-    expect(find.text('10.0%'), findsOneWidget);
+    expect(find.text('PROCESSING'), findsOneWidget);
+    expect(find.text('Disk Output'), findsOneWidget);
     
     // Update to done state
     appState.setTaskConfig(outputDir: 'C:\\output');
     appState.setTaskState(TaskState.done);
     await tester.pump();
 
-    expect(find.text('Complete ✓'), findsOneWidget);
-    expect(find.text('Completed'), findsOneWidget);
-    expect(find.text('Open Output Folder'), findsOneWidget);
-    final openButton = tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Open Output Folder'));
+    expect(find.text('COMPLETED'), findsOneWidget);
+    expect(find.text('PROCESS COMPLETED'), findsOneWidget);
+    expect(find.text('Open Folder'), findsOneWidget);
+    final openButton = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Open Folder'));
     expect(openButton.onPressed, isNotNull);
   });
 }

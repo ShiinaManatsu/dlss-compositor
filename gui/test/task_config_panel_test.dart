@@ -53,9 +53,9 @@ void main() {
     expect(find.text('PNG (16-bit)'), findsOneWidget);
     
     // Check elements
-    expect(find.text('Output: 1920×1080'), findsOneWidget);
-    expect(find.text('Quality: Performance'), findsOneWidget);
-    expect(find.text('FPS: 60'), findsOneWidget);
+    expect(find.text('Out: 1920×1080'), findsOneWidget);
+    expect(find.text('Performance'), findsOneWidget);
+    expect(find.text('60 fps'), findsOneWidget);
   });
 
   testWidgets('TaskConfigPanel limits formats for HDR', (WidgetTester tester) async {

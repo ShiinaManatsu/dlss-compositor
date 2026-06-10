@@ -40,7 +40,6 @@ void main() {
 
     expect(find.text('C:\\path\\to\\invalid.json'), findsOneWidget);
     expect(find.text('Invalid version (expected 1, got 2)'), findsOneWidget);
-    expect(find.byIcon(Icons.error), findsOneWidget);
   });
 
   testWidgets('DlssConfigPicker shows summary when config is valid', (WidgetTester tester) async {
@@ -68,7 +67,7 @@ void main() {
 
     expect(find.text('C:\\path\\to\\valid.json'), findsOneWidget);
     expect(find.text('Valid'), findsOneWidget);
-    expect(find.text('3840×2160'), findsOneWidget);
+    expect(find.text('Out: 3840×2160'), findsOneWidget);
     expect(find.text('Performance'), findsOneWidget);
     expect(find.text('HDR'), findsOneWidget);
     expect(find.text('60 fps'), findsOneWidget);

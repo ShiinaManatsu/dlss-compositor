@@ -72,48 +72,60 @@ class DlssConfigPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () => _pickFile(context),
-                      icon: const Icon(Icons.folder_open, size: 16),
-                      label: const Text('Open dlssconfig.json'),
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: () => _pickFile(context),
+                    icon: const Icon(Icons.folder_open, size: 16),
+                    label: const Text('Open dlssconfig.json'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    if (state.currentDlssConfigPath != null)
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
-                        child: Text(
-                          state.currentDlssConfigPath!,
-                          style: const TextStyle(fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(width: 12),
+                  if (state.currentDlssConfigPath != null)
+                    Expanded(
+                      child: Text(
+                        state.currentDlssConfigPath!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontFamily: 'monospace',
                         ),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                  ],
-                ),
-
-                if (state.currentDlssConfig != null) ...[
-                  const SizedBox(height: 8),
-                  _buildSummary(state.currentDlssConfig!),
+                    ),
                 ],
+              ),
+              if (state.configError != null) ...[
+                const SizedBox(height: 12),
+                _errorBadge(state.configError!),
+              ] else if (state.currentDlssConfig != null) ...[
+                const SizedBox(height: 12),
+                _buildSummary(state.currentDlssConfig!, context),
               ],
-            ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildSummary(Map<String, dynamic> config) {
+  Widget _buildSummary(Map<String, dynamic> config, BuildContext context) {
     final outRes = config['output_resolution'] as Map<String, dynamic>?;
+    final renderRes = config['render_resolution'] as Map<String, dynamic>?;
     
     int? numFrames;
     final dynamic framesRaw = config['frames'];
@@ -124,28 +136,70 @@ class DlssConfigPicker extends StatelessWidget {
     }
 
     return Wrap(
-      spacing: 16,
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        _chip(Icons.check_circle, 'Valid', Colors.green),
+        _badge(context, Icons.check_circle, 'Valid', Colors.green),
+        if (renderRes != null)
+          _badge(context, Icons.input,
+              'In: ${renderRes['width']}×${renderRes['height']}', Colors.grey),
         if (outRes != null)
-          _chip(Icons.photo_size_select_actual,
-              '${outRes['width']}×${outRes['height']}', Colors.blue),
-        _chip(Icons.settings, '${config['quality_mode'] ?? 'N/A'}', Colors.orange),
-        if (config['is_hdr'] == true) _chip(Icons.hdr_on, 'HDR', Colors.purple),
-        _chip(Icons.speed, '${config['fps'] ?? 0} fps', Colors.teal),
+          _badge(context, Icons.output,
+              'Out: ${outRes['width']}×${outRes['height']}', Colors.blue),
+        _badge(context, Icons.settings, '${config['quality_mode'] ?? 'N/A'}', Colors.orange),
+        if (config['is_hdr'] == true) _badge(context, Icons.hdr_on, 'HDR', Colors.purple),
+        _badge(context, Icons.speed, '${config['fps'] ?? 0} fps', Colors.teal),
         if (numFrames != null)
-          _chip(Icons.movie, '$numFrames frames', Colors.indigo),
+          _badge(context, Icons.movie, '$numFrames frames', Colors.indigo),
       ],
     );
   }
 
-  Widget _chip(IconData icon, String label, Color color) {
-    return Chip(
-      avatar: Icon(icon, size: 14, color: color),
-      label: Text(label, style: const TextStyle(fontSize: 11)),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      visualDensity: VisualDensity.compact,
+  Widget _badge(BuildContext context, IconData icon, String label, MaterialColor color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color.shade400),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: color.shade200,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _errorBadge(String message) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.12),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+          const SizedBox(width: 8),
+          Text(
+            message,
+            style: const TextStyle(fontSize: 12, color: Colors.redAccent),
+          ),
+        ],
+      ),
     );
   }
 }

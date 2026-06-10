@@ -246,102 +246,172 @@ class _DetailPanelState extends State<DetailPanel> {
 
   Widget _buildPreviewSection() {
     return Container(
-      color: Colors.black87,
-      child: _previewImage != null
-          ? RawImage(
-              image: _previewImage,
-              fit: BoxFit.contain,
-            )
-          : const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.image_not_supported, color: Colors.white38, size: 48),
-                  SizedBox(height: 8),
-                  Text('Preview frames will appear here during processing',
-                      style: TextStyle(color: Colors.white38, fontSize: 12)),
-                ],
+      margin: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A),
+        border: Border.all(color: const Color(0xFF333333)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: _previewImage != null
+            ? RawImage(
+                image: _previewImage,
+                fit: BoxFit.contain,
+              )
+            : const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.image, color: Colors.white24, size: 48),
+                    SizedBox(height: 12),
+                    Text('Live Preview', style: TextStyle(color: Colors.white38, fontSize: 13, letterSpacing: 0.5)),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 
   Widget _buildProgressSection(AppState state) {
-    String statusText = 'Ready';
-    if (state.taskState == TaskState.running) {
-      statusText = 'Processing: ${state.currentFrame}/${state.totalFrames}';
-      if (_startTime != null && state.currentFrame > 0 && state.totalFrames > state.currentFrame) {
-        final elapsed = DateTime.now().difference(_startTime!);
-        final timePerFrame = elapsed.inMilliseconds / state.currentFrame;
-        final remainingFrames = state.totalFrames - state.currentFrame;
-        final etaMillis = timePerFrame * remainingFrames;
-        final eta = Duration(milliseconds: etaMillis.round());
-        statusText += '  (ETA: ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')})';
-      }
-    } else if (state.taskState == TaskState.done) {
-      statusText = 'Complete ✓';
+    if (state.taskState == TaskState.idle) return const SizedBox.shrink();
+
+    String statusTitle = 'PROCESSING';
+    Color statusColor = Colors.white;
+    if (state.taskState == TaskState.done) {
+      statusTitle = 'COMPLETED';
+      statusColor = Colors.green;
     } else if (state.taskState == TaskState.error) {
-      statusText = 'Stopped';
+      statusTitle = 'ERROR';
+      statusColor = Colors.red;
+    }
+
+    String etaText = '';
+    if (state.taskState == TaskState.running && _startTime != null && state.currentFrame > 0 && state.totalFrames > state.currentFrame) {
+      final elapsed = DateTime.now().difference(_startTime!);
+      final timePerFrame = elapsed.inMilliseconds / state.currentFrame;
+      final remainingFrames = state.totalFrames - state.currentFrame;
+      final etaMillis = timePerFrame * remainingFrames;
+      final eta = Duration(milliseconds: etaMillis.round());
+      etaText = 'ETA ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')}';
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      color: const Color(0xFF2D2D2D),
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        border: Border.all(color: const Color(0xFF333333)),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                statusText,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12
-                ),
+                statusTitle,
+                style: TextStyle(color: statusColor, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.0),
               ),
-              const Spacer(),
-              if (state.taskState == TaskState.running)
+              if (etaText.isNotEmpty)
                 Text(
-                  '${(state.progressPercent * 100).toStringAsFixed(1)}%',
-                  style: const TextStyle(color: Colors.green, fontSize: 12),
+                  etaText,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12, fontFamily: 'monospace'),
                 ),
             ],
           ),
-          if (state.taskState == TaskState.running || state.taskState == TaskState.done || state.taskState == TaskState.error) ...[
-            const SizedBox(height: 4),
-            _buildDualProgressBar(state),
-          ],
+          const SizedBox(height: 16),
+          _buildProgressRow(
+            'DLSS Pipeline',
+            state.dlssCurrentFrame,
+            state.dlssTotalFrames,
+            state.dlssProgressPercent,
+            const Color(0xFF00B050), // NVIDIA Green
+          ),
+          const SizedBox(height: 12),
+          _buildProgressRow(
+            'Disk Output',
+            state.currentFrame,
+            state.totalFrames,
+            state.progressPercent,
+            const Color(0xFF0078D7), // Tech Blue
+          ),
         ],
       ),
     );
   }
 
+  Widget _buildProgressRow(String label, int current, int total, double percent, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              '$current / $total  (${(percent * 100).toStringAsFixed(1)}%)',
+              style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: percent.clamp(0.0, 1.0)),
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) {
+              return LinearProgressIndicator(
+                minHeight: 8,
+                value: value,
+                backgroundColor: Colors.white10,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildLogSection() {
     return Container(
-      color: const Color(0xFF1A1A1A),
+      margin: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A),
+        border: Border.all(color: const Color(0xFF333333)),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Text('Log', style: TextStyle(color: Colors.white54, fontSize: 11)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF333333))),
+            ),
+            child: const Text('TERMINAL LOG', style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
           ),
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: _logs.length,
               itemBuilder: (ctx, i) {
                 final log = _logs[i];
                 Color color = switch (log.level) {
-                  'error' => Colors.red,
-                  'warn' || 'warning' => Colors.orange,
-                  'debug' => Colors.grey,
+                  'error' => Colors.redAccent,
+                  'warn' || 'warning' => Colors.orangeAccent,
+                  'debug' => Colors.white38,
                   _ => Colors.white70,
                 };
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                   child: Text(
-                    '[${log.level.toUpperCase()}] ${log.message}',
-                    style: TextStyle(color: color, fontSize: 11, fontFamily: 'monospace'),
+                    '[${log.level.padRight(5).toUpperCase()}] ${log.message}',
+                    style: TextStyle(color: color, fontSize: 12, fontFamily: 'monospace'),
                   ),
                 );
               },
@@ -352,64 +422,43 @@ class _DetailPanelState extends State<DetailPanel> {
     );
   }
 
-  Widget _buildDualProgressBar(AppState state) {
-    return Stack(
-      children: [
-        TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: state.dlssProgressPercent.clamp(0.0, 1.0)),
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, _) {
-            return LinearProgressIndicator(
-              minHeight: 6,
-              value: value,
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.withValues(alpha: 0.5)),
-            );
-          },
-        ),
-        TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: state.progressPercent.clamp(0.0, 1.0)),
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, _) {
-            return LinearProgressIndicator(
-              minHeight: 6,
-              value: value,
-              backgroundColor: Colors.transparent,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.green.withValues(alpha: 0.5)),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
   Widget _buildCompletionStats(AppState state) {
     final duration = (_startTime != null && _endTime != null)
         ? _endTime!.difference(_startTime!)
         : Duration.zero;
 
     return Container(
-      padding: const EdgeInsets.all(12),
-      color: const Color(0xFF1E3A1E),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF00B050).withValues(alpha: 0.1),
+        border: Border.all(color: const Color(0xFF00B050).withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
         children: [
-          const Text('Completed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text('Time: ${duration.inSeconds}s | Frames: $_outputFrameCount',
-              style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          const SizedBox(height: 4),
-          ElevatedButton.icon(
+          const Icon(Icons.check_circle, color: Color(0xFF00B050), size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('PROCESS COMPLETED', style: TextStyle(color: Color(0xFF00B050), fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                const SizedBox(height: 4),
+                Text('Rendered $_outputFrameCount frames in ${duration.inSeconds}s',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              ],
+            ),
+          ),
+          FilledButton.icon(
             onPressed: state.outputDir.trim().isEmpty
                 ? null
                 : () => _openOutputFolder(state.outputDir),
-            icon: const Icon(Icons.folder_open, size: 14),
-            label: const Text('Open Output Folder'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              textStyle: const TextStyle(fontSize: 12),
+            icon: const Icon(Icons.folder_open, size: 16),
+            label: const Text('Open Folder'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF00B050),
+              foregroundColor: Colors.white,
             ),
           ),
         ],

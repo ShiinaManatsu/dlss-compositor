@@ -27,13 +27,80 @@ void main() {
 class DlssCompositorApp extends StatelessWidget {
   const DlssCompositorApp({super.key});
 
+  static const _bg = Color(0xFF090D0B);
+  static const _surface = Color(0xFF111713);
+  static const _surfaceAlt = Color(0xFF171F1A);
+  static const _line = Color(0xFF26322B);
+  static const _accent = Color(0xFF51D47A);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'DLSS Compositor v2',
-      theme: ThemeData(
-        colorSchemeSeed: Colors.green,
+      debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.dark,
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        colorSchemeSeed: _accent,
         useMaterial3: true,
+        scaffoldBackgroundColor: _bg,
+        fontFamily: 'Segoe UI',
+        dividerColor: _line,
+        cardTheme: const CardThemeData(
+          color: _surface,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: _line),
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: _surfaceAlt,
+          selectedColor: _accent.withValues(alpha: 0.22),
+          side: const BorderSide(color: _line),
+          labelStyle: const TextStyle(fontSize: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: _bg.withValues(alpha: 0.65),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _line),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: _accent),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: _accent,
+            foregroundColor: const Color(0xFF041008),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _accent,
+            foregroundColor: const Color(0xFF041008),
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: _bg,
+          scrolledUnderElevation: 0,
+          elevation: 0,
+          toolbarHeight: 56,
+          titleTextStyle: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFFE8F2EC),
+            letterSpacing: 0.2,
+          ),
+        ),
       ),
       home: const HomePage(),
     );
@@ -49,6 +116,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   double? _localSplitterPosition;
+  bool _isSplitterHovered = false;
 
   double _leftWidth(double totalWidth, double splitterPosition) {
     final width = totalWidth * splitterPosition;
@@ -65,11 +133,28 @@ class _HomePageState extends State<HomePage> {
       prefs = null;
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('DLSS Compositor v2')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
+      appBar: AppBar(
+        titleSpacing: 18,
+        title: const Row(
+          children: [
+            Icon(Icons.auto_awesome_motion, size: 18, color: DlssCompositorApp._accent),
+            SizedBox(width: 10),
+            Text('DLSS Compositor v2'),
+          ],
+        ),
+      ),
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF090D0B), Color(0xFF0E1511), Color(0xFF070A09)],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
             final totalWidth = constraints.maxWidth;
             final splitterPosition = _localSplitterPosition ?? prefs?.splitterPosition ?? 0.4;
             final leftWidth = _leftWidth(totalWidth, splitterPosition);
@@ -79,11 +164,12 @@ class _HomePageState extends State<HomePage> {
               children: [
                 SizedBox(
                   width: leftWidth,
-                  child: const TaskConfigPanel(),
+                  child: const _WorkbenchPane(child: TaskConfigPanel()),
                 ),
-                const SizedBox(width: 6),
                 MouseRegion(
                   cursor: SystemMouseCursors.resizeColumn,
+                  onEnter: (_) => setState(() => _isSplitterHovered = true),
+                  onExit: (_) => setState(() => _isSplitterHovered = false),
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onPanUpdate: (details) {
@@ -97,24 +183,56 @@ class _HomePageState extends State<HomePage> {
                       if (next != null && prefs != null) {
                         prefs.setSplitterPosition(next);
                       }
+                      setState(() => _isSplitterHovered = false);
                     },
                     child: Container(
-                      width: 8,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(8),
+                      width: 16,
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: _isSplitterHovered ? 2 : 1,
+                        color: _isSplitterHovered
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).dividerColor.withValues(alpha: 0.2),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                const Expanded(child: DetailPanel()),
+                const Expanded(child: _WorkbenchPane(child: DetailPanel())),
               ],
             );
           },
         ),
+        ),
       ),
       bottomNavigationBar: const DlssStatusBar(),
+    );
+  }
+}
+
+class _WorkbenchPane extends StatelessWidget {
+  const _WorkbenchPane({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1411).withValues(alpha: 0.94),
+        border: Border.all(color: const Color(0xFF26322B)),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 30,
+            offset: Offset(0, 16),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(17),
+        child: child,
+      ),
     );
   }
 }

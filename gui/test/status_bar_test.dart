@@ -19,7 +19,7 @@ void main() {
       ),
     );
 
-    expect(find.text('DLSS Compositor v2 — Connecting...'), findsOneWidget);
+    expect(find.text('DLSS Compositor v2 - Connecting...'), findsOneWidget);
   });
 
   testWidgets('DlssStatusBar shows DLSS info when populated', (WidgetTester tester) async {
@@ -61,6 +61,6 @@ void main() {
     );
 
     expect(find.text('10/100'), findsOneWidget);
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 }

@@ -310,37 +310,30 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             children: [
               // 1. dlssconfig picker
               const DlssConfigPicker(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 24),
 
-              // 2. Readonly config info
-        if (state.currentDlssConfig != null) _buildConfigInfo(state.currentDlssConfig!),
+              // 2. Preset selector
+              _buildSection('Settings', _buildSettings(state, availableFormats)),
+              const SizedBox(height: 24),
 
-              const SizedBox(height: 12),
-
-              // 3. Preset selector
-              _buildSection('Preset', _buildPresetSelector(state)),
-              const SizedBox(height: 8),
-
-              // 4. FG settings
-              _buildSection('Frame Generation', _buildFgSettings(state)),
-              const SizedBox(height: 8),
-
-              // 5. Output settings
-              _buildSection('Output', _buildOutputSettings(state, availableFormats)),
-              const SizedBox(height: 16),
-
-              // 6. Start button
-              ElevatedButton.icon(
-                onPressed: state.currentDlssConfig != null &&
-                           state.taskState != TaskState.running
-                    ? () => _onStartPressed(context)
-                    : null,
-                icon: const Icon(Icons.play_arrow),
-                label: Text(state.taskState == TaskState.running
-                    ? 'Processing...' : 'Start'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  backgroundColor: Colors.green,
+              // Start button
+              SizedBox(
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: state.currentDlssConfig != null &&
+                             state.taskState != TaskState.running
+                      ? () => _onStartPressed(context)
+                      : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: Text(
+                    state.taskState == TaskState.running ? 'PROCESSING...' : 'START PROCESSING',
+                    style: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF00B050),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
                 ),
               ),
             ],
@@ -354,192 +347,183 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-        const SizedBox(height: 4),
-        child,
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.white70, letterSpacing: 0.5)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF333333)),
+          ),
+          child: child,
+        ),
       ],
     );
   }
 
-  Widget _buildConfigInfo(Map<String, dynamic> config) {
-    final outRes = config['output_resolution'] as Map<String, dynamic>?;
-    final renderRes = config['render_resolution'] as Map<String, dynamic>?;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            if (outRes != null) Text('Output: ${outRes['width']}×${outRes['height']}',
-                style: const TextStyle(fontSize: 12)),
-            if (renderRes != null) Text('Render: ${renderRes['width']}×${renderRes['height']}',
-                style: const TextStyle(fontSize: 12)),
-            Text('Quality: ${config['quality_mode'] ?? 'N/A'}',
-                style: const TextStyle(fontSize: 12)),
-            Text('FPS: ${config['fps'] ?? 0}',
-                style: const TextStyle(fontSize: 12)),
-          ],
-        ),
+  Widget _buildFormRow(String label, Widget child) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: const TextStyle(fontSize: 13, color: Colors.white60)),
+          ),
+          Expanded(child: child),
+        ],
       ),
     );
   }
 
-  Widget _buildPresetSelector(AppState state) {
-    return DropdownButton<String>(
-      value: state.preset,
-      isDense: true,
-      items: ['auto', 'J', 'K', 'L', 'M']
-          .map((p) => DropdownMenuItem(value: p, child: Text(p == 'auto' ? 'Auto' : 'Preset $p')))
-          .toList(),
-      onChanged: (v) => state.setTaskConfig(preset: v!),
-    );
-  }
-
-  Widget _buildFgSettings(AppState state) {
+  Widget _buildSettings(AppState state, List<OutputFormat> formats) {
     final fgCanRun = state.fgAvailable && state.fgMaxMultiplier >= 2;
     final multipliers = [
       for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++) multiplier,
     ];
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Text('Enable FG:', style: TextStyle(fontSize: 13)),
-            Switch(
-              value: state.fgEnabled,
-              onChanged: fgCanRun ? (v) => state.setTaskConfig(fgEnabled: v) : null,
+        _buildFormRow(
+          'DLSS Preset',
+          DropdownButtonFormField<String>(
+            initialValue: state.preset,
+            isDense: true,
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(),
             ),
-          ],
+            items: ['auto', 'J', 'K', 'L', 'M']
+                .map((p) => DropdownMenuItem(value: p, child: Text(p == 'auto' ? 'Auto' : 'Preset $p', style: const TextStyle(fontSize: 13))))
+                .toList(),
+            onChanged: (v) => state.setTaskConfig(preset: v!),
+          ),
         ),
-        if (!fgCanRun)
-          Text('FG unavailable on this device/session',
-              style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
-        if (state.fgEnabled) ...[
-          const Text('Multiplier:', style: TextStyle(fontSize: 12)),
-          Wrap(
-            spacing: 4,
+        _buildFormRow(
+          'Frame Gen',
+          Row(
             children: [
-              for (final multiplier in multipliers)
-                ChoiceChip(
-                  label: Text('${multiplier}x'),
-                  selected: state.fgMultiplier == multiplier,
-                  onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
+              Switch(
+                value: state.fgEnabled,
+                onChanged: fgCanRun ? (v) => state.setTaskConfig(fgEnabled: v) : null,
+              ),
+              const SizedBox(width: 8),
+              if (!fgCanRun)
+                Text('Unavailable on this device', style: TextStyle(fontSize: 12, color: Colors.orange.shade300))
+              else if (state.fgEnabled)
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    for (final multiplier in multipliers)
+                      ChoiceChip(
+                        label: Text('${multiplier}x', style: const TextStyle(fontSize: 12)),
+                        selected: state.fgMultiplier == multiplier,
+                        onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
+                      ),
+                  ],
                 ),
             ],
           ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildOutputSettings(AppState state, List<OutputFormat> formats) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Output format dropdown — ONLY shows v2 implemented formats.
-        // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
-        Row(
-          children: [
-            const SizedBox(
-              width: 84,
-              child: Text('Format:', style: TextStyle(fontSize: 12)),
-            ),
-            Expanded(
-              child: DropdownButton<String>(
-                value: formats.map((f) => f.value).contains(state.outputFormat) ? state.outputFormat : formats.first.value,
-                isExpanded: true,
-                isDense: true,
-                items: formats
-                    .map((f) => DropdownMenuItem(value: f.value, child: Text(f.label)))
-                    .toList(),
-                  onChanged: (v) => state.setTaskConfig(outputFormat: v),
-              ),
-            ),
-          ],
         ),
-        const SizedBox(height: 8),
-
-        // Output directory
-        Row(
-          children: [
-            const SizedBox(
-              width: 84,
-              child: Text('Output Dir:', style: TextStyle(fontSize: 12)),
+        const Divider(height: 24, color: Color(0xFF333333)),
+        _buildFormRow(
+          'Format',
+          DropdownButtonFormField<String>(
+            initialValue: formats.map((f) => f.value).contains(state.outputFormat) ? state.outputFormat : formats.first.value,
+            isExpanded: true,
+            isDense: true,
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(),
             ),
-            Expanded(
-              child: Text(state.outputDir.isEmpty ? '(not set)' : state.outputDir,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: state.outputDir.isEmpty ? Colors.grey : null),
-                  overflow: TextOverflow.ellipsis),
-            ),
-            IconButton(
-              icon: const Icon(Icons.folder, size: 16),
-              onPressed: () async {
-                final dir = selectDirectory();
-                if (dir != null) state.setTaskConfig(outputDir: dir);
-              },
-            ),
-          ],
+            items: formats
+                .map((f) => DropdownMenuItem(value: f.value, child: Text(f.label, style: const TextStyle(fontSize: 13))))
+                .toList(),
+              onChanged: (v) => state.setTaskConfig(outputFormat: v),
+          ),
         ),
-
-        // Filename template
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const SizedBox(
-              width: 84,
-              child: Text('Template:', style: TextStyle(fontSize: 12)),
-            ),
-            Expanded(
-              child: TextField(
-                controller: _templateController,
-                style: const TextStyle(fontSize: 12),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                  hintText: 'frame_####',
+        _buildFormRow(
+          'Output Dir',
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white24),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    state.outputDir.isEmpty ? 'Select folder...' : state.outputDir,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      color: state.outputDir.isEmpty ? Colors.white38 : Colors.white70,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                '→ ${_templateSample(state)}',
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 8),
+              IconButton.outlined(
+                icon: const Icon(Icons.folder, size: 16),
+                onPressed: () async {
+                  final dir = selectDirectory();
+                  if (dir != null) state.setTaskConfig(outputDir: dir);
+                },
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-
-        // Overwrite mode
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const SizedBox(
-              width: 84,
-              child: Text('On conflict:', style: TextStyle(fontSize: 12)),
-            ),
-            Expanded(
-              child: DropdownButton<String>(
-                value: state.overwriteMode,
-                isExpanded: true,
-                isDense: true,
-                items: const [
-                  DropdownMenuItem(value: 'skip',
-                      child: Text('Skip existing')),
-                  DropdownMenuItem(value: 'overwrite',
-                      child: Text('Overwrite')),
-                  DropdownMenuItem(value: 'autoVersion',
-                      child: Text('Auto-version (_v##)')),
-                ],
-                onChanged: (v) => state.setTaskConfig(overwriteMode: v!),
+        _buildFormRow(
+          'Template',
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _templateController,
+                  style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    border: OutlineInputBorder(),
+                    hintText: 'frame_####',
+                  ),
+                ),
               ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  '→ ${_templateSample(state)}',
+                  style: const TextStyle(fontSize: 12, color: Colors.white38, fontFamily: 'monospace'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildFormRow(
+          'On Conflict',
+          DropdownButtonFormField<String>(
+            initialValue: state.overwriteMode,
+            isExpanded: true,
+            isDense: true,
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(),
             ),
-          ],
+            items: const [
+              DropdownMenuItem(value: 'skip', child: Text('Skip existing', style: TextStyle(fontSize: 13))),
+              DropdownMenuItem(value: 'overwrite', child: Text('Overwrite', style: TextStyle(fontSize: 13))),
+              DropdownMenuItem(value: 'autoVersion', child: Text('Auto-version (_v##)', style: TextStyle(fontSize: 13))),
+            ],
+            onChanged: (v) => state.setTaskConfig(overwriteMode: v!),
+          ),
         ),
       ],
     );
