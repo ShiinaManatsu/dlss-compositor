@@ -44,12 +44,10 @@ def _get_quality_percentage(quality_mode: str) -> int:
 
 def _frame_jitter(scene: Scene, frame_num: int) -> tuple[float, float]:
     """Return the DLSS jitter pair for a Blender frame number."""
-    """Collect per-frame camera matrix, projection, and jitter data."""
-    from .jitter import generate_jitter_sequence
+    from .jitter import jitter_for_frame_number
 
     props = scene.dlss_compositor  # type: ignore[attr-defined]
-    sequence = generate_jitter_sequence(props.quality_mode, frame_num + 1)  # type: ignore[attr-defined]
-    return sequence[frame_num] if sequence else (0.0, 0.0)
+    return jitter_for_frame_number(props.quality_mode, frame_num)  # type: ignore[attr-defined]
 
 
 def _collect_camera_data(scene: Scene, frame_num: int, jitter_x: float, jitter_y: float) -> dict:
@@ -83,10 +81,13 @@ def _collect_camera_data(scene: Scene, frame_num: int, jitter_x: float, jitter_y
         if render.resolution_y > 0:
             aspect_ratio = render.resolution_x / render.resolution_y
 
+        render_w = max(1, int(render.resolution_x * render.resolution_percentage / 100.0))
+        render_h = max(1, int(render.resolution_y * render.resolution_percentage / 100.0))
+
         proj = camera.calc_matrix_camera(
             bpy.context.evaluated_depsgraph_get(),
-            x=render.resolution_x,
-            y=render.resolution_y,
+            x=render_w,
+            y=render_h,
             scale_x=render.pixel_aspect_x,
             scale_y=render.pixel_aspect_y,
         )
