@@ -429,13 +429,14 @@ class _DetailPanelState extends State<DetailPanel> {
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFF00B050).withValues(alpha: 0.1),
         border: Border.all(color: const Color(0xFF00B050).withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Icon(Icons.check_circle, color: Color(0xFF00B050), size: 28),
           const SizedBox(width: 16),
@@ -450,15 +451,26 @@ class _DetailPanelState extends State<DetailPanel> {
               ],
             ),
           ),
-          FilledButton.icon(
-            onPressed: state.outputDir.trim().isEmpty
-                ? null
-                : () => _openOutputFolder(state.outputDir),
-            icon: const Icon(Icons.folder_open, size: 16),
-            label: const Text('Open Folder'),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF00B050),
-              foregroundColor: Colors.white,
+          Align(
+            alignment: Alignment.center,
+            child: SizedBox(
+              height: 38,
+              child: FilledButton.icon(
+                onPressed: state.outputDir.trim().isEmpty
+                    ? null
+                    : () => _openOutputFolder(state.outputDir),
+                icon: const Icon(Icons.folder_open, size: 15),
+                label: const Text('Open Folder'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF00B050),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
             ),
           ),
         ],
