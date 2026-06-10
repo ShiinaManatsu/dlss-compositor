@@ -44,6 +44,10 @@ flutter analyze
 flutter test
 flutter build windows --release
 
+# GUI release output and local packaging. The built app directory is self-contained;
+# zip the directory contents or copy it into a release bundle as `gui/`.
+Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "../.omo/release/gui-windows.zip" -Force
+
 # Useful focused GUI checks
 flutter test test/task_config_panel_test.dart test/dlss_compositor_plugin_test.dart
 ```

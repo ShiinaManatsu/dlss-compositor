@@ -11,6 +11,13 @@
 
 namespace {
 
+constexpr int kInitialWindowWidth = 1280;
+constexpr int kInitialWindowHeight = 1000;
+
+int ClampNonNegative(int value) {
+  return value < 0 ? 0 : value;
+}
+
 bool FileExists(const std::wstring& path) {
   const DWORD attrs = GetFileAttributesW(path.c_str());
   return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
@@ -112,6 +119,25 @@ void AppendGuiLogFormat(const char* label, const std::wstring& value) {
   AppendGuiLogLine(line);
 }
 
+Win32Window::Point CenteredWindowOrigin(const Win32Window::Size& size) {
+  RECT work_area = {};
+  if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0)) {
+    return Win32Window::Point(10, 10);
+  }
+
+  const double scale_factor = GetDpiForSystem() / 96.0;
+  const int window_width = static_cast<int>(size.width * scale_factor);
+  const int window_height = static_cast<int>(size.height * scale_factor);
+  const int work_width = work_area.right - work_area.left;
+  const int work_height = work_area.bottom - work_area.top;
+  const int x = work_area.left + ClampNonNegative((work_width - window_width) / 2);
+  const int y = work_area.top + ClampNonNegative((work_height - window_height) / 2);
+
+  return Win32Window::Point(
+      static_cast<unsigned int>(ClampNonNegative(static_cast<int>(x / scale_factor))),
+      static_cast<unsigned int>(ClampNonNegative(static_cast<int>(y / scale_factor))));
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -140,8 +166,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  Win32Window::Size size(kInitialWindowWidth, kInitialWindowHeight);
+  Win32Window::Point origin = CenteredWindowOrigin(size);
   if (!window.Create(L"dlss_compositor_gui", origin, size)) {
     return EXIT_FAILURE;
   }
