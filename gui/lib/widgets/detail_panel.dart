@@ -299,12 +299,22 @@ class _DetailPanelState extends State<DetailPanel> {
           ),
           if (state.taskState == TaskState.running || state.taskState == TaskState.done || state.taskState == TaskState.error) ...[
             const SizedBox(height: 4),
-            LinearProgressIndicator(
-              value: state.progressPercent,
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                state.taskState == TaskState.done ? Colors.green : Colors.blue,
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(
+                begin: 0,
+                end: state.progressPercent.clamp(0.0, 1.0),
               ),
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) {
+                return LinearProgressIndicator(
+                  value: value,
+                  backgroundColor: Colors.white12,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    state.taskState == TaskState.done ? Colors.green : Colors.blue,
+                  ),
+                );
+              },
             ),
           ],
         ],
