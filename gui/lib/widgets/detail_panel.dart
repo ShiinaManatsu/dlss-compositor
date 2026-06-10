@@ -125,16 +125,27 @@ class _DetailPanelState extends State<DetailPanel> {
       },
     );
 
-    // Poll preview frames at ~3 fps (throttled)
+    // Poll progress and preview frames at ~3 fps. Progress is read through
+    // MethodChannel to avoid high-frequency EventChannel traffic from native.
     _previewTimer = Timer.periodic(const Duration(milliseconds: 333), (_) async {
       if (!mounted) return;
       final appState = Provider.of<AppState>(context, listen: false);
       if (appState.taskState != TaskState.running) return;
 
       try {
-        final frame = await DlssCompositor.getPreviewFrame();
-        if (frame != null && mounted) {
-          final image = await _decodePreviewFrame(frame);
+        final progress = await DlssCompositor.getProgress();
+        final currentFrame = progress['current_frame'] as int? ?? appState.currentFrame;
+        final total = progress['total_frames'] as int? ?? appState.totalFrames;
+        final percent = progress['percent'] as double? ?? (total > 0 ? currentFrame / total : 0.0);
+        appState.updateProgress(currentFrame, total, percent);
+        if (total > 0 && currentFrame == 0 && _startTime == null) {
+          _startTime = DateTime.now();
+        }
+        _outputFrameCount = currentFrame;
+
+        final previewFrame = await DlssCompositor.getPreviewFrame();
+        if (previewFrame != null && mounted) {
+          final image = await _decodePreviewFrame(previewFrame);
           if (mounted) {
             setState(() {
               _previewImage?.dispose();

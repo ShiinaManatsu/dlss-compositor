@@ -637,13 +637,6 @@ void DlssCompositorPlugin::HandleMethodCall(
           options.progressCallback = [this](int current, int total) {
             current_frame_.store(current);
             total_frames_.store(total);
-            flutter::EncodableMap event;
-            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("progress"));
-            event[flutter::EncodableValue("current_frame")] = flutter::EncodableValue(static_cast<int32_t>(current));
-            event[flutter::EncodableValue("total_frames")] = flutter::EncodableValue(static_cast<int32_t>(total));
-            event[flutter::EncodableValue("percent")] = flutter::EncodableValue(
-                total > 0 ? static_cast<double>(current) / static_cast<double>(total) : 0.0);
-            EmitEvent(std::move(event));
           };
           options.previewRgba8Callback = [this](const std::vector<std::uint8_t>& pixels,
                                                 std::uint32_t width,
