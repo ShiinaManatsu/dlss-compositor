@@ -311,6 +311,7 @@ PreviewReadback PreviewPass::renderAndReadback(PooledTextureHandle src,
     vkCmdCopyImageToBuffer(cmd, preview->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
     m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
     m_ctx->destroyCommandPool(cmdPool);
+    vkResetDescriptorPool(m_ctx->device(), m_descPool, 0);
 
     PreviewReadback readback{preview->desc.width, preview->desc.height, std::vector<std::uint8_t>(static_cast<std::size_t>(byteSize))};
     if (allocationInfo.pMappedData) {

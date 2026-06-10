@@ -88,7 +88,7 @@ void main() {
   testWidgets('TaskConfigPanel handles FG multiplier limits', (WidgetTester tester) async {
     final appState = AppState();
     appState.fgAvailable = true;
-    appState.fgMaxMultiplier = 3;
+    appState.fgMaxMultiplier = 6;
     appState.setDlssConfig('C:\\config.json', {}, null);
 
     await tester.pumpWidget(buildTestApp(appState));
@@ -100,17 +100,12 @@ void main() {
     await tester.tap(switchFinder);
     await tester.pumpAndSettle();
 
-    // Check choice chips
-    expect(find.text('2x'), findsOneWidget);
-    expect(find.text('3x'), findsOneWidget);
-    expect(find.text('4x'), findsOneWidget);
-
-    // 2x and 3x should be enabled, 4x should be disabled
-    ChoiceChip chip4x = tester.widget(find.widgetWithText(ChoiceChip, '4x'));
-    expect(chip4x.onSelected, isNull);
-
-    ChoiceChip chip3x = tester.widget(find.widgetWithText(ChoiceChip, '3x'));
-    expect(chip3x.onSelected, isNotNull);
+    for (final multiplier in [2, 3, 4, 5, 6]) {
+      expect(find.text('${multiplier}x'), findsOneWidget);
+      final chip = tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '${multiplier}x'));
+      expect(chip.onSelected, isNotNull);
+    }
+    expect(find.text('7x'), findsNothing);
   });
 
   testWidgets('Template formats dynamically based on extension', (WidgetTester tester) async {

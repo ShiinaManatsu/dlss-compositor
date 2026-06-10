@@ -10,7 +10,6 @@ import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
 enum OutputFormat { png16, exrLinear }
-enum FgMultiplier { two, three, four }
 
 extension OutputFormatExt on OutputFormat {
   String get label {
@@ -399,6 +398,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   Widget _buildFgSettings(AppState state) {
     final fgCanRun = state.fgAvailable && state.fgMaxMultiplier >= 2;
+    final multipliers = [
+      for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++) multiplier,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -416,19 +418,14 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
         if (state.fgEnabled) ...[
           const Text('Multiplier:', style: TextStyle(fontSize: 12)),
-          Row(
+          Wrap(
+            spacing: 4,
             children: [
-              for (final m in FgMultiplier.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: ChoiceChip(
-                    label: Text('${m.index + 2}x'),
-                    selected: state.fgMultiplier == (m.index + 2),
-                    // Gray out multipliers exceeding hardware max
-                    onSelected: (m.index + 2 <= state.fgMaxMultiplier)
-                        ? (_) => state.setTaskConfig(fgMultiplier: m.index + 2)
-                        : null,
-                  ),
+              for (final multiplier in multipliers)
+                ChoiceChip(
+                  label: Text('${multiplier}x'),
+                  selected: state.fgMultiplier == multiplier,
+                  onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
                 ),
             ],
           ),
