@@ -12,7 +12,7 @@ import '../util/app_log.dart';
 
 /// Log entry with level and message.
 class LogEntry {
-  final String level;  // error, warn, info, debug
+  final String level; // error, warn, info, debug
   final String message;
   final DateTime timestamp;
   LogEntry(this.level, this.message) : timestamp = DateTime.now();
@@ -69,8 +69,10 @@ class _DetailPanelState extends State<DetailPanel> {
           final frame = event['current_frame'] as int? ?? 0;
           final total = event['total_frames'] as int? ?? 0;
           final percent = total > 0 ? frame / total : 0.0;
-          Provider.of<AppState>(context, listen: false)
-              .updateProgress(frame, total, percent);
+          Provider.of<AppState>(
+            context,
+            listen: false,
+          ).updateProgress(frame, total, percent);
 
           if (total > 0 && frame == 0 && _startTime == null) {
             _startTime = DateTime.now();
@@ -83,24 +85,27 @@ class _DetailPanelState extends State<DetailPanel> {
               'percent': percent,
             });
           }
-
         } else if (type == 'log') {
-          _addLog(event['level'] as String? ?? 'info',
-                  event['message'] as String? ?? '');
-
+          _addLog(
+            event['level'] as String? ?? 'info',
+            event['message'] as String? ?? '',
+          );
         } else if (type == 'done') {
           AppLog.phase('detail', 'Done event received');
           _endTime = DateTime.now();
-          Provider.of<AppState>(context, listen: false)
-              .setTaskState(TaskState.done);
+          Provider.of<AppState>(
+            context,
+            listen: false,
+          ).setTaskState(TaskState.done);
           setState(() {});
-          
         } else if (type == 'error') {
           _endTime = DateTime.now();
           final msg = event['message'] as String? ?? 'Unknown error';
           AppLog.phase('detail', 'Error event received', msg);
-          Provider.of<AppState>(context, listen: false)
-              .setTaskState(TaskState.error, error: msg);
+          Provider.of<AppState>(
+            context,
+            listen: false,
+          ).setTaskState(TaskState.error, error: msg);
           _addLog('error', msg);
           showErrorDialog(
             context,
@@ -127,19 +132,28 @@ class _DetailPanelState extends State<DetailPanel> {
 
     // Poll progress and preview frames at ~3 fps. Progress is read through
     // MethodChannel to avoid high-frequency EventChannel traffic from native.
-    _previewTimer = Timer.periodic(const Duration(milliseconds: 333), (_) async {
+    _previewTimer = Timer.periodic(const Duration(milliseconds: 333), (
+      _,
+    ) async {
       if (!mounted) return;
       final appState = Provider.of<AppState>(context, listen: false);
       if (appState.taskState != TaskState.running) return;
 
       try {
         final progress = await DlssCompositor.getProgress();
-        final currentFrame = progress['current_frame'] as int? ?? appState.currentFrame;
+        final currentFrame =
+            progress['current_frame'] as int? ?? appState.currentFrame;
         final total = progress['total_frames'] as int? ?? appState.totalFrames;
-        final percent = progress['percent'] as double? ?? (total > 0 ? currentFrame / total : 0.0);
-        final dlssCurrentFrame = progress['dlss_current_frame'] as int? ?? appState.dlssCurrentFrame;
-        final dlssTotal = progress['dlss_total_frames'] as int? ?? appState.dlssTotalFrames;
-        final dlssPercent = progress['dlss_percent'] as double? ?? (dlssTotal > 0 ? dlssCurrentFrame / dlssTotal : percent);
+        final percent =
+            progress['percent'] as double? ??
+            (total > 0 ? currentFrame / total : 0.0);
+        final dlssCurrentFrame =
+            progress['dlss_current_frame'] as int? ?? appState.dlssCurrentFrame;
+        final dlssTotal =
+            progress['dlss_total_frames'] as int? ?? appState.dlssTotalFrames;
+        final dlssPercent =
+            progress['dlss_percent'] as double? ??
+            (dlssTotal > 0 ? dlssCurrentFrame / dlssTotal : percent);
         appState.updateProgress(
           currentFrame,
           total,
@@ -221,23 +235,19 @@ class _DetailPanelState extends State<DetailPanel> {
         return Column(
           children: [
             // 1. Preview frame
-            Expanded(
-              flex: 4,
-              child: _buildPreviewSection(),
-            ),
+            Expanded(flex: 4, child: _buildPreviewSection()),
 
             // 2. Progress bar
             _buildProgressSection(state),
 
             // 3. Log panel
-            Expanded(
-              flex: 3,
-              child: _buildLogSection(),
-            ),
+            Expanded(flex: 3, child: _buildLogSection()),
 
             // 4. Completion stats
-            if (state.taskState == TaskState.done)
+            if (state.taskState == TaskState.done) ...[
               _buildCompletionStats(state),
+              SizedBox(height: 12),
+            ],
           ],
         );
       },
@@ -255,17 +265,21 @@ class _DetailPanelState extends State<DetailPanel> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: _previewImage != null
-            ? RawImage(
-                image: _previewImage,
-                fit: BoxFit.contain,
-              )
+            ? RawImage(image: _previewImage, fit: BoxFit.contain)
             : const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.image, color: Colors.white24, size: 48),
                     SizedBox(height: 12),
-                    Text('Live Preview', style: TextStyle(color: Colors.white38, fontSize: 13, letterSpacing: 0.5)),
+                    Text(
+                      'Live Preview',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 13,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -287,13 +301,17 @@ class _DetailPanelState extends State<DetailPanel> {
     }
 
     String etaText = '';
-    if (state.taskState == TaskState.running && _startTime != null && state.currentFrame > 0 && state.totalFrames > state.currentFrame) {
+    if (state.taskState == TaskState.running &&
+        _startTime != null &&
+        state.currentFrame > 0 &&
+        state.totalFrames > state.currentFrame) {
       final elapsed = DateTime.now().difference(_startTime!);
       final timePerFrame = elapsed.inMilliseconds / state.currentFrame;
       final remainingFrames = state.totalFrames - state.currentFrame;
       final etaMillis = timePerFrame * remainingFrames;
       final eta = Duration(milliseconds: etaMillis.round());
-      etaText = 'ETA ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')}';
+      etaText =
+          'ETA ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')}';
     }
 
     return Container(
@@ -312,12 +330,21 @@ class _DetailPanelState extends State<DetailPanel> {
             children: [
               Text(
                 statusTitle,
-                style: TextStyle(color: statusColor, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                ),
               ),
               if (etaText.isNotEmpty)
                 Text(
                   etaText,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12, fontFamily: 'monospace'),
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  ),
                 ),
             ],
           ),
@@ -342,17 +369,30 @@ class _DetailPanelState extends State<DetailPanel> {
     );
   }
 
-  Widget _buildProgressRow(String label, int current, int total, double percent, Color color) {
+  Widget _buildProgressRow(
+    String label,
+    int current,
+    int total,
+    double percent,
+    Color color,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
             Text(
               '$current / $total  (${(percent * 100).toStringAsFixed(1)}%)',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
             ),
           ],
         ),
@@ -393,7 +433,15 @@ class _DetailPanelState extends State<DetailPanel> {
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Color(0xFF333333))),
             ),
-            child: const Text('TERMINAL LOG', style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+            child: const Text(
+              'TERMINAL LOG',
+              style: TextStyle(
+                color: Colors.white38,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.0,
+              ),
+            ),
           ),
           Expanded(
             child: ListView.builder(
@@ -408,10 +456,17 @@ class _DetailPanelState extends State<DetailPanel> {
                   _ => Colors.white70,
                 };
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
+                  ),
                   child: Text(
                     '[${log.level.padRight(5).toUpperCase()}] ${log.message}',
-                    style: TextStyle(color: color, fontSize: 12, fontFamily: 'monospace'),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                 );
               },
@@ -432,7 +487,9 @@ class _DetailPanelState extends State<DetailPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFF00B050).withValues(alpha: 0.1),
-        border: Border.all(color: const Color(0xFF00B050).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: const Color(0xFF00B050).withValues(alpha: 0.3),
+        ),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -444,10 +501,19 @@ class _DetailPanelState extends State<DetailPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('PROCESS COMPLETED', style: TextStyle(color: Color(0xFF00B050), fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                const Text(
+                  'PROCESS COMPLETED',
+                  style: TextStyle(
+                    color: Color(0xFF00B050),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('Rendered $_outputFrameCount frames in ${duration.inSeconds}s',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                Text(
+                  'Rendered $_outputFrameCount frames in ${duration.inSeconds}s',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -465,8 +531,13 @@ class _DetailPanelState extends State<DetailPanel> {
                   backgroundColor: const Color(0xFF00B050),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -482,7 +553,9 @@ class _DetailPanelState extends State<DetailPanel> {
     final dir = Directory(outputDir.trim()).absolute;
     AppLog.phase('detail', 'Open output folder requested', {'path': dir.path});
     if (!dir.existsSync()) {
-      AppLog.phase('detail', 'Open output folder failed: missing directory', {'path': dir.path});
+      AppLog.phase('detail', 'Open output folder failed: missing directory', {
+        'path': dir.path,
+      });
       if (!mounted) return;
       await showErrorDialog(
         context,
