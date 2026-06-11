@@ -71,7 +71,7 @@ flutter test test/task_config_panel_test.dart test/dlss_compositor_plugin_test.d
 ## Output formats and schema
 
 - Implemented outputs today: EXR scene-linear and PNG16 for LDR. HDR + PNG is rejected.
-- ProRes/DNxHR/H264/H265/AV1/AVIF/JPEG/WebP are placeholders/future formats. Do not register them in `EncoderRegistry` and do not expose them through `getStatus().video_encoders` or `export_formats_*`.
+- LDR ProRes 422 HQ is implemented as a sequence-level MOV muxer via `ProResWriter`; it is intentionally not registered in the per-frame `EncoderRegistry`. HDR ProRes is not implemented; use EXR for HDR. DNxHR/H264/H265/AV1/AVIF/JPEG/WebP remain placeholders and must not be exposed.
 - `src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `gui/` or `blender/`.
 - GUI template text is stored extensionless (`frame_####`); selected output format appends/replaces `.png` or `.exr` when launching the task.
 
@@ -97,5 +97,5 @@ flutter test test/task_config_panel_test.dart test/dlss_compositor_plugin_test.d
 - Not Electron: GUI is Flutter on Windows.
 - Not DX12 output: v2 is Vulkan only.
 - Not NIS: SR is DLSS only.
-- Not video export yet: ProRes and other video codecs are not implemented/exposed.
+- Not general video export yet: only LDR ProRes 422 HQ is implemented; HDR ProRes and other video codecs are not.
 - FG does not “clamp HDR to 10 nits”; current HDR transport is scene-linear -> display-ready for FG, then inverse for EXR output.

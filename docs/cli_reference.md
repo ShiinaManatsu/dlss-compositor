@@ -71,7 +71,7 @@ Print usage summary.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output-dir <path>` | same as config dir | Directory for output frames |
-| `--output-format <fmt>` | `exr` (HDR) / `png` (LDR) | `png`, `exr` |
+| `--output-format <fmt>` | `exr` (HDR) / `png` (LDR) | `png`, `exr`, `prores_422hq` (LDR only) |
 | `--output-template <tmpl>` | `frame_####` | Filename template (`####` = zero-padded frame, `{frame:04d}` = same) |
 | `--overwrite-mode <mode>` | `overwrite` | `skip`, `overwrite`, `auto-version` |
 | `--preset <preset>` | `auto` | `auto`, `J`, `K`, `L`, `M` |
@@ -137,6 +137,7 @@ All diagnostic output goes to stderr and the rotating log file. stdout is exclus
 |--------|------|-------|
 | EXR (scene-linear) | `--output-format exr` | R16G16B16A16 HALF, full HDR range |
 | PNG (16-bit) | `--output-format png` | LDR projects only |
+| ProRes 422 HQ | `--output-format prores_422hq` | LDR projects only, single `.mov` output |
 
 ---
 
@@ -144,7 +145,6 @@ All diagnostic output goes to stderr and the rotating log file. stdout is exclus
 
 The following formats are reserved for future releases and are not available in v2:
 - DNxHR
-- ProRes 422 HQ
 - ProRes 4444 XQ
 - JPEG / AVIF
 - H.264 / H.265 / AV1
