@@ -23,6 +23,9 @@ class AppPreferences extends ChangeNotifier {
   static const _kFgEnabled      = 'fg_enabled';
   static const _kFgMultiplier   = 'fg_multiplier';
   static const _kOutputFormat   = 'output_format';
+  static const _kPngQuality     = 'png_quality';
+  static const _kExrCompression = 'exr_compression';
+  static const _kExrCompressionLevel = 'exr_compression_level';
   static const _kOutputDir      = 'output_directory';
   static const _kSplitterPos    = 'splitter_position';
   static const _kSessionTitle   = 'session_title';
@@ -33,6 +36,9 @@ class AppPreferences extends ChangeNotifier {
   bool fgEnabled = false;
   int fgMultiplier = 2;
   String outputFormat = 'exr';
+  int pngQuality = 97;
+  String exrCompression = 'zip';
+  int exrCompressionLevel = 97;
   String outputDirectory = '';
   double splitterPosition = 0.4;
   String sessionTitle = '';
@@ -51,6 +57,9 @@ class AppPreferences extends ChangeNotifier {
     fgEnabled           = _getBool(_kFgEnabled, false);
     fgMultiplier        = _getInt(_kFgMultiplier, 2);
     outputFormat        = _get(_kOutputFormat, 'exr');
+    pngQuality          = _getInt(_kPngQuality, 97).clamp(0, 100);
+    exrCompression      = _get(_kExrCompression, 'zip');
+    exrCompressionLevel = _getInt(_kExrCompressionLevel, 97).clamp(0, 100);
     outputDirectory     = _get(_kOutputDir, '');
     splitterPosition    = _getDouble(_kSplitterPos, 0.4);
     sessionTitle        = _get(_kSessionTitle, '');
@@ -85,6 +94,9 @@ class AppPreferences extends ChangeNotifier {
     await _prefs!.setBool(_key(_kFgEnabled), fgEnabled);
     await _prefs!.setInt(_key(_kFgMultiplier), fgMultiplier);
     await _prefs!.setString(_key(_kOutputFormat), outputFormat);
+    await _prefs!.setInt(_key(_kPngQuality), pngQuality);
+    await _prefs!.setString(_key(_kExrCompression), exrCompression);
+    await _prefs!.setInt(_key(_kExrCompressionLevel), exrCompressionLevel);
     await _prefs!.setString(_key(_kOutputDir), outputDirectory);
     await _prefs!.setDouble(_key(_kSplitterPos), splitterPosition);
     await _prefs!.setString(_key(_kSessionTitle), sessionTitle);
@@ -97,6 +109,9 @@ class AppPreferences extends ChangeNotifier {
   void setFgEnabled(bool v) => _scheduleWrite(() { fgEnabled = v; notifyListeners(); });
   void setFgMultiplier(int v) => _scheduleWrite(() { fgMultiplier = v; notifyListeners(); });
   void setOutputFormat(String v) => _scheduleWrite(() { outputFormat = v; notifyListeners(); });
+  void setPngQuality(int v) => _scheduleWrite(() { pngQuality = v.clamp(0, 100); notifyListeners(); });
+  void setExrCompression(String v) => _scheduleWrite(() { exrCompression = v; notifyListeners(); });
+  void setExrCompressionLevel(int v) => _scheduleWrite(() { exrCompressionLevel = v.clamp(0, 100); notifyListeners(); });
   void setOutputDirectory(String v) => _scheduleWrite(() { outputDirectory = v; notifyListeners(); });
   void setSplitterPosition(double v) => _scheduleWrite(() { splitterPosition = v; notifyListeners(); });
   void setSessionTitle(String v) => _scheduleWrite(() { sessionTitle = v; notifyListeners(); });
@@ -131,6 +146,9 @@ class AppPreferences extends ChangeNotifier {
     fgEnabled           = false;
     fgMultiplier        = 2;
     outputFormat        = 'exr';
+    pngQuality          = 97;
+    exrCompression      = 'zip';
+    exrCompressionLevel = 97;
     outputDirectory     = '';
     splitterPosition    = 0.4;
     sessionTitle        = '';

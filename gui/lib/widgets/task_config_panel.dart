@@ -9,19 +9,40 @@ import '../util/app_log.dart';
 import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
-enum OutputFormat { png16, exrLinear }
+enum OutputFormat { png16, exrLinear, proRes422Hq }
+enum ExrCompression { none, zip, dwaa }
 
 extension OutputFormatExt on OutputFormat {
   String get label {
     switch (this) {
       case OutputFormat.png16:       return 'PNG (16-bit)';
       case OutputFormat.exrLinear:   return 'EXR (scene-linear)';
+      case OutputFormat.proRes422Hq: return 'ProRes 422 HQ (.mov)';
     }
   }
   String get value {
     switch (this) {
       case OutputFormat.png16:       return 'png_16';
       case OutputFormat.exrLinear:   return 'exr';
+      case OutputFormat.proRes422Hq: return 'prores_422hq';
+    }
+  }
+}
+
+extension ExrCompressionExt on ExrCompression {
+  String get label {
+    switch (this) {
+      case ExrCompression.none: return 'Uncompressed';
+      case ExrCompression.zip:  return 'ZIP';
+      case ExrCompression.dwaa: return 'DWAA';
+    }
+  }
+
+  String get value {
+    switch (this) {
+      case ExrCompression.none: return 'none';
+      case ExrCompression.zip:  return 'zip';
+      case ExrCompression.dwaa: return 'dwaa';
     }
   }
 }
@@ -96,6 +117,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           prefs.fgEnabled != state.fgEnabled ||
           prefs.fgMultiplier != state.fgMultiplier ||
           prefs.outputFormat != state.outputFormat ||
+          prefs.pngQuality != state.pngQuality ||
+          prefs.exrCompression != state.exrCompression ||
+          prefs.exrCompressionLevel != state.exrCompressionLevel ||
           prefs.outputDirectory != state.outputDir) {
         Future.microtask(() {
           if (!mounted) return;
@@ -104,6 +128,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             fgEnabled: prefs.fgEnabled,
             fgMultiplier: prefs.fgMultiplier,
             outputFormat: prefs.outputFormat,
+            pngQuality: prefs.pngQuality,
+            exrCompression: prefs.exrCompression,
+            exrCompressionLevel: prefs.exrCompressionLevel,
             outputDir: prefs.outputDirectory,
           );
         });
@@ -137,18 +164,24 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   String _templateForFormat(String template, String format) {
     final trimmed = _stripKnownExtension(template).isEmpty ? 'frame_####' : _stripKnownExtension(template);
-    final expectedExt = format == 'png_16' ? '.png'
-        : '.exr';
-    return '$trimmed$expectedExt';
+    final base = format == 'prores_422hq'
+        ? trimmed.replaceAll('#', '').replaceAll(RegExp(r'\{frame(?::0?\d+d)?\}'), '').replaceAll(RegExp(r'_+'), '_').replaceFirst(RegExp(r'_$'), '')
+        : trimmed;
+    final expectedExt = format == 'png_16'
+        ? '.png'
+        : format == 'prores_422hq'
+            ? '.mov'
+            : '.exr';
+    return '${base.isEmpty ? 'output' : base}$expectedExt';
   }
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
     if (isHdr) {
-      // HDR: EXR only (NO PNG for HDR projects)
+      // HDR: EXR only. PNG and ProRes are LDR-only in v2.
       return [OutputFormat.exrLinear];
     } else {
-      // LDR: PNG + EXR
-      return [OutputFormat.png16, OutputFormat.exrLinear];
+      // LDR: PNG, EXR, ProRes 422 HQ.
+      return [OutputFormat.png16, OutputFormat.exrLinear, OutputFormat.proRes422Hq];
     }
     // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
   }
@@ -196,6 +229,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       'fg_enabled': appState.fgEnabled && appState.fgAvailable && appState.fgMaxMultiplier >= 2,
       'fg_multiplier': appState.fgMultiplier,
       'output_format': appState.outputFormat,
+      'png_quality': appState.pngQuality,
+      'exr_compression': appState.exrCompression,
+      'exr_compression_level': appState.exrCompressionLevel,
       'output_dir': outputDir,
       'template': _templateForFormat(appState.template, appState.outputFormat),
       'output_template': _templateForFormat(appState.template, appState.outputFormat),
@@ -233,6 +269,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     prefs.setFgEnabled(appState.fgEnabled);
     prefs.setFgMultiplier(appState.fgMultiplier);
     prefs.setOutputFormat(appState.outputFormat);
+    prefs.setPngQuality(appState.pngQuality);
+    prefs.setExrCompression(appState.exrCompression);
+    prefs.setExrCompressionLevel(appState.exrCompressionLevel);
     prefs.setOutputDirectory(outputDir);
 
     AppLog.phase('task', 'Sending setTask');
@@ -405,6 +444,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         _buildFormRow(
           'Frame Gen',
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Switch(
                 value: state.fgEnabled,
@@ -414,16 +454,21 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               if (!fgCanRun)
                 Text('Unavailable on this device', style: TextStyle(fontSize: 12, color: Colors.orange.shade300))
               else if (state.fgEnabled)
-                Wrap(
-                  spacing: 4,
-                  children: [
-                    for (final multiplier in multipliers)
-                      ChoiceChip(
-                        label: Text('${multiplier}x', style: const TextStyle(fontSize: 12)),
-                        selected: state.fgMultiplier == multiplier,
-                        onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
-                      ),
-                  ],
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (final multiplier in multipliers)
+                        ChoiceChip(
+                          label: Text('${multiplier}x', style: const TextStyle(fontSize: 12)),
+                          selected: state.fgMultiplier == multiplier,
+                          onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -446,6 +491,39 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               onChanged: (v) => state.setTaskConfig(outputFormat: v),
           ),
         ),
+        if (state.outputFormat == 'png_16')
+          _buildPercentSlider(
+            'PNG Quality',
+            state.pngQuality,
+            (v) => state.setTaskConfig(pngQuality: v),
+          ),
+        if (state.outputFormat == 'exr') ...[
+          _buildFormRow(
+            'EXR Compression',
+            DropdownButtonFormField<String>(
+              initialValue: ExrCompression.values.map((c) => c.value).contains(state.exrCompression)
+                  ? state.exrCompression
+                  : ExrCompression.zip.value,
+              isExpanded: true,
+              isDense: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                border: OutlineInputBorder(),
+              ),
+              items: ExrCompression.values
+                  .map((c) => DropdownMenuItem(value: c.value, child: Text(c.label, style: const TextStyle(fontSize: 13))))
+                  .toList(),
+              onChanged: (v) => state.setTaskConfig(exrCompression: v),
+            ),
+          ),
+          if (state.exrCompression != ExrCompression.none.value)
+            _buildPercentSlider(
+              'Compression',
+              state.exrCompressionLevel,
+              (v) => state.setTaskConfig(exrCompressionLevel: v),
+            ),
+        ],
         _buildFormRow(
           'Output Dir',
           Row(
@@ -526,6 +604,34 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPercentSlider(String label, int value, ValueChanged<int> onChanged) {
+    return _buildFormRow(
+      label,
+      Row(
+        children: [
+          Expanded(
+            child: Slider(
+              value: value.toDouble(),
+              min: 0,
+              max: 100,
+              divisions: 100,
+              label: '$value%',
+              onChanged: (v) => onChanged(v.round()),
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: Text(
+              '$value%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

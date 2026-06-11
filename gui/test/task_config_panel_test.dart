@@ -80,7 +80,7 @@ void main() {
     
     // Dropdown items should only include EXR.
     expect(find.text('EXR (scene-linear)'), findsWidgets);
-    expect(find.text('ProRes 422 HQ'), findsNothing);
+    expect(find.text('ProRes 422 HQ (.mov)'), findsNothing);
     // PNG should not be available
     expect(find.text('PNG (16-bit)'), findsNothing);
   });
@@ -105,7 +105,28 @@ void main() {
       final chip = tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '${multiplier}x'));
       expect(chip.onSelected, isNotNull);
     }
+    expect(find.descendant(of: find.byType(Expanded), matching: find.byType(Wrap)), findsWidgets);
     expect(find.text('7x'), findsNothing);
+  });
+
+  testWidgets('TaskConfigPanel shows format-specific encoder options', (WidgetTester tester) async {
+    final appState = AppState();
+    appState.setDlssConfig('C:\\config.json', {'is_hdr': false}, null);
+
+    await tester.pumpWidget(buildTestApp(appState));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PNG Quality'), findsOneWidget);
+    expect(find.text('97%'), findsOneWidget);
+
+    await tester.tap(find.text('PNG (16-bit)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('EXR (scene-linear)').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('EXR Compression'), findsOneWidget);
+    expect(find.text('ZIP'), findsOneWidget);
+    expect(find.text('Compression'), findsOneWidget);
   });
 
   testWidgets('Template formats dynamically based on extension', (WidgetTester tester) async {

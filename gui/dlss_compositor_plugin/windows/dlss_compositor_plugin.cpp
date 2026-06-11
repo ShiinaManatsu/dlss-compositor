@@ -483,6 +483,9 @@ dlss::ConfigExecutionOptions DlssCompositorPlugin::BuildExecutionOptions() const
       args, "output_template", ReadStringArgument(args, "template"));
   options.outputFormat = ReadStringArgument(args, "output_format", "exr");
   options.overwriteMode = ReadStringArgument(args, "overwrite_mode", "overwrite");
+  options.pngQualityPercent = ReadIntArgument(args, "png_quality", 97);
+  options.exrCompression = ReadStringArgument(args, "exr_compression", "zip");
+  options.exrCompressionLevelPercent = ReadIntArgument(args, "exr_compression_level", 97);
   options.fgEnabled = ReadBoolArgument(args, "fg_enabled", false);
   options.fgMultiplier = ReadIntArgument(args, "fg_multiplier", 2);
   options.emitEvents = false;
@@ -541,10 +544,11 @@ void DlssCompositorPlugin::HandleMethodCall(
       status[flutter::EncodableValue("runtime_error")] =
           flutter::EncodableValue(runtime_error_);
       status[flutter::EncodableValue("video_encoders")] = flutter::EncodableValue(
-          flutter::EncodableList{});
+          flutter::EncodableList{flutter::EncodableValue(std::string("prores_422hq"))});
       status[flutter::EncodableValue("export_formats_ldr")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("png_16")),
-                                 flutter::EncodableValue(std::string("exr"))});
+                                 flutter::EncodableValue(std::string("exr")),
+                                 flutter::EncodableValue(std::string("prores_422hq"))});
       status[flutter::EncodableValue("export_formats_hdr")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("exr"))});
       result->Success(flutter::EncodableValue(status));

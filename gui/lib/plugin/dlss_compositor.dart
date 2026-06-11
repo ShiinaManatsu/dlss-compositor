@@ -178,6 +178,9 @@ class DlssCompositor {
     args.addAll(['--output-format', format]);
     final overwrite = params['overwrite_mode'] as String? ?? 'overwrite';
     args.addAll(['--overwrite-mode', overwrite]);
+    args.addAll(['--png-quality', '${params['png_quality'] ?? 97}']);
+    args.addAll(['--exr-compression', params['exr_compression'] as String? ?? 'zip']);
+    args.addAll(['--exr-compression-level', '${params['exr_compression_level'] ?? 97}']);
     args.addAll(['--events', 'stderr']);
     if (params['fg_enabled'] == true) {
       args.addAll(['--fg', '${params['fg_multiplier'] ?? 2}x']);
@@ -251,6 +254,12 @@ class DlssCompositor {
     final frameCount = params['frame_count'] as int? ?? 0;
     if (outputDir.isEmpty || frameCount <= 0) {
       return {'collisions': 0, 'files': <String>[]};
+    }
+    if ((params['output_format'] as String? ?? '') == 'prores_422hq') {
+      final path = '${Directory(outputDir).path}${Platform.pathSeparator}$template';
+      return File(path).existsSync()
+          ? {'collisions': 1, 'files': <String>[path]}
+          : {'collisions': 0, 'files': <String>[]};
     }
     final files = <String>[];
     for (var frame = 1; frame <= frameCount; frame++) {

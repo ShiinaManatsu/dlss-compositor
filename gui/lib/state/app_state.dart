@@ -37,6 +37,9 @@ class AppState extends ChangeNotifier {
   int fgMultiplier = 2;
   String outputFormat = 'png_16';
   String overwriteMode = 'overwrite';
+  int pngQuality = 97;
+  String exrCompression = 'zip';
+  int exrCompressionLevel = 97;
   String outputDir = '';
   String template = 'frame_####';
 
@@ -121,6 +124,9 @@ class AppState extends ChangeNotifier {
     int? fgMultiplier,
     String? outputFormat,
     String? overwriteMode,
+    int? pngQuality,
+    String? exrCompression,
+    int? exrCompressionLevel,
     String? outputDir,
     String? template,
   }) {
@@ -129,6 +135,9 @@ class AppState extends ChangeNotifier {
     if (fgMultiplier != null) this.fgMultiplier = fgMultiplier;
     if (outputFormat != null) this.outputFormat = outputFormat;
     if (overwriteMode != null) this.overwriteMode = overwriteMode;
+    if (pngQuality != null) this.pngQuality = pngQuality.clamp(0, 100);
+    if (exrCompression != null) this.exrCompression = exrCompression;
+    if (exrCompressionLevel != null) this.exrCompressionLevel = exrCompressionLevel.clamp(0, 100);
     if (outputDir != null) this.outputDir = outputDir;
     if (template != null) this.template = template;
     notifyListeners();
