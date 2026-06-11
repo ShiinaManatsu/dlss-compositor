@@ -2,6 +2,7 @@
 
 #include "../core/log.h"
 #include "../gpu/passes/preview_pass.h"
+#include "../io/prores_writer.h"
 
 #include <volk.h>
 
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -272,12 +274,27 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
         DlssSrPass srPass(m_ngx, m_ctx, &pool);
         PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;
+        std::unique_ptr<ProResProgressWriter> proresWriter;
 
         srPass.create(dlssCfg.render_resolution.width,
                       dlssCfg.render_resolution.height,
                       dlssCfg.output_resolution.width,
                       dlssCfg.output_resolution.height,
                       dlssCfg.quality);
+        if (config.outputFormat == OutputFormat::ProRes422HQ) {
+            proresWriter = std::make_unique<ProResProgressWriter>(
+                std::filesystem::path(config.outputDir) / config.filenameTemplate,
+                dlssCfg.output_resolution.width,
+                dlssCfg.output_resolution.height,
+                dlssCfg.fps,
+                dlssCfg.is_hdr,
+                totalFrames,
+                [this](int current, int total) {
+                    m_dispatcher->progress().current_frame.store(current);
+                    m_dispatcher->progress().percent.store(
+                        total > 0 ? static_cast<float>(current) / static_cast<float>(total) : 0.0f);
+                });
+        }
 
         FramePrefetcher prefetcher(buildFramePaths(dlssCfg, inferInputDir(config)), kPrefetchDepth);
 
@@ -390,23 +407,31 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 }
             }
 
-            WriteJob writeJob;
-            writeJob.format        = config.outputFormat;
-            writeJob.outputPath    = std::filesystem::path(config.outputDir) /
-                                     AsyncFrameWriter::formatPath(config.filenameTemplate, frameIdx + 1);
-            writeJob.width         = dlssCfg.output_resolution.width;
-            writeJob.height        = dlssCfg.output_resolution.height;
-            writeJob.fps           = dlssCfg.fps;
-            writeJob.is_hdr        = dlssCfg.is_hdr;
-            writeJob.overwriteMode = config.overwriteMode;
-            writeJob.pixels        = m_ctx->downloadImageRgba16f(colorOutput->image, writeJob.width, writeJob.height);
-            writeJob.completionCallback = [this, totalFrames, &writtenFrames]() {
-                const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
-                m_dispatcher->progress().current_frame.store(written);
-                m_dispatcher->progress().percent.store(
-                    static_cast<float>(written) / static_cast<float>(totalFrames));
-            };
-            writer.enqueue(std::move(writeJob));
+            auto pixels = m_ctx->downloadImageRgba16f(colorOutput->image,
+                                                      dlssCfg.output_resolution.width,
+                                                      dlssCfg.output_resolution.height);
+            if (proresWriter) {
+                proresWriter->writeFrame(pixels);
+            } else {
+                WriteJob writeJob;
+                writeJob.format        = config.outputFormat;
+                writeJob.outputPath    = std::filesystem::path(config.outputDir) /
+                                         AsyncFrameWriter::formatPath(config.filenameTemplate, frameIdx + 1);
+                writeJob.width         = dlssCfg.output_resolution.width;
+                writeJob.height        = dlssCfg.output_resolution.height;
+                writeJob.fps           = dlssCfg.fps;
+                writeJob.is_hdr        = dlssCfg.is_hdr;
+                writeJob.encoderOptions = config.encoderOptions;
+                writeJob.overwriteMode = config.overwriteMode;
+                writeJob.pixels        = std::move(pixels);
+                writeJob.completionCallback = [this, totalFrames, &writtenFrames]() {
+                    const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
+                    m_dispatcher->progress().current_frame.store(written);
+                    m_dispatcher->progress().percent.store(
+                        static_cast<float>(written) / static_cast<float>(totalFrames));
+                };
+                writer.enqueue(std::move(writeJob));
+            }
             ++processedFrames;
 
             pool.release(colorRender);
@@ -426,7 +451,15 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             throw std::runtime_error("SrOnlyPipeline: processed " + std::to_string(processedFrames) +
                                      " of " + std::to_string(totalFrames) + " input frames");
         }
-        writer.flush();
+        if (proresWriter) {
+            proresWriter->close();
+        } else {
+            writer.flush();
+        }
+        m_dispatcher->progress().current_frame.store(totalFrames);
+        m_dispatcher->progress().percent.store(1.0f);
+        m_dispatcher->progress().dlss_current_frame.store(totalFrames);
+        m_dispatcher->progress().dlss_percent.store(1.0f);
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 
         m_dispatcher->progress().state.store(2);

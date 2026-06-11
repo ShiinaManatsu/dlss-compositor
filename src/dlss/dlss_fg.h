@@ -49,7 +49,7 @@ struct FgInputs {
 
     bool is_hdr;        // FG §HDR — selects HDR path (PQ backbuffer)
     bool reset;         // FG §6 L587 — camera cut / scene change
-    int  multiplier;    // 2/3/4 for FG 2x/3x/4x
+    int  multiplier;    // 2..6, capped by NGX capability query
 };
 
 /// Stage 5: DLSS Frame Generation evaluator (NGX-direct, no Streamline).
@@ -61,7 +61,7 @@ public:
     ~DlssFgPass();
 
     /// Create the NGX FG feature.
-    /// @param multiplier  2/3/4 for 2x/3x/4x frame generation
+    /// @param multiplier  2..6, capped by NGX capability query
     void create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, int multiplier);
 
     /// Evaluate FG, generating (multiplier-1) interpolated frames per call.

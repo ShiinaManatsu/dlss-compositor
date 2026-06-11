@@ -39,10 +39,13 @@ void printHelp() {
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
-        << "  --output-format <fmt>        exr | png_16 (PNG is LDR only).\n"
+        << "  --output-format <fmt>        exr | png_16 | prores_422hq (PNG/ProRes are LDR only).\n"
         << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
         << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
-        << "  --fg <2x|3x|4x>              Enable frame generation multiplier.\n"
+        << "  --png-quality <0-100>        PNG zlib compression percent (default 97).\n"
+        << "  --exr-compression <mode>     none | zip | dwaa (default zip).\n"
+        << "  --exr-compression-level <0-100>  EXR zip/DWAA compression level (default 97).\n"
+        << "  --fg <2x..6x>                Enable frame generation multiplier.\n"
         << "  --events stderr              Emit structured progress events on stderr.\n"
         << "  --self-check                 Check GPU + NGX availability.\n"
         << "  --version                    Print version.\n"
@@ -92,12 +95,17 @@ int main(int argc, char* argv[]) {
         options.outputTemplate = getArg(args, "--output-template", getArg(args, "--template"));
         options.outputFormat = getArg(args, "--output-format", "exr");
         options.overwriteMode = getArg(args, "--overwrite-mode", "overwrite");
+        options.pngQualityPercent = std::stoi(getArg(args, "--png-quality", "97"));
+        options.exrCompression = getArg(args, "--exr-compression", "zip");
+        options.exrCompressionLevelPercent = std::stoi(getArg(args, "--exr-compression-level", "97"));
         options.previewSharedMemoryName = getArg(args, "--preview-shm");
         options.emitEvents = getArg(args, "--events") == "stderr";
         options.fgEnabled = !fg.empty();
         if (fg == "2x" || fg == "2") options.fgMultiplier = 2;
         else if (fg == "3x" || fg == "3") options.fgMultiplier = 3;
         else if (fg == "4x" || fg == "4") options.fgMultiplier = 4;
+        else if (fg == "5x" || fg == "5") options.fgMultiplier = 5;
+        else if (fg == "6x" || fg == "6") options.fgMultiplier = 6;
         else if (!fg.empty()) {
             LOG_ERROR("[cli] Unsupported --fg value: {}", fg);
             return 4;

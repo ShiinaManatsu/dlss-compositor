@@ -7,6 +7,7 @@
 #include "../dlss/ngx_wrapper.h"
 #include "../gpu/vulkan_context.h"
 #include "../io/async_writer.h"
+#include "../io/prores_writer.h"
 #include "../pipeline/fg_only_pipeline.h"
 #include "../pipeline/sr_fg_pipeline.h"
 #include "../pipeline/sr_only_pipeline.h"
@@ -20,6 +21,7 @@
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -40,7 +42,10 @@ OutputFormat parseOutputFormat(const std::string& value, bool isHdr) {
         return OutputFormat::Png16;
     }
     if (value == "prores" || value == "prores_422hq") {
-        throw std::runtime_error("ProRes 422 HQ output is not implemented yet; use exr or png_16");
+        if (isHdr) {
+            throw std::runtime_error("HDR ProRes export is not supported yet; use EXR scene-linear output");
+        }
+        return OutputFormat::ProRes422HQ;
     }
     throw std::runtime_error("Unsupported output format: " + value);
 }
@@ -58,6 +63,19 @@ OverwriteMode parseOverwriteMode(const std::string& value) {
     throw std::runtime_error("Unsupported overwrite mode: " + value);
 }
 
+ExrCompressionMode parseExrCompression(const std::string& value) {
+    if (value == "" || value == "zip") {
+        return ExrCompressionMode::Zip;
+    }
+    if (value == "none" || value == "uncompressed") {
+        return ExrCompressionMode::None;
+    }
+    if (value == "dwaa") {
+        return ExrCompressionMode::Dwaa;
+    }
+    throw std::runtime_error("Unsupported EXR compression mode: " + value);
+}
+
 std::filesystem::path defaultOutputDir(const std::filesystem::path& configPath) {
     const auto parent = configPath.parent_path();
     return parent.empty() ? std::filesystem::path("output") : parent / "output";
@@ -67,12 +85,18 @@ std::string defaultTemplateFor(OutputFormat format) {
     if (format == OutputFormat::Png16) {
         return "frame_####.png";
     }
+    if (format == OutputFormat::ProRes422HQ) {
+        return "output.mov";
+    }
     return "frame_####.exr";
 }
 
 std::string extensionFor(OutputFormat format) {
     if (format == OutputFormat::Png16) {
         return ".png";
+    }
+    if (format == OutputFormat::ProRes422HQ) {
+        return ".mov";
     }
     return ".exr";
 }
@@ -96,6 +120,26 @@ std::string withFormatExtension(std::string filenameTemplate, OutputFormat forma
 bool needsSr(const DlssConfig& config) {
     return config.render_resolution.width != config.output_resolution.width ||
            config.render_resolution.height != config.output_resolution.height;
+}
+
+std::string videoOutputName(std::string filenameTemplate) {
+    filenameTemplate = withFormatExtension(std::move(filenameTemplate), OutputFormat::ProRes422HQ);
+    std::string out;
+    for (std::size_t i = 0; i < filenameTemplate.size(); ++i) {
+        if (filenameTemplate[i] == '#') {
+            continue;
+        }
+        out.push_back(filenameTemplate[i]);
+    }
+    out = std::regex_replace(out, std::regex(R"(\{frame(?::0?\d+d)?\})"), "");
+    while (out.find("__") != std::string::npos) {
+        out = std::regex_replace(out, std::regex("__"), "_");
+    }
+    const auto dot = out.find_last_of('.');
+    if (dot == 0 || out.empty() || out == ".mov") {
+        return "output.mov";
+    }
+    return out;
 }
 
 int outputFrameCount(int inputFrames, bool fgEnabled, int fgMultiplier) {
@@ -143,10 +187,17 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
     try {
         const OutputFormat format = parseOutputFormat(options.outputFormat, config.is_hdr);
         const OverwriteMode overwrite = parseOverwriteMode(options.overwriteMode);
+        const EncoderOptions encoderOptions{
+            std::clamp(options.pngQualityPercent, 0, 100),
+            parseExrCompression(options.exrCompression),
+            std::clamp(options.exrCompressionLevelPercent, 0, 100),
+        };
         const std::filesystem::path outputDir = options.outputDir.empty()
             ? defaultOutputDir(options.configPath)
             : options.outputDir;
-        const std::string filenameTemplate = withFormatExtension(options.outputTemplate, format);
+        const std::string filenameTemplate = format == OutputFormat::ProRes422HQ
+            ? videoOutputName(options.outputTemplate)
+            : withFormatExtension(options.outputTemplate, format);
         PreviewPublisher preview(options.previewSharedMemoryName);
         auto previewCallback = [&preview, &options](const std::vector<std::uint8_t>& pixels,
                                                     std::uint32_t width,
@@ -196,6 +247,7 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.outputDir = outputDir.string();
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
+            pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -214,6 +266,7 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.outputDir = outputDir.string();
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
+            pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -232,6 +285,7 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.outputDir = outputDir.string();
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
+            pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;

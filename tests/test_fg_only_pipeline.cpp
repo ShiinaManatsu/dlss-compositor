@@ -48,12 +48,13 @@ TEST_CASE("FgOnlyPipeline - static contract keeps FG path Stage 1->4->5->6->7 on
     const std::size_t stage1 = requireFindAfter(source, "ChannelMapper::map", 0);
     const std::size_t stage4 = requireFindAfter(source, "tonemapPass.execute", stage1);
     const std::size_t stage5 = requireFindAfter(source, "fgPass.evaluate", stage4);
-    const std::size_t stage6 = requireFindAfter(source, "inversePass.execute", stage5);
-    const std::size_t stage7 = requireFindAfter(source, "writer.enqueue", stage6);
+    const std::size_t stage6Call = requireFindAfter(source, "writeFrameSceneLinear", stage5);
+    const std::size_t inverseInWriter = requireFindAfter(source, "inversePass.execute", 0);
+    const std::size_t stage7 = requireFindAfter(source, "Stage 7 dispatch", inverseInWriter);
     REQUIRE(stage1 < stage4);
     REQUIRE(stage4 < stage5);
-    REQUIRE(stage5 < stage6);
-    REQUIRE(stage6 < stage7);
+    REQUIRE(stage5 < stage6Call);
+    REQUIRE(inverseInWriter < stage7);
 
     REQUIRE(source.find("config.multiplier * totalFrames - (config.multiplier - 1)") != std::string::npos);
     REQUIRE(source.find("++outputFrameIdx") != std::string::npos);

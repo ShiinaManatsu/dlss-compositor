@@ -39,7 +39,8 @@ TEST_CASE("RpcDispatcher - getStatus returns correct video_encoders", "[unit][rp
 
     REQUIRE(result.contains("video_encoders"));
     auto& encoders = result["video_encoders"];
-    REQUIRE(encoders.empty());
+    REQUIRE(encoders.size() == 1);
+    REQUIRE(encoders[0].get<std::string>() == "prores_422hq");
 
     // Extension codecs must NOT be in the registered list.
     for (const auto& enc : encoders) {
@@ -78,12 +79,14 @@ TEST_CASE("RpcDispatcher - getStatus HDR formats no png", "[unit][rpc]") {
     }
 }
 
-TEST_CASE("RpcDispatcher - getStatus does not expose ProRes placeholder", "[unit][rpc]") {
+TEST_CASE("RpcDispatcher - getStatus exposes LDR ProRes only", "[unit][rpc]") {
     dlss::RpcDispatcher dispatcher;
     auto result = dispatcher.dispatch("getStatus", {});
+    bool hasProRes = false;
     for (const auto& f : result["export_formats_ldr"]) {
-        REQUIRE(f.get<std::string>() != "prores_422hq");
+        if (f.get<std::string>() == "prores_422hq") hasProRes = true;
     }
+    REQUIRE(hasProRes);
     for (const auto& f : result["export_formats_hdr"]) {
         REQUIRE(f.get<std::string>() != "prores_422hq");
     }

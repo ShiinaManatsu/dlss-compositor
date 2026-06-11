@@ -20,7 +20,7 @@ namespace dlss {
 namespace {
 
 constexpr int kMinMultiplier = 2;
-constexpr int kMaxMultiplier = 4;
+constexpr int kMaxMultiplier = 6;
 
 void copyMatrix(float (&dst)[4][4], const float (&src)[4][4]) {
     for (int r = 0; r < 4; ++r) {
@@ -75,7 +75,7 @@ DlssFgPass::~DlssFgPass() {
 
 void DlssFgPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, int multiplier) {
     if (multiplier < kMinMultiplier || multiplier > kMaxMultiplier) {
-        throw std::invalid_argument("DLSS FG multiplier must be 2, 3, or 4");
+        throw std::invalid_argument("DLSS FG multiplier must be between 2 and 6");
     }
 
     if (m_handle) {

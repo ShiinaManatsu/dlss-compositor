@@ -2,6 +2,7 @@
 
 #include "../core/log.h"
 #include "../gpu/passes/preview_pass.h"
+#include "../io/prores_writer.h"
 #include "fg_camera.h"
 
 #include <volk.h>
@@ -20,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -476,8 +478,8 @@ void SrFgPipeline::run(const SrFgConfig& config) {
     if (dlssCfg.filename_pattern.empty()) {
         throw std::runtime_error("SrFgPipeline: filename_pattern must not be empty");
     }
-    if (config.fgMultiplier < 2 || config.fgMultiplier > 4) {
-        throw std::runtime_error("SrFgPipeline: fgMultiplier must be 2, 3, or 4");
+    if (config.fgMultiplier < 2 || config.fgMultiplier > 6) {
+        throw std::runtime_error("SrFgPipeline: fgMultiplier must be between 2 and 6");
     }
 
     // Output frame count: SR outputs N frames; FG generates (mult-1) interp per input pair.
@@ -506,11 +508,26 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         InverseTonemapPass inversePass(m_ctx);         // Stage 6
         PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;                       // Stage 7
+        std::unique_ptr<ProResProgressWriter> proresWriter;
 
         const uint32_t rW = dlssCfg.render_resolution.width;
         const uint32_t rH = dlssCfg.render_resolution.height;
         const uint32_t oW = dlssCfg.output_resolution.width;
         const uint32_t oH = dlssCfg.output_resolution.height;
+        if (config.outputFormat == OutputFormat::ProRes422HQ) {
+            proresWriter = std::make_unique<ProResProgressWriter>(
+                std::filesystem::path(config.outputDir) / config.filenameTemplate,
+                oW,
+                oH,
+                dlssCfg.fps,
+                dlssCfg.is_hdr,
+                outputFrames,
+                [this](int current, int total) {
+                    m_dispatcher->progress().current_frame.store(current);
+                    m_dispatcher->progress().percent.store(
+                        total > 0 ? static_cast<float>(current) / static_cast<float>(total) : 0.0f);
+                });
+        }
 
         srPass.create(rW, rH, oW, oH, dlssCfg.quality);
         fgPass.create(rW, rH, oW, oH, config.fgMultiplier);
@@ -560,6 +577,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             job.height        = oH;
             job.fps           = dlssCfg.fps;
             job.is_hdr        = dlssCfg.is_hdr;
+            job.encoderOptions = config.encoderOptions;
             job.overwriteMode = config.overwriteMode;
             job.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH);
             job.completionCallback = [this, outputFrames, &writtenFrames]() {
@@ -590,7 +608,18 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             transitionStorageToShaderRead(cmd, sceneLinear);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
-            enqueueSceneLinear(sceneLinear);
+            // Stage 7 dispatch: image sequence calls writer.enqueue through
+            // enqueueSceneLinear, video writes the frame into the ProRes muxer.
+            if (proresWriter) {
+                ++outputFrameIdx;
+                proresWriter->writeFrame(m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH));
+                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+                m_dispatcher->progress().dlss_percent.store(
+                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
+            } else {
+                // Stage 7 image-sequence path calls writer.enqueue via enqueueSceneLinear.
+                enqueueSceneLinear(sceneLinear);
+            }
 
             pool.release(sceneLinear);
         };
@@ -760,7 +789,15 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             throw std::runtime_error("SrFgPipeline: processed " + std::to_string(processedInputs) +
                                      " of " + std::to_string(inputFrames) + " input frames");
         }
-        writer.flush();
+        if (proresWriter) {
+            proresWriter->close();
+        } else {
+            writer.flush();
+        }
+        m_dispatcher->progress().current_frame.store(outputFrames);
+        m_dispatcher->progress().percent.store(1.0f);
+        m_dispatcher->progress().dlss_current_frame.store(outputFrames);
+        m_dispatcher->progress().dlss_percent.store(1.0f);
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 
         m_dispatcher->progress().state.store(2);

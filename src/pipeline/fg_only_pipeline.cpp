@@ -2,6 +2,7 @@
 
 #include "../core/log.h"
 #include "../gpu/passes/preview_pass.h"
+#include "../io/prores_writer.h"
 #include "fg_camera.h"
 
 #include <volk.h>
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -255,8 +257,8 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
     if (dlssCfg.filename_pattern.empty()) {
         throw std::runtime_error("FgOnlyPipeline: filename_pattern must not be empty");
     }
-    if (config.multiplier < 2 || config.multiplier > 4) {
-        throw std::runtime_error("FgOnlyPipeline: multiplier must be 2, 3, or 4");
+    if (config.multiplier < 2 || config.multiplier > 6) {
+        throw std::runtime_error("FgOnlyPipeline: multiplier must be between 2 and 6");
     }
 
     const int outputFrames = config.multiplier * totalFrames - (config.multiplier - 1);
@@ -281,9 +283,24 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         InverseTonemapPass inversePass(m_ctx);
         PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;
+        std::unique_ptr<ProResProgressWriter> proresWriter;
 
         const uint32_t w = dlssCfg.output_resolution.width;
         const uint32_t h = dlssCfg.output_resolution.height;
+        if (config.outputFormat == OutputFormat::ProRes422HQ) {
+            proresWriter = std::make_unique<ProResProgressWriter>(
+                std::filesystem::path(config.outputDir) / config.filenameTemplate,
+                w,
+                h,
+                dlssCfg.fps,
+                dlssCfg.is_hdr,
+                outputFrames,
+                [this](int current, int total) {
+                    m_dispatcher->progress().current_frame.store(current);
+                    m_dispatcher->progress().percent.store(
+                        total > 0 ? static_cast<float>(current) / static_cast<float>(total) : 0.0f);
+                });
+        }
 
         fgPass.create(w, h, w, h, config.multiplier);
         FramePrefetcher prefetcher(buildFramePaths(dlssCfg, inferInputDir(config)), kPrefetchDepth);
@@ -345,6 +362,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             writeJob.height        = h;
             writeJob.fps           = dlssCfg.fps;
             writeJob.is_hdr        = dlssCfg.is_hdr;
+            writeJob.encoderOptions = config.encoderOptions;
             writeJob.overwriteMode = config.overwriteMode;
             writeJob.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, w, h);
             writeJob.completionCallback = [this, outputFrames, &writtenFrames]() {
@@ -375,7 +393,18 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             transitionStorageToShaderRead(cmd, sceneLinear);
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
-            enqueueSceneLinear(sceneLinear);
+            // Stage 7 dispatch: image sequence calls writer.enqueue through
+            // enqueueSceneLinear, video writes the frame into the ProRes muxer.
+            if (proresWriter) {
+                ++outputFrameIdx;
+                proresWriter->writeFrame(m_ctx->downloadImageRgba16f(sceneLinear->image, w, h));
+                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+                m_dispatcher->progress().dlss_percent.store(
+                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
+            } else {
+                // Stage 7 image-sequence path calls writer.enqueue via enqueueSceneLinear.
+                enqueueSceneLinear(sceneLinear);
+            }
 
             pool.release(sceneLinear);
         };
@@ -500,7 +529,15 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             throw std::runtime_error("FgOnlyPipeline: processed " + std::to_string(processedInputs) +
                                      " of " + std::to_string(totalFrames) + " input frames");
         }
-        writer.flush();
+        if (proresWriter) {
+            proresWriter->close();
+        } else {
+            writer.flush();
+        }
+        m_dispatcher->progress().current_frame.store(outputFrames);
+        m_dispatcher->progress().percent.store(1.0f);
+        m_dispatcher->progress().dlss_current_frame.store(outputFrames);
+        m_dispatcher->progress().dlss_percent.store(1.0f);
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
 
         m_dispatcher->progress().state.store(2);

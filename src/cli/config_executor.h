@@ -17,6 +17,9 @@ struct ConfigExecutionOptions {
     std::string outputTemplate;
     std::string outputFormat;
     std::string overwriteMode;
+    int pngQualityPercent = 97;
+    std::string exrCompression = "zip";
+    int exrCompressionLevelPercent = 97;
     bool fgEnabled = false;
     int fgMultiplier = 2;
     bool emitEvents = false;
