@@ -109,6 +109,7 @@ find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Imath         CONFIG REQUIRED)
 find_package(OpenEXR       CONFIG REQUIRED)
 find_package(ZLIB          REQUIRED)
+find_package(FFMPEG        REQUIRED)
 
 # Vulkan headers come transitively from volk, so find_package(Vulkan) is optional.
 find_package(Vulkan QUIET)
@@ -126,9 +127,10 @@ add_library(dlss_cli_support STATIC
     src/cli/preview_ipc.cpp
     src/core/dlssconfig.cpp
     src/core/log.cpp
-    src/io/async_writer.cpp)
+    src/io/async_writer.cpp
+    src/io/prores_writer.cpp)
 
-target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/src)
+target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/src ${FFMPEG_INCLUDE_DIRS})
 target_link_libraries(dlss_cli_support
     PUBLIC
         nlohmann_json::nlohmann_json
@@ -137,6 +139,7 @@ target_link_libraries(dlss_cli_support
         Imath::Imath
         OpenEXR::OpenEXR
         ZLIB::ZLIB
+        ${FFMPEG_LIBRARIES}
     PRIVATE
         dlss_warnings)
 
@@ -162,6 +165,7 @@ add_library(dlss_engine_lib STATIC
     src/io/frame_prefetcher.cpp
     src/io/channel_mapper.cpp
     src/io/async_writer.cpp
+    src/io/prores_writer.cpp
     src/pipeline/fg_camera.cpp
     src/pipeline/fg_only_pipeline.cpp
     src/pipeline/sr_fg_pipeline.cpp
@@ -172,7 +176,8 @@ add_library(dlss_engine_lib STATIC
 
 target_include_directories(dlss_engine_lib
     PUBLIC
-        ${DLSS_COMPOSITOR_SOURCE_DIR}/src)
+        ${DLSS_COMPOSITOR_SOURCE_DIR}/src
+        ${FFMPEG_INCLUDE_DIRS})
 
 target_include_directories(dlss_engine_lib SYSTEM PUBLIC
         ${DLSS_SDK_ROOT}/include)
@@ -186,6 +191,7 @@ target_link_libraries(dlss_engine_lib
         Imath::Imath
         OpenEXR::OpenEXR
         ZLIB::ZLIB
+        ${FFMPEG_LIBRARIES}
     PRIVATE
         dlss_warnings
         $<$<CONFIG:Debug>:${DLSS_LIB_DEBUG}>

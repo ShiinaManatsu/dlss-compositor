@@ -11,6 +11,7 @@
 #include "../core/log.h"
 
 #include <OpenEXR/ImfChannelList.h>
+#include <OpenEXR/ImfCompression.h>
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfOutputFile.h>
@@ -71,6 +72,22 @@ std::vector<OutputFormat> EncoderRegistry::registeredFormats() const
 // =============================================================================
 namespace {
 
+int percentToZlibLevel(int percent) noexcept
+{
+    const int clamped = std::clamp(percent, 0, 100);
+    return static_cast<int>(std::lround(static_cast<double>(clamped) * 9.0 / 100.0));
+}
+
+Imf::Compression toOpenExrCompression(ExrCompressionMode mode) noexcept
+{
+    switch (mode) {
+    case ExrCompressionMode::None: return Imf::NO_COMPRESSION;
+    case ExrCompressionMode::Dwaa: return Imf::DWAA_COMPRESSION;
+    case ExrCompressionMode::Zip:  return Imf::ZIP_COMPRESSION;
+    }
+    return Imf::ZIP_COMPRESSION;
+}
+
 // ---------- EXR (linear, 16-bit half RGBA) ----------------------------------
 void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputPath)
 {
@@ -90,6 +107,9 @@ void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputP
     }
 
     Imf::Header header(static_cast<int>(p.width), static_cast<int>(p.height));
+    header.compression() = toOpenExrCompression(p.options.exrCompression);
+    header.zipCompressionLevel() = percentToZlibLevel(p.options.exrCompressionLevelPercent);
+    header.dwaCompressionLevel() = static_cast<float>(std::clamp(p.options.exrCompressionLevelPercent, 0, 100));
     header.channels().insert("R", Imf::Channel(Imf::HALF));
     header.channels().insert("G", Imf::Channel(Imf::HALF));
     header.channels().insert("B", Imf::Channel(Imf::HALF));
@@ -231,7 +251,7 @@ void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
     std::vector<std::uint8_t> compressed(static_cast<std::size_t>(compressedSize));
     const int zlibResult = compress2(compressed.data(), &compressedSize,
                                      scanlines.data(), static_cast<uLong>(scanlines.size()),
-                                     Z_BEST_SPEED);
+                                     percentToZlibLevel(p.options.pngQualityPercent));
     if (zlibResult != Z_OK) {
         throw std::runtime_error("encodePng16: zlib compression failed: " + std::to_string(zlibResult));
     }
@@ -269,6 +289,8 @@ EncoderRegistry& globalEncoderRegistry()
         EncoderRegistry r;
         r.registerEncoder(OutputFormat::ExrLinear,   &encodeExrLinear);
         r.registerEncoder(OutputFormat::Png16,       &encodePng16);
+        // ProRes422HQ is handled by ProResWriter at pipeline level because it
+        // owns a single MOV muxer across the whole sequence, not per-frame jobs.
         // INTENTIONAL: Jpeg/H264Mp4/H265Mp4/Av1Mp4/Avif/ProRes4444XQ/DNxHR are
         // enum-only placeholders for future extensions and are NOT registered.
         return r;
@@ -492,6 +514,7 @@ void AsyncFrameWriter::processJob(WriteJob& job)
     params.pixelByteSize = job.pixels.size();
     params.fps           = job.fps;
     params.is_hdr        = job.is_hdr;
+    params.options       = job.encoderOptions;
 
     enc(params, resolved);
 }

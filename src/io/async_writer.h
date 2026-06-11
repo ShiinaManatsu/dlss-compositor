@@ -44,6 +44,7 @@ struct WriteJob {
     uint32_t              height       = 0;
     int                   fps          = 24;
     bool                  is_hdr       = false;
+    EncoderOptions        encoderOptions{};
     OverwriteMode         overwriteMode = OverwriteMode::Overwrite;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
     std::function<void()> completionCallback;

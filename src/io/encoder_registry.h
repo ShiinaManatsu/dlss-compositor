@@ -2,10 +2,9 @@
 // =============================================================================
 // EncoderRegistry — extensible map of OutputFormat → encoder function.
 //
-// v2 implements ONLY: ExrLinear and Png16.
-// All other OutputFormat values (Jpeg, H264Mp4, H265Mp4, Av1Mp4, Avif,
-// ProRes4444XQ, DNxHR) are enum-only placeholders for future extensions and
-// are NOT registered in globalEncoderRegistry().
+// v2 image sequence encoders implement ONLY: ExrLinear and Png16.
+// ProRes422HQ is a sequence-level MOV muxer handled by ProResWriter, not this
+// per-frame registry. Other OutputFormat values remain enum-only placeholders.
 // =============================================================================
 
 #include "../core/types.h"
@@ -18,6 +17,18 @@
 
 namespace dlss {
 
+enum class ExrCompressionMode {
+    None,
+    Zip,
+    Dwaa,
+};
+
+struct EncoderOptions {
+    int pngQualityPercent = 97;
+    ExrCompressionMode exrCompression = ExrCompressionMode::Zip;
+    int exrCompressionLevelPercent = 97;
+};
+
 struct EncodeParams {
     uint32_t       width        = 0;
     uint32_t       height       = 0;
@@ -25,6 +36,7 @@ struct EncodeParams {
     std::size_t    pixelByteSize = 0;
     int            fps          = 24;       // for video encoders
     bool           is_hdr       = false;
+    EncoderOptions options{};
 };
 
 /// Encoder function: takes params + output path, writes file or appends to video.
@@ -33,7 +45,7 @@ struct EncodeParams {
 using EncoderFn = std::function<void(const EncodeParams&, const std::filesystem::path&)>;
 
 /// Registry of encoder functions. Extensible for future codecs.
-/// v2 implements ONLY: ExrLinear and Png16.
+/// v2 image sequence encoders implement ONLY: ExrLinear and Png16.
 class EncoderRegistry {
 public:
     void registerEncoder(OutputFormat fmt, EncoderFn fn);
@@ -48,9 +60,8 @@ private:
 };
 
 /// Get the global encoder registry (initialized lazily with v2 encoders).
-/// Contains ONLY: ExrLinear and Png16.
-/// OutputFormat::Jpeg / H264Mp4 / H265Mp4 / Av1Mp4 / Avif / ProRes4444XQ /
-/// DNxHR are enum placeholders — NOT registered.
+/// Contains ONLY: ExrLinear and Png16. ProRes422HQ is sequence-level and is not
+/// registered here.
 EncoderRegistry& globalEncoderRegistry();
 
 } // namespace dlss

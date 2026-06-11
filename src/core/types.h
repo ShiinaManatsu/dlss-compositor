@@ -44,8 +44,8 @@ struct DlssConfig {
     std::map<std::string, CameraData> frames;
 };
 
-// OutputFormat enum — ONLY ExrLinear, Png16, ProRes422HQ are implemented in v2
-// The rest are enum placeholders for future extensions — DO NOT register to EncoderRegistry
+// OutputFormat enum — ExrLinear/Png16 image sequences and LDR ProRes422HQ MOV are implemented in v2.
+// The rest are enum placeholders for future extensions — DO NOT register to EncoderRegistry.
 enum class OutputFormat {
     ExrLinear,
     Png16,

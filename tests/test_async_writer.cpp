@@ -48,7 +48,7 @@ TEST_CASE("EncoderRegistry - only v2 formats registered", "[unit]")
     // v2 implements ONLY these image-sequence formats.
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::ExrLinear));
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::Png16));
-    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ));
+    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ)); // sequence-level ProResWriter, not per-frame registry
 
     // Extension placeholders must NOT be registered.
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::Jpeg));
