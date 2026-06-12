@@ -5,27 +5,30 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// Input: Blender Vector pass packed as RGBA (Vector.X=R, Vector.Y=G, Vector.Z=B, Vector.W=A)
+// Input: Blender Vector pass packed as RGBA (Vector.X=R, Vector.Y=G,
+// Vector.Z=B, Vector.W=A)
 layout(set = 0, binding = 0) uniform sampler2D srcMV4ch;
 
 // Output: DLSS 2-channel motion vectors (X=R, Y=G), pixel units
 layout(set = 0, binding = 1, rg16f) uniform image2D dstMV2ch;
 
 void main() {
-    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(dstMV2ch);
-    
-    if (coord.x >= size.x || coord.y >= size.y) return;
-    
-    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
-    
-    // Read 4-channel Blender Vector pass
-    // Channels: X=Blender.X(prev→curr, +left), Y=Blender.Y(prev→curr, +down)
-    //           Z=to-next X (unused), W=to-next Y (unused)
-    vec4 blender = texture(srcMV4ch, uv);
-    
-    vec2 dlss = vec2(blender.x, -blender.y);
-    
-    // Store 2-channel DLSS MV (RG16F format)
-    imageStore(dstMV2ch, coord, vec4(dlss, 0.0, 0.0));
+  ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 size = imageSize(dstMV2ch);
+
+  if (coord.x >= size.x || coord.y >= size.y)
+    return;
+
+  //   vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+
+  // Read 4-channel Blender Vector pass
+  // Channels: X=Blender.X(prev→curr, +left), Y=Blender.Y(prev→curr, +down)
+  //           Z=to-next X (unused), W=to-next Y (unused)
+  //   vec4 blender = texture(srcMV4ch, uv);
+  vec4 bledner = imageLoad(srcMV4ch, coord);
+
+  vec2 dlss = vec2(-blender.x, -blender.y);
+
+  // Store 2-channel DLSS MV (RG16F format)
+  imageStore(dstMV2ch, coord, vec4(dlss, 0.0, 0.0));
 }
