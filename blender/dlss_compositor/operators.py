@@ -22,7 +22,8 @@ def _get_or_create_compositor_tree(scene: Scene) -> NodeTree | None:
     scene.render.use_compositing = True
     tree: NodeTree | None = scene.compositing_node_group
     if tree is None:
-        tree = bpy.data.node_groups.new(name="Compositor", type="CompositorNodeTree")
+        tree = bpy.data.node_groups.new(
+            name="Compositor", type="CompositorNodeTree")
         scene.compositing_node_group = tree
     return tree
 
@@ -75,7 +76,8 @@ class DLSS_OT_ConfigureAllPasses(Operator):
         self.report({"INFO"}, "DLSS passes and compositor configured")
         return {"FINISHED"}
 
-    def _setup_file_output_nodes(self, scene: Scene, props) -> bool | None:  # type: ignore[no-untyped-def]
+    # type: ignore[no-untyped-def]
+    def _setup_file_output_nodes(self, scene: Scene, props) -> bool | None:
         """Create File Output nodes for Combined, Depth, Vector with Raw OCIO."""
         tree: NodeTree | None = _get_or_create_compositor_tree(scene)
         if tree is None:
@@ -93,10 +95,12 @@ class DLSS_OT_ConfigureAllPasses(Operator):
 
         # Find or create RenderLayers node
         rl_node: CompositorNodeRLayers | None = next(
-            (n for n in nodes if n.type == "R_LAYERS"), None  # type: ignore[assignment]
+            # type: ignore[assignment]
+            (n for n in nodes if n.type == "R_LAYERS"), None
         )
         if rl_node is None:
-            rl_node = nodes.new("CompositorNodeRLayers")  # type: ignore[assignment]
+            # type: ignore[assignment]
+            rl_node = nodes.new("CompositorNodeRLayers")
             rl_node.location = (-300, 0)
 
         # Remove any existing DLSS output nodes (avoid duplicates on re-run)
@@ -108,7 +112,8 @@ class DLSS_OT_ConfigureAllPasses(Operator):
         #   Combined → R, G, B, A  (item name "")
         #   Depth    → Z           (item name "Z")
         #   Vector   → Vector.X/Y/Z/W  (item name "Vector")
-        fo: CompositorNodeOutputFile = nodes.new("CompositorNodeOutputFile")  # type: ignore[assignment]
+        fo: CompositorNodeOutputFile = nodes.new(
+            "CompositorNodeOutputFile")  # type: ignore[assignment]
         fo.label = "DLSS_Output"
         fo.location = (200, 0)
         fo.directory = output_dir
@@ -122,12 +127,16 @@ class DLSS_OT_ConfigureAllPasses(Operator):
 
         # Clear default items and add the three passes
         fo.file_output_items.clear()
-        item_combined: NodeCompositorFileOutputItem = fo.file_output_items.new("RGBA", "")
+        item_combined: NodeCompositorFileOutputItem = fo.file_output_items.new(
+            "RGBA", "")
         item_combined.name = ""
-        item_z: NodeCompositorFileOutputItem = fo.file_output_items.new("FLOAT", "Z")
+        item_z: NodeCompositorFileOutputItem = fo.file_output_items.new(
+            "FLOAT", "Z")
         item_z.name = "Z"
-        item_vec: NodeCompositorFileOutputItem = fo.file_output_items.new("VECTOR", "Vector")
+        item_vec: NodeCompositorFileOutputItem = fo.file_output_items.new(
+            "VECTOR", "Vector")
         item_vec.name = "Vector"
+        item_vec.vector_socket_dimensions = 4
 
         # Wire: Image→input[0], Depth→input[1], Vector→input[2]
         for out_name, inp_idx in [("Image", 0), ("Depth", 1), ("Vector", 2)]:
