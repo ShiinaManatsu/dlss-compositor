@@ -237,7 +237,13 @@ def _finalize(scene: Scene) -> None:
     try:
         if props and props.output_dir:  # type: ignore[attr-defined]
             from .dlssconfig_writer import build_top_level_config, merge_per_frame_jsons, write_dlssconfig
+            from .lut_generator import generate_tonemap_lut
             top_level = build_top_level_config(scene, props)
+            luts = generate_tonemap_lut(scene, props.output_dir)  # type: ignore[attr-defined]
+            if luts.tonemap_lut:
+                top_level["tonemap_lut"] = luts.tonemap_lut
+            if luts.inverse_lut:
+                top_level["inverse_lut"] = luts.inverse_lut
             frames = merge_per_frame_jsons(props.output_dir)  # type: ignore[attr-defined]
             log.info("_finalize: merging %d frames into dlssconfig.json", len(frames))
             write_dlssconfig(props.output_dir, top_level, frames)  # type: ignore[attr-defined]

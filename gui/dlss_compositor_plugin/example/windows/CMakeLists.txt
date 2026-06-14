@@ -1,5 +1,28 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
+
+set(_DLSS_VCPKG_ROOT "$ENV{VCPKG_ROOT}")
+if(_DLSS_VCPKG_ROOT STREQUAL "")
+  foreach(_DLSS_VS_VCPKG_ROOT IN ITEMS
+      "C:/Program Files/Microsoft Visual Studio/18/Community/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/18/Professional/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/18/Enterprise/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/18/BuildTools/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/17/Community/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/17/Professional/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/17/Enterprise/VC/vcpkg"
+      "C:/Program Files/Microsoft Visual Studio/17/BuildTools/VC/vcpkg")
+    if(EXISTS "${_DLSS_VS_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+      set(_DLSS_VCPKG_ROOT "${_DLSS_VS_VCPKG_ROOT}")
+      break()
+    endif()
+  endforeach()
+endif()
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND NOT _DLSS_VCPKG_ROOT STREQUAL "")
+  set(CMAKE_TOOLCHAIN_FILE "${_DLSS_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      CACHE STRING "vcpkg toolchain")
+endif()
+
 project(dlss_compositor_plugin_example LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change

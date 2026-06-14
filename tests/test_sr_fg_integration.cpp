@@ -54,15 +54,41 @@ TEST_CASE("SrFgPipeline - stage order invariant documented", "[unit][pipeline]")
     const auto stage2 = requireFindAfter(source, "srPass.evaluate", stage1);
     const auto stage4 = requireFindAfter(source, "tonemapPass.execute", stage2);
     const auto stage5 = requireFindAfter(source, "fgPass.evaluate", stage4);
-    const auto stage6 = requireFindAfter(source, "inversePass.execute", stage5);
-    const auto stage7 = requireFindAfter(source, "writer.enqueue", stage6);
+    const auto stage7 = requireFindAfter(source, "writeDisplayOrSceneLinear", stage5);
+    const auto exrBranch = requireFindAfter(source, "config.outputFormat == OutputFormat::ExrLinear", 0);
+    const auto inverseCall = requireFindAfter(source, "inversePass.execute", exrBranch);
 
     REQUIRE(stage1 < stage2);
     REQUIRE(stage2 < stage4);
     REQUIRE(stage4 < stage5);
-    REQUIRE(stage5 < stage6);
-    REQUIRE(stage6 < stage7);
-    SUCCEED("Stage order enforced: SR -> tonemap -> FG in sr_fg_pipeline.cpp");
+    REQUIRE(stage5 < stage7);
+    REQUIRE(exrBranch < inverseCall);
+    SUCCEED("Stage order enforced: SR -> tonemap -> FG -> optional inverse/write in sr_fg_pipeline.cpp");
+}
+
+TEST_CASE("SrFgPipeline - ProRes path writes real frames asynchronously at FG output fps", "[unit][pipeline]") {
+    const std::string source = readTextFile("src/pipeline/sr_fg_pipeline.cpp");
+
+    REQUIRE(source.find("dlssCfg.fps * config.fgMultiplier") != std::string::npos);
+    REQUIRE(source.find("proresWriter->enqueueFrame(std::move(pixels))") != std::string::npos);
+    REQUIRE(source.find("downloadImageA2B10ToRgba16f") != std::string::npos);
+    REQUIRE(source.find("proresWriter->writeFrame(m_ctx->downloadImageRgba16f") == std::string::npos);
+    REQUIRE(source.find("PixelEncoding::DisplayReady") != std::string::npos);
+}
+
+TEST_CASE("SrFgPipeline - tonemap_lut selects LUT tonemap before FG", "[unit][pipeline]") {
+    const std::string source = readTextFile("src/pipeline/sr_fg_pipeline.cpp");
+
+    const auto lutField = requireFindAfter(source, "dlssCfg.tonemap_lut", 0);
+    const auto loadCube = requireFindAfter(source, "LutLoader::LoadCube", lutField);
+    const auto createPass = requireFindAfter(source, "std::make_unique<LutTonemapPass>", loadCube);
+    const auto lutExecute = requireFindAfter(source, "lutTonemapPass->execute", createPass);
+    const auto fallback = requireFindAfter(source, "tonemapPass.execute", lutExecute);
+
+    REQUIRE(lutField < loadCube);
+    REQUIRE(loadCube < createPass);
+    REQUIRE(createPass < lutExecute);
+    REQUIRE(lutExecute < fallback);
 }
 
 TEST_CASE("SrFgPipeline - frame time delta from fps", "[unit][pipeline]") {

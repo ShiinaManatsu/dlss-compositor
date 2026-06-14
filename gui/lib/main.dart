@@ -1,5 +1,8 @@
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'state/app_state.dart';
 import 'state/preferences.dart';
@@ -8,8 +11,27 @@ import 'widgets/status_bar.dart';
 import 'widgets/task_config_panel.dart';
 import 'util/app_log.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb &&
+      [
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+        TargetPlatform.macOS,
+      ].contains(defaultTargetPlatform)) {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      title: 'DLSS Compositor v2',
+      titleBarStyle: TitleBarStyle.hidden,
+      windowButtonVisibility: false,
+      minimumSize: Size(960, 640),
+      backgroundColor: Colors.transparent,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
   AppLog.resetStartup();
   AppLog.phase('startup', 'Flutter binding initialized');
   runApp(
@@ -38,6 +60,8 @@ class DlssCompositorApp extends StatelessWidget {
     return MaterialApp(
       title: 'DLSS Compositor v2',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: fluent.FluentLocalizations.localizationsDelegates,
+      supportedLocales: fluent.FluentLocalizations.supportedLocales,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         brightness: Brightness.dark,
@@ -59,7 +83,9 @@ class DlssCompositorApp extends StatelessWidget {
           selectedColor: _accent.withValues(alpha: 0.22),
           side: const BorderSide(color: _line),
           labelStyle: const TextStyle(fontSize: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
@@ -78,7 +104,9 @@ class DlssCompositorApp extends StatelessWidget {
           style: FilledButton.styleFrom(
             backgroundColor: _accent,
             foregroundColor: const Color(0xFF041008),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
@@ -86,7 +114,9 @@ class DlssCompositorApp extends StatelessWidget {
             backgroundColor: _accent,
             foregroundColor: const Color(0xFF041008),
             elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ),
         ),
         appBarTheme: const AppBarTheme(
@@ -132,79 +162,140 @@ class _HomePageState extends State<HomePage> {
     } on ProviderNotFoundException {
       prefs = null;
     }
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 18,
-        title: const Row(
-          children: [
-            Icon(Icons.auto_awesome_motion, size: 18, color: DlssCompositorApp._accent),
-            SizedBox(width: 10),
-            Text('DLSS Compositor v2'),
-          ],
-        ),
+    return fluent.FluentTheme(
+      data: fluent.FluentThemeData(
+        brightness: Brightness.dark,
+        accentColor: fluent.Colors.green,
+        fontFamily: 'Segoe UI',
       ),
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF090D0B), Color(0xFF0E1511), Color(0xFF070A09)],
+      child: fluent.NavigationView(
+        titleBar: fluent.TitleBar(
+          height: 44,
+          isBackButtonVisible: false,
+          icon: fluent.Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: const Icon(
+              Icons.auto_awesome_motion,
+              size: 18,
+              color: DlssCompositorApp._accent,
+            ),
           ),
+          title: const Text(
+            'DLSS Compositor v2',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFE8F2EC),
+            ),
+          ),
+          captionControls: const _WindowButtons(),
+          onDragStarted: !kIsWeb ? windowManager.startDragging : null,
+          onDoubleTap: !kIsWeb
+              ? () async {
+                  if (await windowManager.isMaximized()) {
+                    await windowManager.unmaximize();
+                  } else {
+                    await windowManager.maximize();
+                  }
+                }
+              : null,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-            final totalWidth = constraints.maxWidth;
-            final splitterPosition = _localSplitterPosition ?? prefs?.splitterPosition ?? 0.4;
-            final leftWidth = _leftWidth(totalWidth, splitterPosition);
+        content: Scaffold(
+          body: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF090D0B),
+                  Color(0xFF0E1511),
+                  Color(0xFF070A09),
+                ],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final totalWidth = constraints.maxWidth;
+                  final splitterPosition =
+                      _localSplitterPosition ?? prefs?.splitterPosition ?? 0.4;
+                  final leftWidth = _leftWidth(totalWidth, splitterPosition);
 
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: leftWidth,
-                  child: const _WorkbenchPane(child: TaskConfigPanel()),
-                ),
-                MouseRegion(
-                  cursor: SystemMouseCursors.resizeColumn,
-                  onEnter: (_) => setState(() => _isSplitterHovered = true),
-                  onExit: (_) => setState(() => _isSplitterHovered = false),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onPanUpdate: (details) {
-                      final nextWidth = (leftWidth + details.delta.dx)
-                          .clamp(360.0, totalWidth - 360.0)
-                          .toDouble();
-                      setState(() => _localSplitterPosition = nextWidth / totalWidth);
-                    },
-                    onPanEnd: (_) {
-                      final next = _localSplitterPosition;
-                      if (next != null && prefs != null) {
-                        prefs.setSplitterPosition(next);
-                      }
-                      setState(() => _isSplitterHovered = false);
-                    },
-                    child: Container(
-                      width: 16,
-                      alignment: Alignment.center,
-                      child: Container(
-                        width: _isSplitterHovered ? 2 : 1,
-                        color: _isSplitterHovered
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).dividerColor.withValues(alpha: 0.2),
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: leftWidth,
+                        child: const _WorkbenchPane(child: TaskConfigPanel()),
                       ),
-                    ),
-                  ),
-                ),
-                const Expanded(child: _WorkbenchPane(child: DetailPanel())),
-              ],
-            );
-          },
-        ),
+                      MouseRegion(
+                        cursor: SystemMouseCursors.resizeColumn,
+                        onEnter: (_) =>
+                            setState(() => _isSplitterHovered = true),
+                        onExit: (_) =>
+                            setState(() => _isSplitterHovered = false),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanUpdate: (details) {
+                            final nextWidth = (leftWidth + details.delta.dx)
+                                .clamp(360.0, totalWidth - 360.0)
+                                .toDouble();
+                            setState(
+                              () => _localSplitterPosition =
+                                  nextWidth / totalWidth,
+                            );
+                          },
+                          onPanEnd: (_) {
+                            final next = _localSplitterPosition;
+                            if (next != null && prefs != null) {
+                              prefs.setSplitterPosition(next);
+                            }
+                            setState(() => _isSplitterHovered = false);
+                          },
+                          child: Container(
+                            width: 16,
+                            alignment: Alignment.center,
+                            child: Container(
+                              width: _isSplitterHovered ? 2 : 1,
+                              color: _isSplitterHovered
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(
+                                      context,
+                                    ).dividerColor.withValues(alpha: 0.2),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Expanded(
+                        child: _WorkbenchPane(child: DetailPanel()),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          bottomNavigationBar: const DlssStatusBar(),
         ),
       ),
-      bottomNavigationBar: const DlssStatusBar(),
+    );
+  }
+}
+
+class _WindowButtons extends StatelessWidget {
+  const _WindowButtons();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = fluent.FluentTheme.of(context);
+    return SizedBox(
+      width: 138,
+      height: 44,
+      child: WindowCaption(
+        brightness: theme.brightness,
+        backgroundColor: Colors.transparent,
+      ),
     );
   }
 }
@@ -229,11 +320,7 @@ class _WorkbenchPane extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(17),
-        child: child,
-      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(17), child: child),
     );
   }
 }
-

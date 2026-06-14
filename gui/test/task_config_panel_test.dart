@@ -58,6 +58,36 @@ void main() {
     expect(find.text('60 fps'), findsOneWidget);
   });
 
+  testWidgets('TaskConfigPanel accepts Blender LUT config shape', (WidgetTester tester) async {
+    final appState = AppState();
+    appState.setDlssConfig('F:\\New Folder\\dlssconfig.json', {
+      'version': 1,
+      'output_resolution': {'width': 1215, 'height': 2160},
+      'render_resolution': {'width': 814, 'height': 1447},
+      'quality_mode': 'quality',
+      'display_device': 'Rec.2020',
+      'view_transform': 'ACES 2.0',
+      'is_hdr': false,
+      'fps': 30,
+      'tonemap_lut': 'tonemap_Rec.2020_ACES_2.0_33.cube',
+      'inverse_lut': 'inverse_Rec.2020_ACES_2.0_33.cube',
+      'frames': {
+        '0000': {'jitter_x': 0.0, 'jitter_y': -0.16666666666666669},
+        '0001': {'jitter_x': -0.25, 'jitter_y': 0.16666666666666663},
+      },
+    }, null);
+
+    await tester.pumpWidget(buildTestApp(appState));
+    await tester.pumpAndSettle();
+
+    expect(find.text('In: 814×1447'), findsOneWidget);
+    expect(find.text('Out: 1215×2160'), findsOneWidget);
+    expect(find.text('quality'), findsOneWidget);
+    expect(find.text('30 fps'), findsOneWidget);
+    expect(find.text('2 frames'), findsOneWidget);
+    expect(find.text('PNG (16-bit)'), findsOneWidget);
+  });
+
   testWidgets('TaskConfigPanel limits formats for HDR', (WidgetTester tester) async {
     final appState = AppState();
     // Set HDR config
@@ -78,9 +108,9 @@ void main() {
     await tester.tap(find.text('EXR (scene-linear)'));
     await tester.pumpAndSettle();
     
-    // Dropdown items should only include EXR.
+    // Dropdown items should include EXR and HDR-capable ProRes, but not PNG.
     expect(find.text('EXR (scene-linear)'), findsWidgets);
-    expect(find.text('ProRes 422 HQ (.mov)'), findsNothing);
+    expect(find.text('ProRes 422 HQ (.mov)'), findsWidgets);
     // PNG should not be available
     expect(find.text('PNG (16-bit)'), findsNothing);
   });

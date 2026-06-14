@@ -39,7 +39,7 @@ void printHelp() {
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
-        << "  --output-format <fmt>        exr | png_16 | prores_422hq (PNG/ProRes are LDR only).\n"
+        << "  --output-format <fmt>        exr | png_16 | prores_422hq (PNG is LDR only; ProRes supports LDR/HDR).\n"
         << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
         << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
         << "  --png-quality <0-100>        PNG zlib compression percent (default 97).\n"

@@ -120,7 +120,7 @@ void DlssFgPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH
         NVSDK_NGX_DLSSG_Parameter_DynamicResolution,
         0u);
 
-    // DLSS FG §HDR L1462 - Backbuffer format: RGB10A2 (PQ encoded for HDR). // FG §HDR L1462
+    // DLSS FG §HDR L1462 - Recommended HDR backbuffer format is RGB10A2 / VK_FORMAT_A2B10G10R10_UNORM_PACK32. // FG §HDR L1462
     NVSDK_NGX_Parameter_SetUI( // DLSS §HDR; DLSS FG §HDR L1462 // FG §HDR L1462
         m_ngxParams,
         NVSDK_NGX_DLSSG_Parameter_BackbufferFormat,

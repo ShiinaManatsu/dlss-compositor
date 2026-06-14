@@ -79,17 +79,19 @@ TEST_CASE("RpcDispatcher - getStatus HDR formats no png", "[unit][rpc]") {
     }
 }
 
-TEST_CASE("RpcDispatcher - getStatus exposes LDR ProRes only", "[unit][rpc]") {
+TEST_CASE("RpcDispatcher - getStatus exposes ProRes for LDR and HDR", "[unit][rpc]") {
     dlss::RpcDispatcher dispatcher;
     auto result = dispatcher.dispatch("getStatus", {});
-    bool hasProRes = false;
+    bool hasLdrProRes = false;
     for (const auto& f : result["export_formats_ldr"]) {
-        if (f.get<std::string>() == "prores_422hq") hasProRes = true;
+        if (f.get<std::string>() == "prores_422hq") hasLdrProRes = true;
     }
-    REQUIRE(hasProRes);
+    REQUIRE(hasLdrProRes);
+    bool hasHdrProRes = false;
     for (const auto& f : result["export_formats_hdr"]) {
-        REQUIRE(f.get<std::string>() != "prores_422hq");
+        if (f.get<std::string>() == "prores_422hq") hasHdrProRes = true;
     }
+    REQUIRE(hasHdrProRes);
 }
 
 TEST_CASE("RpcDispatcher - getProgress lock-free + idle by default", "[unit][rpc]") {

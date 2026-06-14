@@ -79,6 +79,7 @@ TonemapPass::~TonemapPass()
     VkDevice dev = m_ctx->device();
     if (m_pipeline       != VK_NULL_HANDLE) vkDestroyPipeline(dev, m_pipeline, nullptr);
     if (m_pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(dev, m_pipelineLayout, nullptr);
+    if (m_sampler        != VK_NULL_HANDLE) vkDestroySampler(dev, m_sampler, nullptr);
     if (m_descPool       != VK_NULL_HANDLE) vkDestroyDescriptorPool(dev, m_descPool, nullptr);
     if (m_descSetLayout  != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(dev, m_descSetLayout, nullptr);
     if (m_shaderModule   != VK_NULL_HANDLE) vkDestroyShaderModule(dev, m_shaderModule, nullptr);
@@ -133,6 +134,27 @@ void TonemapPass::createDescriptorSetLayout()
 
     if (vkCreateDescriptorPool(m_ctx->device(), &poolInfo, nullptr, &m_descPool) != VK_SUCCESS) {
         throw std::runtime_error("TonemapPass: failed to create descriptor pool");
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_descPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts        = &m_descSetLayout;
+    if (vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &m_descSet) != VK_SUCCESS) {
+        throw std::runtime_error("TonemapPass: failed to allocate descriptor set");
+    }
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter    = VK_FILTER_LINEAR;
+    samplerInfo.minFilter    = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(m_ctx->device(), &samplerInfo, nullptr, &m_sampler) != VK_SUCCESS) {
+        throw std::runtime_error("TonemapPass: failed to create sampler");
     }
 }
 
@@ -199,37 +221,9 @@ void TonemapPass::execute(VkCommandBuffer     cmd,
 {
     VkDevice dev = m_ctx->device();
 
-    // ---- Allocate a descriptor set for this dispatch -----------------------
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_descPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts        = &m_descSetLayout;
-
-    VkDescriptorSet descSet = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(dev, &allocInfo, &descSet) != VK_SUCCESS) {
-        throw std::runtime_error("TonemapPass: failed to allocate descriptor set");
-    }
-
-    // ---- Sampler for srcLinear (linear filtering, clamp-to-edge) -----------
-    VkSamplerCreateInfo samplerInfo{};
-    samplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter    = VK_FILTER_LINEAR;
-    samplerInfo.minFilter    = VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-    VkSampler sampler = VK_NULL_HANDLE;
-    if (vkCreateSampler(dev, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
-        vkFreeDescriptorSets(dev, m_descPool, 1, &descSet);
-        throw std::runtime_error("TonemapPass: failed to create sampler");
-    }
-
     // ---- Update descriptor set --------------------------------------------
     VkDescriptorImageInfo srcImageInfo{};
-    srcImageInfo.sampler     = sampler;
+    srcImageInfo.sampler     = m_sampler;
     srcImageInfo.imageView   = srcSceneLinear->view;
     srcImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -240,14 +234,14 @@ void TonemapPass::execute(VkCommandBuffer     cmd,
 
     std::array<VkWriteDescriptorSet, 2> writes{};
     writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet          = descSet;
+    writes[0].dstSet          = m_descSet;
     writes[0].dstBinding      = 0;
     writes[0].descriptorCount = 1;
     writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[0].pImageInfo      = &srcImageInfo;
 
     writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet          = descSet;
+    writes[1].dstSet          = m_descSet;
     writes[1].dstBinding      = 1;
     writes[1].descriptorCount = 1;
     writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -258,7 +252,7 @@ void TonemapPass::execute(VkCommandBuffer     cmd,
     // ---- Record dispatch ---------------------------------------------------
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                             m_pipelineLayout, 0, 1, &descSet, 0, nullptr);
+                             m_pipelineLayout, 0, 1, &m_descSet, 0, nullptr);
 
     TonemapPushConstants pc{};
     pc.mode = static_cast<int32_t>(mode);
@@ -272,28 +266,6 @@ void TonemapPass::execute(VkCommandBuffer     cmd,
     const uint32_t gy = (h + 7u) / 8u;
     vkCmdDispatch(cmd, gx, gy, 1);
 
-    // ---- Cleanup: free per-dispatch resources after GPU is done ------------
-    // NOTE: sampler and descSet must remain valid until the command buffer
-    // completes. In a real pipeline, these would be deferred to a per-frame
-    // cleanup list. Here we document the requirement; callers must ensure
-    // the command buffer has completed before destroying these resources.
-    // The execute() contract: caller is responsible for command buffer lifetime.
-    //
-    // For simplicity in tests and smoke paths, we provide a destroy helper
-    // that can be called after vkQueueWaitIdle:
-    //
-    //   auto cleanup = [dev, m_descPool, sampler, descSet]() {
-    //       vkDestroySampler(dev, sampler, nullptr);
-    //       vkFreeDescriptorSets(dev, m_descPool, 1, &descSet);
-    //   };
-    //
-    // This is intentionally left to the caller for now; production pipelines
-    // use a ring-buffer of descriptor sets and a deletion queue.
-    //
-    // For smoke test correctness, we destroy immediately after a waitIdle
-    // would be called by the test harness.
-    vkDestroySampler(dev, sampler, nullptr);
-    vkFreeDescriptorSets(dev, m_descPool, 1, &descSet);
 }
 
 } // namespace dlss

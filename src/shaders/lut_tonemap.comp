@@ -1,0 +1,35 @@
+#version 450
+// Stage 4 alternative — 3D LUT tonemap for Blender/OCIO display transforms.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D srcLinear;
+layout(set = 0, binding = 1) uniform sampler3D tonemapLut;
+layout(set = 0, binding = 2, rgb10_a2) uniform image2D dstDisplay;
+
+layout(push_constant) uniform PushConstants {
+    vec4 domainMin;
+    vec4 domainScale;
+    vec4 inputMeta; // x: 1=log2 scene-linear shaper, y: log2_min, z: 1/log2_range
+} pc;
+
+vec3 lutCoordFromSceneLinear(vec3 rgb) {
+    if (pc.inputMeta.x > 0.5) {
+        bvec3 positive = greaterThan(rgb, vec3(0.0));
+        vec3 logCoord = (log2(max(rgb, vec3(1.0e-20))) - vec3(pc.inputMeta.y)) * vec3(pc.inputMeta.z);
+        return clamp(mix(vec3(0.0), logCoord, positive), vec3(0.0), vec3(1.0));
+    }
+    return clamp((rgb - pc.domainMin.rgb) * pc.domainScale.rgb, vec3(0.0), vec3(1.0));
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstDisplay);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(size);
+    vec4 linear = texture(srcLinear, uv);
+    vec3 lutCoord = lutCoordFromSceneLinear(linear.rgb);
+    vec3 displayReady = texture(tonemapLut, lutCoord).rgb;
+    imageStore(dstDisplay, coord, vec4(displayReady, linear.a));
+}

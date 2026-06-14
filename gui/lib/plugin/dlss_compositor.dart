@@ -244,8 +244,9 @@ class DlssCompositor {
       }
     }
 
-    process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(handleLine);
-    process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(handleLine);
+    const tolerantUtf8 = Utf8Decoder(allowMalformed: true);
+    process.stdout.transform(tolerantUtf8).transform(const LineSplitter()).listen(handleLine);
+    process.stderr.transform(tolerantUtf8).transform(const LineSplitter()).listen(handleLine);
   }
 
   static Map<String, dynamic> _checkOutputCollisionsLocally(Map<String, dynamic> params) {

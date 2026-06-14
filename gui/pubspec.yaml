@@ -41,6 +41,8 @@ dependencies:
   provider: ^6.1.2
   dlss_compositor_plugin:
     path: dlss_compositor_plugin
+  fluent_ui: ^4.15.1
+  window_manager: ^0.5.1
 
 dev_dependencies:
   flutter_test:

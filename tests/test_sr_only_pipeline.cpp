@@ -145,11 +145,12 @@ std::string readTextFile(const fs::path& path) {
 
 } // namespace
 
-TEST_CASE("SrOnlyPipeline - static contract keeps SR path Stage 1->2->7 only", "[unit][pipeline]") {
+TEST_CASE("SrOnlyPipeline - static contract keeps SR path free of FG and inverse", "[unit][pipeline]") {
     const std::string source = readTextFile("src/pipeline/sr_only_pipeline.cpp");
-    REQUIRE(source.find("TonemapPass") == std::string::npos);
     REQUIRE(source.find("DlssFgPass") == std::string::npos);
     REQUIRE(source.find("InverseTonemapPass") == std::string::npos);
+    REQUIRE(source.find("LutTonemapPass") != std::string::npos);
+    REQUIRE(source.find("config.outputFormat == OutputFormat::ExrLinear") != std::string::npos);
     REQUIRE(source.find("1000.0f / static_cast<float>(dlssCfg.fps)") != std::string::npos);
     REQUIRE(source.find("frame.has_gap_after") != std::string::npos);
     REQUIRE(source.find("cameraCutThreshold = INFINITY") != std::string::npos);

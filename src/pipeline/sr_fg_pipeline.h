@@ -9,6 +9,8 @@
 #include "../gpu/passes/mv_pass.h"
 #include "../gpu/passes/tonemap_pass.h"
 #include "../gpu/passes/inverse_tonemap_pass.h"
+#include "../gpu/passes/lut_inverse_pass.h"
+#include "../gpu/passes/lut_tonemap_pass.h"
 #include "../io/frame_prefetcher.h"
 #include "../io/channel_mapper.h"
 #include "../io/async_writer.h"
@@ -36,8 +38,8 @@ struct SrFgConfig {
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
-/// SR+FG combined pipeline — all 7 stages.
-/// Stage order: 1(prefetch) → 2(SR) → 4(tonemap) → 5(FG) → 6(inverse tonemap) → 7(write)
+/// SR+FG combined pipeline.
+/// Stage order: 1(prefetch) -> 2(SR) -> 4(tonemap) -> 5(FG) -> 6/7(optional inverse + write)
 ///
 /// CRITICAL INVARIANT: depth/MV textures are acquired ONCE in Stage 1 and shared
 /// by BOTH Stage 2 (SR) AND Stage 5 (FG). They must be the SAME PooledTextureHandle.
@@ -46,7 +48,7 @@ struct SrFgConfig {
 /// CRITICAL ORDER:
 /// - SR (Stage 2) runs BEFORE tonemap (§3.1 — SR input must be scene-linear, before EOTF)
 /// - Tonemap (Stage 4) runs BEFORE FG (§HDR — FG requires display-ready backbuffer)
-/// - Inverse tonemap (Stage 6) runs AFTER FG (EXR output must be scene-linear)
+/// - FG generated frames stay display-ready for PNG/ProRes; EXR output uses inverse to return to scene-linear.
 class SrFgPipeline {
 public:
     SrFgPipeline(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher);

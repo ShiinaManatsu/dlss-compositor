@@ -44,6 +44,8 @@ private:
     VkShaderModule        m_shaderModule    = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_descSetLayout   = VK_NULL_HANDLE;
     VkDescriptorPool      m_descPool        = VK_NULL_HANDLE;
+    VkDescriptorSet       m_descSet         = VK_NULL_HANDLE;
+    VkSampler             m_sampler         = VK_NULL_HANDLE;
     VkPipelineLayout      m_pipelineLayout  = VK_NULL_HANDLE;
     VkPipeline            m_pipeline        = VK_NULL_HANDLE;
 };

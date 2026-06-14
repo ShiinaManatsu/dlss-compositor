@@ -195,8 +195,8 @@ void transitionForSrEvaluate(VkCommandBuffer cmd,
 void transitionForFgEvaluate(VkCommandBuffer cmd,
                              const PooledTextureHandle& display,
                              const std::vector<PooledTextureHandle>& interpOutputs) {
-    std::array<VkImageMemoryBarrier2, 4> barriers{};
-    std::size_t count = 0;
+    std::vector<VkImageMemoryBarrier2> barriers;
+    barriers.reserve(1 + interpOutputs.size());
 
     auto addBarrier = [&](const PooledTextureHandle& texture,
                           VkImageLayout oldLayout,
@@ -204,7 +204,7 @@ void transitionForFgEvaluate(VkCommandBuffer cmd,
                           VkPipelineStageFlags2 srcStage,
                           VkAccessFlags2 srcAccess,
                           VkAccessFlags2 dstAccess) {
-        VkImageMemoryBarrier2& barrier = barriers[count++];
+        VkImageMemoryBarrier2& barrier = barriers.emplace_back();
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         barrier.srcStageMask        = srcStage;
         barrier.srcAccessMask       = srcAccess;
@@ -235,17 +235,73 @@ void transitionForFgEvaluate(VkCommandBuffer cmd,
 
     VkDependencyInfo dependency{};
     dependency.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(count);
+    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
     dependency.pImageMemoryBarriers    = barriers.data();
     vkCmdPipelineBarrier2(cmd, &dependency);
 }
 
-void transitionFgOutputsForInverse(VkCommandBuffer cmd,
-                                    const std::vector<PooledTextureHandle>& interpOutputs) {
-    std::array<VkImageMemoryBarrier2, 3> barriers{};
-    std::size_t count = 0;
+void transitionFgOutputsToTransferSrc(VkCommandBuffer cmd,
+                                      const std::vector<PooledTextureHandle>& interpOutputs) {
+    std::vector<VkImageMemoryBarrier2> barriers;
+    barriers.reserve(interpOutputs.size());
     for (const auto& interp : interpOutputs) {
-        VkImageMemoryBarrier2& barrier = barriers[count++];
+        VkImageMemoryBarrier2& barrier = barriers.emplace_back();
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask       = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        barrier.dstStageMask        = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+        barrier.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image               = interp->image;
+        barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
+
+    if (barriers.empty()) return;
+    VkDependencyInfo dependency{};
+    dependency.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependency.pImageMemoryBarriers    = barriers.data();
+    vkCmdPipelineBarrier2(cmd, &dependency);
+}
+
+void transitionDisplayAfterFg(VkCommandBuffer cmd,
+                              const PooledTextureHandle& display,
+                              bool shaderRead) {
+    VkImageMemoryBarrier2 barrier{};
+    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.srcAccessMask       = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    barrier.dstStageMask        = shaderRead
+        ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+        : VK_PIPELINE_STAGE_2_COPY_BIT;
+    barrier.dstAccessMask       = shaderRead
+        ? VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+        : VK_ACCESS_2_TRANSFER_READ_BIT;
+    barrier.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout           = shaderRead
+        ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        : VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image               = display->image;
+    barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dependency{};
+    dependency.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = 1;
+    dependency.pImageMemoryBarriers    = &barrier;
+    vkCmdPipelineBarrier2(cmd, &dependency);
+}
+
+void transitionFgOutputsForInverse(VkCommandBuffer cmd,
+                                   const std::vector<PooledTextureHandle>& interpOutputs) {
+    std::vector<VkImageMemoryBarrier2> barriers;
+    barriers.reserve(interpOutputs.size());
+    for (const auto& interp : interpOutputs) {
+        VkImageMemoryBarrier2& barrier = barriers.emplace_back();
         barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         barrier.srcAccessMask       = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
@@ -259,10 +315,10 @@ void transitionFgOutputsForInverse(VkCommandBuffer cmd,
         barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     }
 
-    if (count == 0) return;
+    if (barriers.empty()) return;
     VkDependencyInfo dependency{};
     dependency.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(count);
+    dependency.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
     dependency.pImageMemoryBarriers    = barriers.data();
     vkCmdPipelineBarrier2(cmd, &dependency);
 }
@@ -481,7 +537,6 @@ void SrFgPipeline::run(const SrFgConfig& config) {
     if (config.fgMultiplier < 2 || config.fgMultiplier > 6) {
         throw std::runtime_error("SrFgPipeline: fgMultiplier must be between 2 and 6");
     }
-
     // Output frame count: SR outputs N frames; FG generates (mult-1) interp per input pair.
     const int outputFrames = config.fgMultiplier * inputFrames - (config.fgMultiplier - 1);
 
@@ -505,10 +560,40 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         MvConversionPass mvPass(m_ctx);               // Stage 1 sub-pass
         TonemapMode tonemapMode = dlssCfg.is_hdr ? TonemapMode::HDR : TonemapMode::LDR;
         TonemapPass tonemapPass(m_ctx);               // Stage 4
-        InverseTonemapPass inversePass(m_ctx);         // Stage 6
+        InverseTonemapPass inversePass(m_ctx);         // Stage 6 for scene-linear EXR
+        std::unique_ptr<LutTonemapPass> lutTonemapPass;
+        if (!dlssCfg.tonemap_lut.empty()) {
+            auto lut = LutLoader::LoadCube(dlssCfg.tonemap_lut);
+            if (!lut.has_value()) {
+                throw std::runtime_error("SrFgPipeline: failed to load tonemap_lut: " + lut.error().message);
+            }
+            LOG_INFO("[SR+FG] Using tonemap LUT: {} size={} domain=[{}, {}]",
+                     dlssCfg.tonemap_lut,
+                     lut->size,
+                     lut->domain_min[0],
+                     lut->domain_max[0]);
+            lutTonemapPass = std::make_unique<LutTonemapPass>(m_ctx, lut.value());
+        } else {
+            LOG_INFO("[SR+FG] No tonemap LUT configured; using built-in tonemap shader");
+        }
         PreviewPass previewPass(m_ctx);
         AsyncFrameWriter writer;                       // Stage 7
         std::unique_ptr<ProResProgressWriter> proresWriter;
+        std::unique_ptr<LutInversePass> lutInversePass;
+        if (!dlssCfg.inverse_lut.empty()) {
+            auto inverseLut = LutLoader::LoadCube(dlssCfg.inverse_lut);
+            if (!inverseLut.has_value()) {
+                throw std::runtime_error("SrFgPipeline: failed to load inverse_lut: " + inverseLut.error().message);
+            }
+            LOG_INFO("[SR+FG] Using inverse LUT: {} size={} domain=[{}, {}]",
+                     dlssCfg.inverse_lut,
+                     inverseLut->size,
+                     inverseLut->domain_min[0],
+                     inverseLut->domain_max[0]);
+            lutInversePass = std::make_unique<LutInversePass>(m_ctx, inverseLut.value());
+        } else {
+            LOG_INFO("[SR+FG] No inverse LUT configured; using built-in inverse shader for EXR output");
+        }
 
         const uint32_t rW = dlssCfg.render_resolution.width;
         const uint32_t rH = dlssCfg.render_resolution.height;
@@ -519,8 +604,10 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 std::filesystem::path(config.outputDir) / config.filenameTemplate,
                 oW,
                 oH,
-                dlssCfg.fps,
+                dlssCfg.fps * config.fgMultiplier,
                 dlssCfg.is_hdr,
+                PixelEncoding::DisplayReady,
+                inferHdrMasteringNits(dlssCfg.view_transform),
                 outputFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);
@@ -555,9 +642,9 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             VK_FORMAT_R16G16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc displayDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT};
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc interpDesc{oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc sceneLinearDesc{oW, oH, VK_FORMAT_R16G16B16A16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
 
@@ -567,8 +654,16 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         std::atomic<int> writtenFrames{0};
         const bool dumpGuides = shouldDumpGuideBuffers();
 
-        auto enqueueSceneLinear = [&](PooledTextureHandle sceneLinear) {
+        auto enqueuePixels = [&](std::vector<std::uint8_t> pixels, PixelEncoding pixelEncoding) {
             ++outputFrameIdx;
+            if (proresWriter) {
+                proresWriter->enqueueFrame(std::move(pixels));
+                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+                m_dispatcher->progress().dlss_percent.store(
+                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
+                return;
+            }
+
             WriteJob job;
             job.format        = config.outputFormat;
             job.outputPath    = std::filesystem::path(config.outputDir) /
@@ -577,9 +672,10 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             job.height        = oH;
             job.fps           = dlssCfg.fps;
             job.is_hdr        = dlssCfg.is_hdr;
+            job.pixelEncoding = pixelEncoding;
             job.encoderOptions = config.encoderOptions;
             job.overwriteMode = config.overwriteMode;
-            job.pixels        = m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH);
+            job.pixels        = std::move(pixels);
             job.completionCallback = [this, outputFrames, &writtenFrames]() {
                 const int written = writtenFrames.fetch_add(1, std::memory_order_acq_rel) + 1;
                 m_dispatcher->progress().current_frame.store(written);
@@ -593,35 +689,43 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
         };
 
-        auto writeWithInverse = [&](PooledTextureHandle srcDisplay) {
+        auto writeDisplayOrSceneLinear = [&](PooledTextureHandle srcDisplay, VkImageLayout oldLayout) {
             if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
-                PreviewReadback preview = previewPass.renderAndReadback(srcDisplay, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
+                PreviewReadback preview = previewPass.renderAndReadback(
+                    srcDisplay,
+                    PreviewInputMode::DisplayReady,
+                    dlssCfg.is_hdr,
+                    oldLayout);
                 if (!preview.rgba8.empty()) {
                     config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
                 }
             }
 
-            VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-            auto sceneLinear = pool.acquire(sceneLinearDesc);
-            transitionStorageImageForWrite(cmd, sceneLinear);
-            inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
-            transitionStorageToShaderRead(cmd, sceneLinear);
-            m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
-
-            // Stage 7 dispatch: image sequence calls writer.enqueue through
-            // enqueueSceneLinear, video writes the frame into the ProRes muxer.
-            if (proresWriter) {
-                ++outputFrameIdx;
-                proresWriter->writeFrame(m_ctx->downloadImageRgba16f(sceneLinear->image, oW, oH));
-                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
-                m_dispatcher->progress().dlss_percent.store(
-                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
-            } else {
-                // Stage 7 image-sequence path calls writer.enqueue via enqueueSceneLinear.
-                enqueueSceneLinear(sceneLinear);
+            if (config.outputFormat == OutputFormat::ExrLinear) {
+                VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
+                auto sceneLinear = pool.acquire(sceneLinearDesc);
+                transitionStorageImageForWrite(cmd, sceneLinear);
+                if (lutInversePass) {
+                    lutInversePass->execute(cmd, srcDisplay, sceneLinear);
+                } else {
+                    inversePass.execute(cmd, srcDisplay, sceneLinear, tonemapMode);
+                }
+                transitionStorageToShaderRead(cmd, sceneLinear);
+                m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+                enqueuePixels(
+                    m_ctx->downloadImageRgba16f(
+                        sceneLinear->image,
+                        oW,
+                        oH,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
+                    PixelEncoding::SceneLinear);
+                pool.release(sceneLinear);
+                return;
             }
 
-            pool.release(sceneLinear);
+            enqueuePixels(
+                m_ctx->downloadImageA2B10ToRgba16f(srcDisplay->image, oW, oH, oldLayout),
+                PixelEncoding::DisplayReady);
         };
 
         int processedInputs = 0;
@@ -704,7 +808,11 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             // SR output (scene-linear) -> display-ready. Tonemap AFTER SR, BEFORE FG.
             transitionStorageToShaderRead(cmd, sceneColorOutput);
             transitionStorageImageForWrite(cmd, displayTex);
-            tonemapPass.execute(cmd, sceneColorOutput, displayTex, tonemapMode);
+            if (lutTonemapPass) {
+                lutTonemapPass->execute(cmd, sceneColorOutput, displayTex);
+            } else {
+                tonemapPass.execute(cmd, sceneColorOutput, displayTex, tonemapMode);
+            }
 
             // === STAGE 5: DLSS-FG Eval ===
             // FG stores previous pBackbuffer internally. Evaluate every rendered frame;
@@ -738,7 +846,13 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             fillFgCameraInputs(fgIn, cam, prevCam);
 
             fgPass.evaluate(cmd, fgIn);
-            transitionFgOutputsForInverse(cmd, interpHandles);
+            if (config.outputFormat == OutputFormat::ExrLinear) {
+                transitionDisplayAfterFg(cmd, displayTex, true);
+                transitionFgOutputsForInverse(cmd, interpHandles);
+            } else {
+                transitionDisplayAfterFg(cmd, displayTex, false);
+                transitionFgOutputsToTransferSrc(cmd, interpHandles);
+            }
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
             if (dumpGuides && frameIdx < 3) {
@@ -755,16 +869,18 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             const bool writeGeneratedFrames = frameIdx > 0 && !reset;
             if (writeGeneratedFrames) {
                 for (const auto& handle : interpHandles) {
-                    writeWithInverse(handle);
+                    writeDisplayOrSceneLinear(
+                        handle,
+                        config.outputFormat == OutputFormat::ExrLinear
+                            ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                            : VK_IMAGE_LAYOUT_GENERAL);
                 }
             }
-            if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
-                PreviewReadback preview = previewPass.renderAndReadback(displayTex, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
-                if (!preview.rgba8.empty()) {
-                    config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
-                }
-            }
-            enqueueSceneLinear(sceneColorOutput);
+            writeDisplayOrSceneLinear(
+                displayTex,
+                config.outputFormat == OutputFormat::ExrLinear
+                    ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                    : VK_IMAGE_LAYOUT_GENERAL);
             ++processedInputs;
             if (!writeGeneratedFrames && frameIdx > 0) {
                 LOG_WARN("[SR+FG] Skipped generated frames at reset/gap input {}", frameIdx + 1);
@@ -786,6 +902,18 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         }
 
         if (processedInputs != inputFrames) {
+            if (m_stop.load()) {
+                if (proresWriter) {
+                    proresWriter->cancel();
+                } else {
+                    writer.cancel();
+                }
+                vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
+                m_dispatcher->progress().state.store(0);
+                LOG_INFO("[SR+FG] Cancelled after {} input frame(s), {} output frame(s)",
+                         processedInputs, outputFrameIdx);
+                return;
+            }
             throw std::runtime_error("SrFgPipeline: processed " + std::to_string(processedInputs) +
                                      " of " + std::to_string(inputFrames) + " input frames");
         }

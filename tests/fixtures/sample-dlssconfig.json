@@ -13,6 +13,8 @@
   "view_transform": "Filmic",
   "is_hdr": false,
   "fps": 30,
+  "tonemap_lut": "tonemap_srgb_filmic_33.cube",
+  "inverse_lut": "inverse_srgb_filmic_33.cube",
   "filename_pattern": "frame_####.png",
   "jitter_phases": 18,
   "output_format": "exr_linear",

@@ -121,7 +121,7 @@ nlohmann::json RpcDispatcher::handleGetStatus(const nlohmann::json& /*p*/) {
         {"fg_available",        fgAvailable},
         {"video_encoders",      nlohmann::json::array({"prores_422hq"})},
         {"export_formats_ldr",  nlohmann::json::array({"png_16", "exr", "prores_422hq"})},
-        {"export_formats_hdr",  nlohmann::json::array({"exr"})},
+        {"export_formats_hdr",  nlohmann::json::array({"exr", "prores_422hq"})},
     };
 }
 

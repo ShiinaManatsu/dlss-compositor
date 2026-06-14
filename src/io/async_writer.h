@@ -44,6 +44,7 @@ struct WriteJob {
     uint32_t              height       = 0;
     int                   fps          = 24;
     bool                  is_hdr       = false;
+    PixelEncoding         pixelEncoding = PixelEncoding::SceneLinear;
     EncoderOptions        encoderOptions{};
     OverwriteMode         overwriteMode = OverwriteMode::Overwrite;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
@@ -83,6 +84,9 @@ public:
 
     /// Block until all queued jobs are written.
     void flush();
+
+    /// Drop queued jobs and let active writes finish as quickly as possible.
+    void cancel();
 
     /// Errors recorded by worker threads (call after flush()).
     bool                    hasErrors() const;

@@ -177,8 +177,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
     if (isHdr) {
-      // HDR: EXR only. PNG and ProRes are LDR-only in v2.
-      return [OutputFormat.exrLinear];
+      // HDR: EXR for scene-linear interchange, ProRes 422 HQ for display-ready review/export.
+      return [OutputFormat.exrLinear, OutputFormat.proRes422Hq];
     } else {
       // LDR: PNG, EXR, ProRes 422 HQ.
       return [OutputFormat.png16, OutputFormat.exrLinear, OutputFormat.proRes422Hq];
@@ -307,6 +307,41 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     }
   }
 
+  Future<void> _onCancelPressed(BuildContext context) async {
+    final appState = context.read<AppState>();
+    if (appState.taskState != TaskState.running) return;
+
+    AppLog.phase('task', 'Cancel pressed');
+    appState.setTaskState(TaskState.cancelling, error: null);
+    try {
+      final ok = await DlssCompositor.cancelTask();
+      if (!ok) {
+        const message = 'The processing backend did not accept the cancel request.';
+        AppLog.phase('task', 'cancelTask rejected');
+        appState.setTaskState(TaskState.error, error: message);
+        if (context.mounted) {
+          await showErrorDialog(
+            context,
+            title: 'Cancel failed',
+            message: message,
+          );
+        }
+      }
+    } catch (e) {
+      final message = 'Cancel request failed: $e';
+      AppLog.phase('task', 'cancelTask failed', e);
+      appState.setTaskState(TaskState.error, error: message);
+      if (context.mounted) {
+        await showErrorDialog(
+          context,
+          title: 'Cancel failed',
+          message: 'The cancel request failed.',
+          details: '$e',
+        );
+      }
+    }
+  }
+
   int _expectedOutputFrameCount(AppState appState) {
     final frames = appState.currentDlssConfig?['frames'];
     final inputFrames = frames is List
@@ -355,21 +390,35 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               _buildSection('Settings', _buildSettings(state, availableFormats)),
               const SizedBox(height: 24),
 
-              // Start button
+              // Start / cancel button
               SizedBox(
                 height: 48,
                 child: FilledButton.icon(
-                  onPressed: state.currentDlssConfig != null &&
-                             state.taskState != TaskState.running
-                      ? () => _onStartPressed(context)
-                      : null,
-                  icon: const Icon(Icons.play_arrow),
+                  onPressed: state.taskState == TaskState.running
+                      ? () => _onCancelPressed(context)
+                      : state.currentDlssConfig != null &&
+                              state.taskState != TaskState.cancelling
+                          ? () => _onStartPressed(context)
+                          : null,
+                  icon: Icon(
+                    state.taskState == TaskState.running
+                        ? Icons.stop
+                        : state.taskState == TaskState.cancelling
+                            ? Icons.hourglass_empty
+                            : Icons.play_arrow,
+                  ),
                   label: Text(
-                    state.taskState == TaskState.running ? 'PROCESSING...' : 'START PROCESSING',
+                    state.taskState == TaskState.running
+                        ? 'CANCEL'
+                        : state.taskState == TaskState.cancelling
+                            ? 'CANCELLING...'
+                            : 'START PROCESSING',
                     style: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF00B050),
+                    backgroundColor: state.taskState == TaskState.running
+                        ? const Color(0xFFC62828)
+                        : const Color(0xFF00B050),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
@@ -452,7 +501,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               ),
               const SizedBox(width: 8),
               if (!fgCanRun)
-                Text('Unavailable on this device', style: TextStyle(fontSize: 12, color: Colors.orange.shade300))
+                Expanded(
+                  child: Text(
+                    'Unavailable on this device',
+                    style: TextStyle(fontSize: 12, color: Colors.orange.shade300),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )
               else if (state.fgEnabled)
                 Expanded(
                   child: Wrap(

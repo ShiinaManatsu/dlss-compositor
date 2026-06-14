@@ -34,6 +34,7 @@ class _DetailPanelState extends State<DetailPanel> {
   ui.Image? _previewImage;
   final List<LogEntry> _logs = [];
   static const int _maxLogEntries = 200;
+  bool _logsExpanded = false;
 
   StreamSubscription? _progressSub;
   Timer? _previewTimer;
@@ -90,16 +91,31 @@ class _DetailPanelState extends State<DetailPanel> {
             event['level'] as String? ?? 'info',
             event['message'] as String? ?? '',
           );
+        } else if (type == 'write_complete') {
+          AppLog.phase('detail', 'Write complete event received');
+          _applyProgressPayload(event);
         } else if (type == 'done') {
           AppLog.phase('detail', 'Done event received');
           _endTime = DateTime.now();
+          _applyProgressPayload(event);
           Provider.of<AppState>(
             context,
             listen: false,
           ).setTaskState(TaskState.done);
           setState(() {});
+        } else if (type == 'cancelled') {
+          AppLog.phase('detail', 'Cancelled event received');
+          _endTime = DateTime.now();
+          _applyProgressPayload(event);
+          Provider.of<AppState>(
+            context,
+            listen: false,
+          ).setTaskState(TaskState.idle);
+          _addLog('info', 'Task cancelled');
+          setState(() {});
         } else if (type == 'error') {
           _endTime = DateTime.now();
+          _applyProgressPayload(event);
           final msg = event['message'] as String? ?? 'Unknown error';
           AppLog.phase('detail', 'Error event received', msg);
           Provider.of<AppState>(
@@ -137,7 +153,10 @@ class _DetailPanelState extends State<DetailPanel> {
     ) async {
       if (!mounted) return;
       final appState = Provider.of<AppState>(context, listen: false);
-      if (appState.taskState != TaskState.running) return;
+      if (appState.taskState != TaskState.running &&
+          appState.taskState != TaskState.cancelling) {
+        return;
+      }
 
       try {
         final progress = await DlssCompositor.getProgress();
@@ -201,6 +220,29 @@ class _DetailPanelState extends State<DetailPanel> {
     return completer.future;
   }
 
+  void _applyProgressPayload(Map<String, dynamic> event) {
+    final frame = event['current_frame'] as int?;
+    final total = event['total_frames'] as int?;
+    if (frame == null || total == null || total <= 0) {
+      return;
+    }
+    final dlssFrame = event['dlss_current_frame'] as int?;
+    final dlssTotal = event['dlss_total_frames'] as int?;
+    final percent = frame / total;
+    final dlssPercent = dlssTotal != null && dlssTotal > 0 && dlssFrame != null
+        ? dlssFrame / dlssTotal
+        : percent;
+    Provider.of<AppState>(context, listen: false).updateProgress(
+      frame,
+      total,
+      percent,
+      dlssFrame: dlssFrame,
+      dlssTotal: dlssTotal,
+      dlssPercent: dlssPercent,
+    );
+    _outputFrameCount = frame;
+  }
+
   void _addLog(String level, String message) {
     if (!mounted) return;
     setState(() {
@@ -241,7 +283,7 @@ class _DetailPanelState extends State<DetailPanel> {
             _buildProgressSection(state),
 
             // 3. Log panel
-            Expanded(flex: 3, child: _buildLogSection()),
+            _buildLogSection(),
 
             // 4. Completion stats
             if (state.taskState == TaskState.done) ...[
@@ -298,6 +340,9 @@ class _DetailPanelState extends State<DetailPanel> {
     } else if (state.taskState == TaskState.error) {
       statusTitle = 'ERROR';
       statusColor = Colors.red;
+    } else if (state.taskState == TaskState.cancelling) {
+      statusTitle = 'CANCELLING';
+      statusColor = Colors.orange;
     }
 
     String etaText = '';
@@ -418,6 +463,7 @@ class _DetailPanelState extends State<DetailPanel> {
   }
 
   Widget _buildLogSection() {
+    final logCount = _logs.length;
     return Container(
       margin: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -426,52 +472,83 @@ class _DetailPanelState extends State<DetailPanel> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF333333))),
-            ),
-            child: const Text(
-              'TERMINAL LOG',
-              style: TextStyle(
-                color: Colors.white38,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _logsExpanded = !_logsExpanded),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                border: _logsExpanded
+                    ? const Border(bottom: BorderSide(color: Color(0xFF333333)))
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _logsExpanded ? Icons.expand_more : Icons.chevron_right,
+                    size: 16,
+                    color: Colors.white38,
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'TERMINAL LOG',
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    logCount == 0 ? 'No entries' : '$logCount entries',
+                    style: const TextStyle(color: Colors.white30, fontSize: 11),
+                  ),
+                ],
               ),
             ),
           ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _logs.length,
-              itemBuilder: (ctx, i) {
-                final log = _logs[i];
-                Color color = switch (log.level) {
-                  'error' => Colors.redAccent,
-                  'warn' || 'warning' => Colors.orangeAccent,
-                  'debug' => Colors.white38,
-                  _ => Colors.white70,
-                };
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 2,
-                  ),
-                  child: Text(
-                    '[${log.level.padRight(5).toUpperCase()}] ${log.message}',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 12,
-                      fontFamily: 'monospace',
+          if (_logsExpanded)
+            SizedBox(
+              height: 180,
+              child: logCount == 0
+                  ? const Center(
+                      child: Text(
+                        'No terminal output yet',
+                        style: TextStyle(color: Colors.white30, fontSize: 12),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: logCount,
+                      itemBuilder: (ctx, i) {
+                        final log = _logs[i];
+                        Color color = switch (log.level) {
+                          'error' => Colors.redAccent,
+                          'warn' || 'warning' => Colors.orangeAccent,
+                          'debug' => Colors.white38,
+                          _ => Colors.white70,
+                        };
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 2,
+                          ),
+                          child: Text(
+                            '[${log.level.padRight(5).toUpperCase()}] ${log.message}',
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                );
-              },
             ),
-          ),
         ],
       ),
     );

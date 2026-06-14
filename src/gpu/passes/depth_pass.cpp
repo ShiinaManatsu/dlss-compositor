@@ -31,8 +31,8 @@ namespace dlss {
 // ---------------------------------------------------------------------------
 struct DepthPushConstants {
     float projection[4][4];  // column-major 4x4 projection matrix
-    float near;
-    float far;
+    float nearClip;
+    float farClip;
 };
 
 // ---------------------------------------------------------------------------
@@ -195,8 +195,8 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
                                    PooledTextureHandle srcWorldLinear,
                                    PooledTextureHandle dstNdc,
                                    const float         projection[4][4],
-                                   float               near,
-                                   float               far)
+                                   float               nearClip,
+                                   float               farClip)
 {
     VkDevice dev = m_ctx->device();
 
@@ -259,8 +259,8 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
     // Build push constants (DLSS SR §3.5 — projection matrix path)
     DepthPushConstants pc{};
     memcpy(pc.projection, projection, sizeof(pc.projection));
-    pc.near = near;
-    pc.far  = far;
+    pc.nearClip = nearClip;
+    pc.farClip  = farClip;
 
     // Record commands
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);

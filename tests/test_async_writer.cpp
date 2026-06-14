@@ -6,6 +6,7 @@
 
 #include "../src/io/async_writer.h"
 #include "../src/io/encoder_registry.h"
+#include "../src/io/prores_writer.h"
 
 #include <filesystem>
 #include <fstream>
@@ -96,6 +97,92 @@ TEST_CASE("AsyncFrameWriter - writes real PNG16", "[unit]")
     REQUIRE(bytes[3] == 'G');
     REQUIRE(bytes[24] == 16); // IHDR bit depth
     REQUIRE(bytes[25] == 6);  // IHDR RGBA color type
+
+    std::filesystem::remove(output, ec);
+}
+
+TEST_CASE("ProResWriter - writes HDR ProRes 422 HQ", "[unit][prores]")
+{
+    const auto output = std::filesystem::temp_directory_path() / "test_prores_hdr_422hq.mov";
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+
+    std::vector<std::uint8_t> frame;
+    frame.reserve(2 * 2 * 4 * 2);
+    auto appendHalf = [&](std::uint16_t value) {
+        frame.push_back(static_cast<std::uint8_t>(value & 0xff));
+        frame.push_back(static_cast<std::uint8_t>((value >> 8) & 0xff));
+    };
+    for (int i = 0; i < 4; ++i) {
+        appendHalf(0x3800); // R = 0.5, already display-ready for HDR/PQ path.
+        appendHalf(0x3400); // G = 0.25
+        appendHalf(0x3000); // B = 0.125
+        appendHalf(0x3c00); // A = 1.0
+    }
+
+    REQUIRE_NOTHROW([&] {
+        dlss::ProResWriter writer(output, 2, 2, 24, true, dlss::PixelEncoding::DisplayReady);
+        writer.writeFrame(frame);
+        writer.close();
+    }());
+
+    REQUIRE(std::filesystem::exists(output));
+    REQUIRE(std::filesystem::file_size(output) > 0);
+
+    std::ifstream mov(output, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(mov)), std::istreambuf_iterator<char>());
+    REQUIRE(bytes.find("colr") != std::string::npos);
+    REQUIRE(bytes.find("mdcv") != std::string::npos);
+    REQUIRE(bytes.find("clli") != std::string::npos);
+
+    std::filesystem::remove(output, ec);
+}
+
+TEST_CASE("ProResWriter - infers HDR mastering nits from Blender view transform", "[unit][prores]")
+{
+    REQUIRE(dlss::inferHdrMasteringNits("ACES 2.0 - HDR 1000 nits") == 1000.0f);
+    REQUIRE(dlss::inferHdrMasteringNits("ACES 2.0 - HDR 500 nits") == 500.0f);
+    REQUIRE(dlss::inferHdrMasteringNits("ACES 2.0") == 1000.0f);
+}
+
+TEST_CASE("ProResProgressWriter - reports final frame as complete", "[unit][prores]")
+{
+    const auto output = std::filesystem::temp_directory_path() / "test_prores_progress.mov";
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+
+    std::vector<std::uint8_t> frame;
+    frame.reserve(2 * 2 * 4 * 2);
+    auto appendHalf = [&](std::uint16_t value) {
+        frame.push_back(static_cast<std::uint8_t>(value & 0xff));
+        frame.push_back(static_cast<std::uint8_t>((value >> 8) & 0xff));
+    };
+    for (int i = 0; i < 4; ++i) {
+        appendHalf(0x3800);
+        appendHalf(0x3800);
+        appendHalf(0x3800);
+        appendHalf(0x3c00);
+    }
+
+    int reportedCurrent = -1;
+    int reportedTotal = -1;
+    dlss::ProResProgressWriter writer(
+        output,
+        2,
+        2,
+        24,
+        false,
+        dlss::PixelEncoding::DisplayReady,
+        1000.0f,
+        1,
+        [&](int current, int total) {
+            reportedCurrent = current;
+            reportedTotal = total;
+        });
+    writer.writeFrame(frame);
+    REQUIRE(reportedCurrent == 1);
+    REQUIRE(reportedTotal == 1);
+    writer.close();
 
     std::filesystem::remove(output, ec);
 }

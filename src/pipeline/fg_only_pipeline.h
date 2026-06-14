@@ -7,6 +7,8 @@
 #include "../gpu/passes/mv_pass.h"
 #include "../gpu/passes/tonemap_pass.h"
 #include "../gpu/passes/inverse_tonemap_pass.h"
+#include "../gpu/passes/lut_inverse_pass.h"
+#include "../gpu/passes/lut_tonemap_pass.h"
 #include "../io/frame_prefetcher.h"
 #include "../io/channel_mapper.h"
 #include "../io/async_writer.h"
@@ -34,8 +36,8 @@ struct FgOnlyConfig {
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
-/// FG-only pipeline: Stage 1 → Stage 4 (tonemap) → Stage 5 (FG) → Stage 6 (inverse) → Stage 7 (write)
-/// Scale = 1.0 (no SR upscaling). Tonemap BEFORE FG, inverse tonemap AFTER FG for EXR output.
+/// FG-only pipeline: Stage 1 -> Stage 4 (tonemap) -> Stage 5 (FG) -> Stage 6/7 (optional inverse + write)
+/// Scale = 1.0 (no SR upscaling). Tonemap BEFORE FG; EXR output uses inverse to return to scene-linear.
 /// Output frame count = 2N-1 (2x) or 4N-3 (4x) renumbered sequentially.
 class FgOnlyPipeline {
 public:

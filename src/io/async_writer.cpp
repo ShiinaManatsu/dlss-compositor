@@ -16,8 +16,7 @@
 #include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfOutputFile.h>
 #include <OpenEXR/ImfPixelType.h>
-
-#include <zlib.h>
+#include <OpenImageIO/imageio.h>
 
 #include <algorithm>
 #include <cctype>
@@ -25,7 +24,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <fstream>
 #include <limits>
 #include <regex>
 #include <sstream>
@@ -190,25 +188,6 @@ std::uint16_t toPng16(float value, bool encodeSrgb) noexcept
     return static_cast<std::uint16_t>(std::clamp(encoded, 0.0f, 1.0f) * 65535.0f + 0.5f);
 }
 
-void appendU32BE(std::vector<std::uint8_t>& bytes, std::uint32_t value)
-{
-    bytes.push_back(static_cast<std::uint8_t>((value >> 24) & 0xffu));
-    bytes.push_back(static_cast<std::uint8_t>((value >> 16) & 0xffu));
-    bytes.push_back(static_cast<std::uint8_t>((value >> 8) & 0xffu));
-    bytes.push_back(static_cast<std::uint8_t>(value & 0xffu));
-}
-
-void appendChunk(std::vector<std::uint8_t>& png, const char type[4], const std::vector<std::uint8_t>& payload)
-{
-    appendU32BE(png, static_cast<std::uint32_t>(payload.size()));
-    const std::size_t typeOffset = png.size();
-    png.insert(png.end(), type, type + 4);
-    png.insert(png.end(), payload.begin(), payload.end());
-    uLong crc = crc32(0L, Z_NULL, 0);
-    crc = crc32(crc, png.data() + typeOffset, static_cast<uInt>(png.size() - typeOffset));
-    appendU32BE(png, static_cast<std::uint32_t>(crc));
-}
-
 // ---------- PNG16 ------------------------------------------------------------
 void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
 {
@@ -226,59 +205,42 @@ void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
         std::filesystem::create_directories(outputPath.parent_path(), ec);
     }
 
-    const std::size_t rowBytes = static_cast<std::size_t>(p.width) * 4u * sizeof(std::uint16_t);
-    if (rowBytes > std::numeric_limits<std::size_t>::max() - 1u) {
-        throw std::runtime_error("encodePng16: row too wide");
-    }
-    std::vector<std::uint8_t> scanlines((rowBytes + 1u) * static_cast<std::size_t>(p.height));
+    std::vector<std::uint16_t> rgba16(static_cast<std::size_t>(p.width) * p.height * 4u);
     for (std::uint32_t y = 0; y < p.height; ++y) {
-        std::uint8_t* row = scanlines.data() + static_cast<std::size_t>(y) * (rowBytes + 1u);
-        row[0] = 0; // PNG filter type: None.
         for (std::uint32_t x = 0; x < p.width; ++x) {
             const std::size_t pixelIndex = (static_cast<std::size_t>(y) * p.width + x) * 4u;
             for (std::uint32_t ch = 0; ch < 4; ++ch) {
                 const auto half = readLe16(p.pixels + (pixelIndex + ch) * sizeof(std::uint16_t));
-                const bool encodeSrgb = ch < 3;
-                const std::uint16_t value = toPng16(halfToFloat(half), encodeSrgb);
-                const std::size_t dst = 1u + (static_cast<std::size_t>(x) * 4u + ch) * sizeof(std::uint16_t);
-                row[dst + 0] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
-                row[dst + 1] = static_cast<std::uint8_t>(value & 0xffu);
+                const bool encodeSrgb = ch < 3 && p.pixelEncoding == PixelEncoding::SceneLinear;
+                rgba16[pixelIndex + ch] = toPng16(halfToFloat(half), encodeSrgb);
             }
         }
     }
 
-    uLongf compressedSize = compressBound(static_cast<uLong>(scanlines.size()));
-    std::vector<std::uint8_t> compressed(static_cast<std::size_t>(compressedSize));
-    const int zlibResult = compress2(compressed.data(), &compressedSize,
-                                     scanlines.data(), static_cast<uLong>(scanlines.size()),
-                                     percentToZlibLevel(p.options.pngQualityPercent));
-    if (zlibResult != Z_OK) {
-        throw std::runtime_error("encodePng16: zlib compression failed: " + std::to_string(zlibResult));
+    OIIO::ImageSpec spec(
+        static_cast<int>(p.width),
+        static_cast<int>(p.height),
+        4,
+        OIIO::TypeDesc::UINT16);
+    spec.channelnames = {"R", "G", "B", "A"};
+    spec.attribute("png:compressionLevel", percentToZlibLevel(p.options.pngQualityPercent));
+
+    auto out = OIIO::ImageOutput::create(outputPath.string());
+    if (!out) {
+        throw std::runtime_error("encodePng16: cannot create OIIO output: " + outputPath.string());
     }
-    compressed.resize(static_cast<std::size_t>(compressedSize));
-
-    std::vector<std::uint8_t> png;
-    static const std::uint8_t signature[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    png.insert(png.end(), signature, signature + sizeof(signature));
-
-    std::vector<std::uint8_t> ihdr;
-    ihdr.reserve(13);
-    appendU32BE(ihdr, p.width);
-    appendU32BE(ihdr, p.height);
-    ihdr.push_back(16); // bit depth
-    ihdr.push_back(6);  // RGBA
-    ihdr.push_back(0);  // deflate
-    ihdr.push_back(0);  // adaptive filtering
-    ihdr.push_back(0);  // no interlace
-    appendChunk(png, "IHDR", ihdr);
-    appendChunk(png, "IDAT", compressed);
-    appendChunk(png, "IEND", {});
-
-    std::ofstream f(outputPath, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        throw std::runtime_error("encodePng16: cannot open output: " + outputPath.string());
+    if (!out->open(outputPath.string(), spec)) {
+        const std::string err = out->geterror();
+        throw std::runtime_error("encodePng16: cannot open output: " + outputPath.string() + ": " + err);
     }
-    f.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+    if (!out->write_image(OIIO::TypeDesc::UINT16, rgba16.data())) {
+        const std::string err = out->geterror();
+        out->close();
+        throw std::runtime_error("encodePng16: write failed: " + outputPath.string() + ": " + err);
+    }
+    if (!out->close()) {
+        throw std::runtime_error("encodePng16: close failed: " + outputPath.string() + ": " + out->geterror());
+    }
 }
 
 } // namespace
@@ -397,6 +359,25 @@ void AsyncFrameWriter::flush()
     });
 }
 
+void AsyncFrameWriter::cancel()
+{
+    int discarded = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_stop.store(true);
+        while (!m_queue.empty()) {
+            m_queue.pop();
+            ++discarded;
+        }
+    }
+    if (discarded > 0) {
+        m_pending.fetch_sub(discarded, std::memory_order_acq_rel);
+    }
+    m_cv.notify_all();
+    std::lock_guard<std::mutex> flock(m_flushMutex);
+    m_flushCv.notify_all();
+}
+
 bool AsyncFrameWriter::hasErrors() const
 {
     std::lock_guard<std::mutex> lock(m_errorMutex);
@@ -423,10 +404,10 @@ void AsyncFrameWriter::workerLoop()
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [&] { return m_stop.load() || !m_queue.empty(); });
+            if (m_stop.load() && m_queue.empty()) {
+                return;
+            }
             if (m_queue.empty()) {
-                if (m_stop.load()) {
-                    return;
-                }
                 continue;
             }
             job = std::move(m_queue.front());
@@ -514,6 +495,7 @@ void AsyncFrameWriter::processJob(WriteJob& job)
     params.pixelByteSize = job.pixels.size();
     params.fps           = job.fps;
     params.is_hdr        = job.is_hdr;
+    params.pixelEncoding = job.pixelEncoding;
     params.options       = job.encoderOptions;
 
     enc(params, resolved);

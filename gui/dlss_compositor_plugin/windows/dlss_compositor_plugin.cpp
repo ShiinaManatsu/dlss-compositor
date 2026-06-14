@@ -550,7 +550,8 @@ void DlssCompositorPlugin::HandleMethodCall(
                                  flutter::EncodableValue(std::string("exr")),
                                  flutter::EncodableValue(std::string("prores_422hq"))});
       status[flutter::EncodableValue("export_formats_hdr")] = flutter::EncodableValue(
-          flutter::EncodableList{flutter::EncodableValue(std::string("exr"))});
+          flutter::EncodableList{flutter::EncodableValue(std::string("exr")),
+                                 flutter::EncodableValue(std::string("prores_422hq"))});
       result->Success(flutter::EncodableValue(status));
 
     } else if (method == "getProgress") {
@@ -668,28 +669,84 @@ void DlssCompositorPlugin::HandleMethodCall(
           }
           const int exitCode = dlss::executeConfig(options, *vulkan_, *ngx_);
           task_running_.store(false);
+          auto addProgressFields = [this](flutter::EncodableMap& event) {
+            event[flutter::EncodableValue("current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(current_frame_.load()));
+            event[flutter::EncodableValue("total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(total_frames_.load()));
+            event[flutter::EncodableValue("dlss_current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_current_frame_.load()));
+            event[flutter::EncodableValue("dlss_total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_total_frames_.load()));
+          };
           flutter::EncodableMap event;
-          if (exitCode == 0) {
+          if (stop_render_.load()) {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("cancelled"));
+          } else if (exitCode == 0) {
+            const int total = total_frames_.load();
+            if (total > 0) {
+              current_frame_.store(total);
+            }
+            const int dlssTotal = dlss_total_frames_.load();
+            if (dlssTotal > 0) {
+              dlss_current_frame_.store(dlssTotal);
+            }
+            flutter::EncodableMap writeComplete;
+            writeComplete[flutter::EncodableValue("type")] =
+                flutter::EncodableValue(std::string("write_complete"));
+            addProgressFields(writeComplete);
+            EmitEvent(std::move(writeComplete));
             event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("done"));
           } else {
             event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
             event[flutter::EncodableValue("message")] = flutter::EncodableValue(
                 std::string("Native engine exited with code ") + std::to_string(exitCode));
           }
+          addProgressFields(event);
           EmitEvent(std::move(event));
         } catch (const std::exception& e) {
           task_running_.store(false);
           RootLog("render", std::string("native engine exception: ") + e.what());
+          auto addProgressFields = [this](flutter::EncodableMap& event) {
+            event[flutter::EncodableValue("current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(current_frame_.load()));
+            event[flutter::EncodableValue("total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(total_frames_.load()));
+            event[flutter::EncodableValue("dlss_current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_current_frame_.load()));
+            event[flutter::EncodableValue("dlss_total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_total_frames_.load()));
+          };
           flutter::EncodableMap event;
-          event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
-          event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string(e.what()));
+          if (stop_render_.load()) {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("cancelled"));
+          } else {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
+            event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string(e.what()));
+          }
+          addProgressFields(event);
           EmitEvent(std::move(event));
         } catch (...) {
           task_running_.store(false);
           RootLog("render", "native engine exception: non-standard exception");
+          auto addProgressFields = [this](flutter::EncodableMap& event) {
+            event[flutter::EncodableValue("current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(current_frame_.load()));
+            event[flutter::EncodableValue("total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(total_frames_.load()));
+            event[flutter::EncodableValue("dlss_current_frame")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_current_frame_.load()));
+            event[flutter::EncodableValue("dlss_total_frames")] =
+                flutter::EncodableValue(static_cast<int32_t>(dlss_total_frames_.load()));
+          };
           flutter::EncodableMap event;
-          event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
-          event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string("Native engine aborted with a non-standard exception"));
+          if (stop_render_.load()) {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("cancelled"));
+          } else {
+            event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("error"));
+            event[flutter::EncodableValue("message")] = flutter::EncodableValue(std::string("Native engine aborted with a non-standard exception"));
+          }
+          addProgressFields(event);
           EmitEvent(std::move(event));
         }
         RootLog("render", "native engine worker finished");
@@ -698,10 +755,7 @@ void DlssCompositorPlugin::HandleMethodCall(
 
     } else if (method == "cancelTask") {
       RootLog("render", "cancelTask requested");
-      StopRenderThread();
-      flutter::EncodableMap event;
-      event[flutter::EncodableValue("type")] = flutter::EncodableValue(std::string("cancelled"));
-      EmitEvent(std::move(event));
+      stop_render_.store(true);
       result->Success(flutter::EncodableValue(true));
 
     } else if (method == "setDebugMode") {

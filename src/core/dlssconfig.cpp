@@ -145,6 +145,34 @@ std::expected<std::string, LoadError> parseString(const json& root, std::string_
     return value.get<std::string>();
 }
 
+std::expected<std::string, LoadError> parseOptionalPathString(
+    const json& root,
+    std::string_view key,
+    const std::filesystem::path& baseDir) {
+    if (!root.contains(key) || root.at(key).is_null()) {
+        return std::string{};
+    }
+
+    const json& value = root.at(key);
+    if (!value.is_string()) {
+        return std::unexpected(makeError(
+            LoadErrorCode::SchemaFail,
+            std::string(key) + " must be a string",
+            std::string("/") + std::string(key)));
+    }
+
+    const auto raw = value.get<std::string>();
+    if (raw.empty()) {
+        return std::string{};
+    }
+
+    std::filesystem::path path(raw);
+    if (path.is_relative()) {
+        path = baseDir / path;
+    }
+    return path.lexically_normal().string();
+}
+
 std::expected<bool, LoadError> parseBool(const json& root, std::string_view key) {
     const auto member = requireMember(root, key, "", "boolean field");
     if (!member.has_value()) {
@@ -357,6 +385,15 @@ std::expected<DlssConfig, LoadError> DlssConfigLoader::Load(std::filesystem::pat
     if (!jitterPhases.has_value()) {
         return std::unexpected(jitterPhases.error());
     }
+    const auto configDir = std::filesystem::absolute(filePath).parent_path();
+    auto tonemapLut = parseOptionalPathString(root, "tonemap_lut", configDir);
+    if (!tonemapLut.has_value()) {
+        return std::unexpected(tonemapLut.error());
+    }
+    auto inverseLut = parseOptionalPathString(root, "inverse_lut", configDir);
+    if (!inverseLut.has_value()) {
+        return std::unexpected(inverseLut.error());
+    }
     auto frames = parseFrames(root);
     if (!frames.has_value()) {
         return std::unexpected(frames.error());
@@ -380,6 +417,8 @@ std::expected<DlssConfig, LoadError> DlssConfigLoader::Load(std::filesystem::pat
     config.fps = fps.value();
     config.filename_pattern = filenamePattern.value();
     config.jitter_phases = jitterPhases.value();
+    config.tonemap_lut = tonemapLut.value();
+    config.inverse_lut = inverseLut.value();
     config.frames = std::move(frames.value());
 
     return config;

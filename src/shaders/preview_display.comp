@@ -55,7 +55,7 @@ vec3 pqToNits(vec3 pq) {
 vec3 displayReadyToSdr(vec3 c) {
     if (pc.hdr != 0) {
         vec3 nits = pqToNits(c);
-        return hableTonemap(nits / 1000.0);
+        return srgbEncode(hableTonemap(nits / 1000.0));
     }
     return c;
 }
@@ -69,6 +69,6 @@ void main() {
     vec4 src = texture(srcImage, uv);
     vec3 rgb = pc.mode == 0
         ? srgbEncode(acesLike(src.rgb))
-        : srgbEncode(displayReadyToSdr(src.rgb));
+        : displayReadyToSdr(src.rgb);
     imageStore(dstPreview, coord, vec4(rgb, clamp(src.a, 0.0, 1.0)));
 }

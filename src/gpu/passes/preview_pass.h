@@ -30,6 +30,7 @@ public:
     PreviewReadback renderAndReadback(PooledTextureHandle src,
                                       PreviewInputMode mode,
                                       bool hdr,
+                                      VkImageLayout srcLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                       std::uint32_t maxLongEdge = 512);
 
 private:
@@ -42,7 +43,8 @@ private:
                 PooledTextureHandle src,
                 PooledTextureHandle dst,
                 PreviewInputMode mode,
-                bool hdr);
+                bool hdr,
+                VkImageLayout srcLayout);
 
     VulkanContext* m_ctx = nullptr;
     TexturePool m_pool;

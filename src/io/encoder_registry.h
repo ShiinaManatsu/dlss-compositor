@@ -29,6 +29,11 @@ struct EncoderOptions {
     int exrCompressionLevelPercent = 97;
 };
 
+enum class PixelEncoding {
+    SceneLinear,
+    DisplayReady,
+};
+
 struct EncodeParams {
     uint32_t       width        = 0;
     uint32_t       height       = 0;
@@ -36,6 +41,7 @@ struct EncodeParams {
     std::size_t    pixelByteSize = 0;
     int            fps          = 24;       // for video encoders
     bool           is_hdr       = false;
+    PixelEncoding  pixelEncoding = PixelEncoding::SceneLinear;
     EncoderOptions options{};
 };
 

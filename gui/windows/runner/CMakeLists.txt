@@ -29,6 +29,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTT
 
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
+target_compile_options(${BINARY_NAME} PRIVATE /wd"4005")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
@@ -61,32 +62,5 @@ if(WIN32 AND MSVC)
         COMMENT "Bundling ${_dll}"
         VERBATIM)
     endforeach()
-
-    get_filename_component(_ver_dir "${_crt_dir}/../.." ABSOLUTE)
-    file(GLOB _dbg_dirs LIST_DIRECTORIES true
-      "${_ver_dir}/debug_nonredist/x64/Microsoft.VC*.DebugCRT")
-    if(_dbg_dirs)
-      list(GET _dbg_dirs 0 _dbg_dir)
-      foreach(_dll IN ITEMS msvcp140d.dll vcruntime140d.dll vcruntime140_1d.dll)
-        add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${_dbg_dir}/${_dll}"
-            "$<TARGET_FILE_DIR:${BINARY_NAME}>"
-          COMMENT "Bundling ${_dll}"
-          VERBATIM)
-      endforeach()
-    endif()
-
-    file(GLOB _ucrt_dirs LIST_DIRECTORIES true
-      "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/ucrt")
-    if(_ucrt_dirs)
-      list(GET _ucrt_dirs 0 _ucrt_dir)
-      add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_ucrt_dir}/ucrtbased.dll"
-          "$<TARGET_FILE_DIR:${BINARY_NAME}>"
-        COMMENT "Bundling ucrtbased.dll"
-        VERBATIM)
-    endif()
   endif()
 endif()

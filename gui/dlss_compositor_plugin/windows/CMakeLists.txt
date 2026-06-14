@@ -11,7 +11,24 @@ project(${PROJECT_NAME} LANGUAGES C CXX)
 # Invoke the build for native FFI code shared with other target platforms.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
 
-get_filename_component(DLSS_COMPOSITOR_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
+get_filename_component(_DLSS_CMAKE_SOURCE_REAL "${CMAKE_SOURCE_DIR}" REALPATH)
+get_filename_component(_DLSS_CURRENT_SOURCE_REAL "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
+set(_DLSS_COMPOSITOR_ROOT_CANDIDATES
+  "${_DLSS_CMAKE_SOURCE_REAL}/../.."
+  "${_DLSS_CURRENT_SOURCE_REAL}/../../.."
+)
+foreach(_DLSS_COMPOSITOR_ROOT_CANDIDATE IN LISTS _DLSS_COMPOSITOR_ROOT_CANDIDATES)
+  get_filename_component(_DLSS_COMPOSITOR_ROOT_ABS
+    "${_DLSS_COMPOSITOR_ROOT_CANDIDATE}" ABSOLUTE)
+  if(EXISTS "${_DLSS_COMPOSITOR_ROOT_ABS}/CMakeLists.txt"
+      AND EXISTS "${_DLSS_COMPOSITOR_ROOT_ABS}/vcpkg.json")
+    set(DLSS_COMPOSITOR_ROOT "${_DLSS_COMPOSITOR_ROOT_ABS}" CACHE PATH "DLSS Compositor root")
+    break()
+  endif()
+endforeach()
+if(NOT DEFINED DLSS_COMPOSITOR_ROOT)
+  message(FATAL_ERROR "Could not locate DLSS Compositor root")
+endif()
 if(NOT TARGET dlss_engine_lib)
   add_subdirectory("${DLSS_COMPOSITOR_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/engine")
 endif()

@@ -103,13 +103,26 @@ endif()
 # -----------------------------------------------------------------------------
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog        CONFIG REQUIRED)
+find_package(fmt           CONFIG REQUIRED)
 find_package(Catch2 3      CONFIG REQUIRED)
 find_package(volk          CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Imath         CONFIG REQUIRED)
 find_package(OpenEXR       CONFIG REQUIRED)
+find_package(OpenImageIO   CONFIG REQUIRED)
 find_package(ZLIB          REQUIRED)
 find_package(FFMPEG        REQUIRED)
+
+get_target_property(_DLSS_SPDLOG_INCLUDE_DIRS spdlog::spdlog_header_only INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(_DLSS_FMT_INCLUDE_DIRS fmt::fmt INTERFACE_INCLUDE_DIRECTORIES)
+add_library(dlss_log_headers INTERFACE)
+target_include_directories(dlss_log_headers INTERFACE
+    ${_DLSS_SPDLOG_INCLUDE_DIRS}
+    ${_DLSS_FMT_INCLUDE_DIRS})
+target_compile_definitions(dlss_log_headers INTERFACE
+    SPDLOG_HEADER_ONLY
+    SPDLOG_FMT_EXTERNAL
+    FMT_HEADER_ONLY)
 
 # Vulkan headers come transitively from volk, so find_package(Vulkan) is optional.
 find_package(Vulkan QUIET)
@@ -126,6 +139,7 @@ add_library(dlss_cli_support STATIC
     src/cli/config_executor.cpp
     src/cli/preview_ipc.cpp
     src/core/dlssconfig.cpp
+    src/core/lut_loader.cpp
     src/core/log.cpp
     src/io/async_writer.cpp
     src/io/prores_writer.cpp)
@@ -134,10 +148,11 @@ target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}
 target_link_libraries(dlss_cli_support
     PUBLIC
         nlohmann_json::nlohmann_json
-        spdlog::spdlog
+        dlss_log_headers
         GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
+        OpenImageIO::OpenImageIO
         ZLIB::ZLIB
         ${FFMPEG_LIBRARIES}
     PRIVATE
@@ -150,6 +165,7 @@ add_library(dlss_engine_lib STATIC
     src/cli/config_executor.cpp
     src/cli/preview_ipc.cpp
     src/core/dlssconfig.cpp
+    src/core/lut_loader.cpp
     src/core/log.cpp
     src/core/stub.cpp
     src/dlss/dlss_fg.cpp
@@ -158,6 +174,8 @@ add_library(dlss_engine_lib STATIC
     src/gpu/vulkan_context.cpp
     src/gpu/texture_pool.cpp
     src/gpu/passes/depth_pass.cpp
+    src/gpu/passes/lut_inverse_pass.cpp
+    src/gpu/passes/lut_tonemap_pass.cpp
     src/gpu/passes/mv_pass.cpp
     src/gpu/passes/preview_pass.cpp
     src/gpu/passes/tonemap_pass.cpp
@@ -185,11 +203,12 @@ target_include_directories(dlss_engine_lib SYSTEM PUBLIC
 target_link_libraries(dlss_engine_lib
     PUBLIC
         nlohmann_json::nlohmann_json
-        spdlog::spdlog
+        dlss_log_headers
         volk::volk
         GPUOpen::VulkanMemoryAllocator
         Imath::Imath
         OpenEXR::OpenEXR
+        OpenImageIO::OpenImageIO
         ZLIB::ZLIB
         ${FFMPEG_LIBRARIES}
     PRIVATE
@@ -289,6 +308,8 @@ dlss_add_shader(dlss_engine_lib src/shaders/preview_display.comp)
 # Shader compilation — Stage 4 tonemap + EOTF
 # -----------------------------------------------------------------------------
 dlss_add_shader(dlss_engine_lib src/shaders/tonemap_eotf.comp)
+dlss_add_shader(dlss_engine_lib src/shaders/lut_tonemap.comp)
+dlss_add_shader(dlss_engine_lib src/shaders/lut_inverse.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 6 inverse tonemap + EOTF

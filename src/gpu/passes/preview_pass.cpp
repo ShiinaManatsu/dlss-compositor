@@ -193,7 +193,8 @@ void PreviewPass::record(VkCommandBuffer cmd,
                          PooledTextureHandle src,
                          PooledTextureHandle dst,
                          PreviewInputMode mode,
-                         bool hdr) {
+                         bool hdr,
+                         VkImageLayout srcLayout) {
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -208,7 +209,7 @@ void PreviewPass::record(VkCommandBuffer cmd,
     VkDescriptorImageInfo srcInfo{};
     srcInfo.sampler = m_sampler;
     srcInfo.imageView = src->view;
-    srcInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    srcInfo.imageLayout = srcLayout;
 
     VkDescriptorImageInfo dstInfo{};
     dstInfo.imageView = dst->view;
@@ -257,6 +258,7 @@ void PreviewPass::record(VkCommandBuffer cmd,
 PreviewReadback PreviewPass::renderAndReadback(PooledTextureHandle src,
                                                PreviewInputMode mode,
                                                bool hdr,
+                                               VkImageLayout srcLayout,
                                                std::uint32_t maxLongEdge) {
     if (!src) {
         return {};
@@ -264,7 +266,7 @@ PreviewReadback PreviewPass::renderAndReadback(PooledTextureHandle src,
     auto preview = acquirePreviewTexture(src->desc.width, src->desc.height, maxLongEdge);
     VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
     VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-    record(cmd, src, preview, mode, hdr);
+    record(cmd, src, preview, mode, hdr, srcLayout);
 
     VkImageMemoryBarrier2 toTransfer{};
     toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;

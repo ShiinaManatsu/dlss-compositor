@@ -12,6 +12,8 @@ add_executable(dlss_engine_tests
     test_ngx_init.cpp
     test_frame_prefetcher.cpp
     test_channel_mapper.cpp
+    test_dlssconfig_loader.cpp
+    test_lut_loader.cpp
     test_cli_config_executor.cpp
     test_texture_pool.cpp
     test_depth_pass.cpp

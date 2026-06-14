@@ -46,6 +46,31 @@ TEST_CASE("Load valid config maps metadata", "[dlssconfig]") {
     REQUIRE(result->view_transform == "Filmic");
     REQUIRE(result->filename_pattern == "frame_####.png");
     REQUIRE(result->jitter_phases == 18);
+    REQUIRE(std::filesystem::path(result->tonemap_lut).filename() == "tonemap_srgb_filmic_33.cube");
+    REQUIRE(std::filesystem::path(result->inverse_lut).filename() == "inverse_srgb_filmic_33.cube");
+    REQUIRE(std::filesystem::path(result->tonemap_lut).is_absolute());
+    REQUIRE(std::filesystem::path(result->inverse_lut).is_absolute());
+}
+
+TEST_CASE("Load valid config keeps LUT paths optional", "[dlssconfig]") {
+    nlohmann::json root = {
+        {"version", 1},
+        {"output_resolution", {{"width", 1920}, {"height", 1080}}},
+        {"render_resolution", {{"width", 1280}, {"height", 720}}},
+        {"quality_mode", "quality"},
+        {"display_device", "sRGB"},
+        {"view_transform", "Filmic"},
+        {"is_hdr", false},
+        {"fps", 30},
+        {"filename_pattern", "frame_####.png"},
+        {"jitter_phases", 18}};
+
+    const auto path = writeTempJson("dlssconfig-loader-no-lut.json", root);
+    auto result = dlss::DlssConfigLoader::Load(path);
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->tonemap_lut.empty());
+    REQUIRE(result->inverse_lut.empty());
 }
 
 TEST_CASE("Load valid config maps frame payload", "[dlssconfig]") {

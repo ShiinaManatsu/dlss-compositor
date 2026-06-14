@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
-#include <string>
 #include <map>
+#include <string>
 
 namespace dlss {
 
@@ -41,11 +41,13 @@ struct DlssConfig {
     int fps = 24;
     std::string filename_pattern;
     int jitter_phases = 18;
+    std::string tonemap_lut;
+    std::string inverse_lut;
     std::map<std::string, CameraData> frames;
 };
 
-// OutputFormat enum — ExrLinear/Png16 image sequences and LDR ProRes422HQ MOV are implemented in v2.
-// The rest are enum placeholders for future extensions — DO NOT register to EncoderRegistry.
+// OutputFormat enum: ExrLinear/Png16 image sequences and LDR/HDR ProRes422HQ MOV are implemented in v2.
+// The rest are enum placeholders for future extensions; DO NOT register to EncoderRegistry.
 enum class OutputFormat {
     ExrLinear,
     Png16,
@@ -60,7 +62,7 @@ enum class OutputFormat {
     DNxHR
 };
 
-// DLSS scaling ratios per quality mode (SR §3.7.1.1)
+// DLSS scaling ratios per quality mode (SR section 3.7.1.1)
 constexpr float DLSS_RATIO[] = {
     1.0f,   // DLAA
     1.3f,   // UltraQuality
@@ -70,7 +72,7 @@ constexpr float DLSS_RATIO[] = {
     3.0f    // UltraPerformance
 };
 
-// Jitter phase counts per quality mode (SR §3.7.1.1 minimum table)
+// Jitter phase counts per quality mode (SR section 3.7.1.1 minimum table)
 constexpr int JITTER_PHASES[] = {
     8,   // DLAA
     14,  // UltraQuality
@@ -80,7 +82,7 @@ constexpr int JITTER_PHASES[] = {
     72   // UltraPerformance
 };
 
-// Per-quality preset mapping (SR §3.12)
+// Per-quality preset mapping (SR section 3.12)
 // DLAA/UltraQuality/Quality/Balanced -> K; Performance -> M; UltraPerformance -> L
 enum class NgxPreset { K = 'K', L = 'L', M = 'M' };
 constexpr NgxPreset DEFAULT_PRESET[] = {

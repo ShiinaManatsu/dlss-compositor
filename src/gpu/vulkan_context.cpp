@@ -386,9 +386,49 @@ void VulkanContext::cmdPipelineBarrier2(VkCommandBuffer cmd, const VkDependencyI
     vkCmdPipelineBarrier2(cmd, dependencyInfo);
 }
 
+namespace {
+
+std::uint16_t f32ToF16(float v) noexcept {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+
+    const std::uint32_t sign = (bits >> 31) & 0x1u;
+    const std::uint32_t exponent = (bits >> 23) & 0xffu;
+    const std::uint32_t mantissa = bits & 0x7fffffu;
+
+    if (exponent == 255u) {
+        return static_cast<std::uint16_t>((sign << 15) | 0x7c00u | (mantissa ? 0x200u : 0u));
+    }
+    if (exponent == 0u) {
+        return static_cast<std::uint16_t>(sign << 15);
+    }
+
+    const int e = static_cast<int>(exponent) - 127 + 15;
+    if (e >= 31) {
+        return static_cast<std::uint16_t>((sign << 15) | 0x7c00u);
+    }
+    if (e <= 0) {
+        if (e < -10) {
+            return static_cast<std::uint16_t>(sign << 15);
+        }
+        const std::uint32_t m = (mantissa | 0x800000u) >> (1 - e);
+        return static_cast<std::uint16_t>((sign << 15) | (m >> 13));
+    }
+
+    return static_cast<std::uint16_t>((sign << 15) | (static_cast<std::uint32_t>(e) << 10) | (mantissa >> 13));
+}
+
+void writeLe16(std::uint8_t* dst, std::uint16_t value) noexcept {
+    dst[0] = static_cast<std::uint8_t>(value & 0xffu);
+    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xffu);
+}
+
+} // namespace
+
 std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
                                                               uint32_t width,
-                                                              uint32_t height) const {
+                                                              uint32_t height,
+                                                              VkImageLayout oldLayout) const {
     const VkDeviceSize byteSize = static_cast<VkDeviceSize>(width) * height * 8u;
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(byteSize));
 
@@ -419,7 +459,7 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
     toTransfer.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
     toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
     toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-    toTransfer.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toTransfer.oldLayout = oldLayout;
     toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -448,6 +488,34 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
     }
     vmaDestroyBuffer(m_allocator, buffer, allocation);
     return pixels;
+}
+
+std::vector<std::uint8_t> VulkanContext::downloadImageA2B10ToRgba16f(VkImage image,
+                                                                      uint32_t width,
+                                                                      uint32_t height,
+                                                                      VkImageLayout oldLayout) const {
+    const auto packed = downloadImageRaw(image, width, height, 4u, oldLayout);
+    std::vector<std::uint8_t> rgba16f(static_cast<std::size_t>(width) * height * 8u);
+
+    for (std::size_t i = 0, px = 0; i < packed.size(); i += 4u, ++px) {
+        const std::uint32_t word =
+            static_cast<std::uint32_t>(packed[i + 0]) |
+            (static_cast<std::uint32_t>(packed[i + 1]) << 8) |
+            (static_cast<std::uint32_t>(packed[i + 2]) << 16) |
+            (static_cast<std::uint32_t>(packed[i + 3]) << 24);
+
+        const float r = static_cast<float>((word >> 0) & 0x3ffu) / 1023.0f;
+        const float g = static_cast<float>((word >> 10) & 0x3ffu) / 1023.0f;
+        const float b = static_cast<float>((word >> 20) & 0x3ffu) / 1023.0f;
+        const float a = static_cast<float>((word >> 30) & 0x3u) / 3.0f;
+        std::uint8_t* dst = rgba16f.data() + px * 8u;
+        writeLe16(dst + 0, f32ToF16(r));
+        writeLe16(dst + 2, f32ToF16(g));
+        writeLe16(dst + 4, f32ToF16(b));
+        writeLe16(dst + 6, f32ToF16(a));
+    }
+
+    return rgba16f;
 }
 
 std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,

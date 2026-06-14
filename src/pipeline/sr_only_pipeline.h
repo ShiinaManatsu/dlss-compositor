@@ -32,8 +32,8 @@ struct SrOnlyConfig {
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;
 };
 
-/// SR-only pipeline: Stage 1 (prefetch+map+convert) → Stage 2 (SR) → Stage 7 (write)
-/// Does NOT call Stage 4/5/6 (tonemap/FG/inverse tonemap — those are FG pipeline only)
+/// SR-only pipeline: Stage 1 (prefetch+map+convert) -> Stage 2 (SR) -> Stage 7 (write)
+/// Does NOT call Stage 4/5 (tonemap/FG); those are FG pipeline only.
 class SrOnlyPipeline {
 public:
     SrOnlyPipeline(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher);

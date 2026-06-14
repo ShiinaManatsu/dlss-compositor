@@ -1,7 +1,10 @@
 #include "sr_only_pipeline.h"
 
 #include "../core/log.h"
+#include "../core/lut_loader.h"
+#include "../gpu/passes/lut_tonemap_pass.h"
 #include "../gpu/passes/preview_pass.h"
+#include "../gpu/passes/tonemap_pass.h"
 #include "../io/prores_writer.h"
 
 #include <volk.h>
@@ -219,6 +222,27 @@ void transitionStorageImageForWrite(VkCommandBuffer cmd, const PooledTextureHand
     vkCmdPipelineBarrier2(cmd, &dependency);
 }
 
+void transitionStorageToShaderRead(VkCommandBuffer cmd, const PooledTextureHandle& texture) {
+    VkImageMemoryBarrier2 barrier{};
+    barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.srcAccessMask       = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    barrier.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    barrier.dstAccessMask       = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    barrier.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image               = texture->image;
+    barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dependency{};
+    dependency.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency.imageMemoryBarrierCount = 1;
+    dependency.pImageMemoryBarriers    = &barrier;
+    vkCmdPipelineBarrier2(cmd, &dependency);
+}
+
 } // namespace
 
 SrOnlyPipeline::SrOnlyPipeline(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher)
@@ -273,8 +297,27 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
         TexturePool pool(m_ctx);
         DlssSrPass srPass(m_ngx, m_ctx, &pool);
         PreviewPass previewPass(m_ctx);
+        TonemapMode tonemapMode = dlssCfg.is_hdr ? TonemapMode::HDR : TonemapMode::LDR;
+        TonemapPass tonemapPass(m_ctx);
+        std::unique_ptr<LutTonemapPass> lutTonemapPass;
+        if (!dlssCfg.tonemap_lut.empty()) {
+            auto lut = LutLoader::LoadCube(dlssCfg.tonemap_lut);
+            if (!lut.has_value()) {
+                throw std::runtime_error("SrOnlyPipeline: failed to load tonemap_lut: " + lut.error().message);
+            }
+            LOG_INFO("[SR-only] Using tonemap LUT: {} size={} domain=[{}, {}] log2={}",
+                     dlssCfg.tonemap_lut,
+                     lut->size,
+                     lut->domain_min[0],
+                     lut->domain_max[0],
+                     lut->input_log2);
+            lutTonemapPass = std::make_unique<LutTonemapPass>(m_ctx, lut.value());
+        } else {
+            LOG_INFO("[SR-only] No tonemap LUT configured; using built-in tonemap shader for display outputs");
+        }
         AsyncFrameWriter writer;
         std::unique_ptr<ProResProgressWriter> proresWriter;
+        const bool outputSceneLinear = config.outputFormat == OutputFormat::ExrLinear;
 
         srPass.create(dlssCfg.render_resolution.width,
                       dlssCfg.render_resolution.height,
@@ -288,6 +331,8 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 dlssCfg.output_resolution.height,
                 dlssCfg.fps,
                 dlssCfg.is_hdr,
+                PixelEncoding::DisplayReady,
+                inferHdrMasteringNits(dlssCfg.view_transform),
                 totalFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);
@@ -310,6 +355,11 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             dlssCfg.output_resolution.height,
             VK_FORMAT_R16G16B16A16_SFLOAT,
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+        TextureDesc displayDesc{
+            dlssCfg.output_resolution.width,
+            dlssCfg.output_resolution.height,
+            VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc depthWorldDesc{
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
@@ -398,18 +448,37 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             srIn.frameTimeDeltaMs    = frameTimeMs;
 
             srPass.evaluate(cmd, srIn);
+            PooledTextureHandle displayOutput;
+            if (!outputSceneLinear) {
+                displayOutput = pool.acquire(displayDesc);
+                transitionStorageToShaderRead(cmd, colorOutput);
+                transitionStorageImageForWrite(cmd, displayOutput);
+                if (lutTonemapPass) {
+                    lutTonemapPass->execute(cmd, colorOutput, displayOutput);
+                } else {
+                    tonemapPass.execute(cmd, colorOutput, displayOutput, tonemapMode);
+                }
+            }
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
 
             if (config.previewRgba8Callback && (!config.wantsPreviewFrame || config.wantsPreviewFrame())) {
-                PreviewReadback preview = previewPass.renderAndReadback(colorOutput, PreviewInputMode::SceneLinear, dlssCfg.is_hdr);
+                PreviewReadback preview = outputSceneLinear
+                    ? previewPass.renderAndReadback(colorOutput, PreviewInputMode::SceneLinear, dlssCfg.is_hdr)
+                    : previewPass.renderAndReadback(displayOutput, PreviewInputMode::DisplayReady, dlssCfg.is_hdr);
                 if (!preview.rgba8.empty()) {
                     config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
                 }
             }
 
-            auto pixels = m_ctx->downloadImageRgba16f(colorOutput->image,
-                                                      dlssCfg.output_resolution.width,
-                                                      dlssCfg.output_resolution.height);
+            auto pixels = outputSceneLinear
+                ? m_ctx->downloadImageRgba16f(colorOutput->image,
+                                              dlssCfg.output_resolution.width,
+                                              dlssCfg.output_resolution.height,
+                                              VK_IMAGE_LAYOUT_GENERAL)
+                : m_ctx->downloadImageA2B10ToRgba16f(displayOutput->image,
+                                                     dlssCfg.output_resolution.width,
+                                                     dlssCfg.output_resolution.height,
+                                                     VK_IMAGE_LAYOUT_GENERAL);
             if (proresWriter) {
                 proresWriter->writeFrame(pixels);
             } else {
@@ -421,6 +490,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 writeJob.height        = dlssCfg.output_resolution.height;
                 writeJob.fps           = dlssCfg.fps;
                 writeJob.is_hdr        = dlssCfg.is_hdr;
+                writeJob.pixelEncoding = outputSceneLinear ? PixelEncoding::SceneLinear : PixelEncoding::DisplayReady;
                 writeJob.encoderOptions = config.encoderOptions;
                 writeJob.overwriteMode = config.overwriteMode;
                 writeJob.pixels        = std::move(pixels);
@@ -436,6 +506,9 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
 
             pool.release(colorRender);
             pool.release(colorOutput);
+            if (displayOutput) {
+                pool.release(displayOutput);
+            }
             pool.release(depthWorld);
             pool.release(depthNdc);
             pool.release(mvBlender);
@@ -448,6 +521,17 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
         }
 
         if (processedFrames != totalFrames) {
+            if (m_stop.load()) {
+                if (proresWriter) {
+                    proresWriter->cancel();
+                } else {
+                    writer.cancel();
+                }
+                vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
+                m_dispatcher->progress().state.store(0);
+                LOG_INFO("[SR-only] Cancelled after {} frame(s)", processedFrames);
+                return;
+            }
             throw std::runtime_error("SrOnlyPipeline: processed " + std::to_string(processedFrames) +
                                      " of " + std::to_string(totalFrames) + " input frames");
         }

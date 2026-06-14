@@ -12,7 +12,7 @@ import logging  # noqa: E402
 import sys      # noqa: E402
 from pathlib import Path  # noqa: E402
 
-from . import properties, panel, operators  # noqa: E402
+from . import properties, panel, operators, lut_generator  # noqa: E402,F401
 from .handlers import register_handlers, unregister_handlers  # noqa: E402
 
 # ---------------------------------------------------------------------------

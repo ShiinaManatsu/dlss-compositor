@@ -30,14 +30,14 @@ public:
     /// @param srcWorldLinear  Source texture in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
     /// @param dstNdc       Destination storage image in VK_IMAGE_LAYOUT_GENERAL.
     /// @param projection   Column-major 4x4 projection matrix from dlssconfig per-frame data.
-    /// @param near         Camera near clip plane (from dlssconfig).
-    /// @param far          Camera far clip plane (from dlssconfig).
+    /// @param nearClip     Camera near clip plane (from dlssconfig).
+    /// @param farClip      Camera far clip plane (from dlssconfig).
     void execute(VkCommandBuffer       cmd,
                  PooledTextureHandle   srcWorldLinear,
                  PooledTextureHandle   dstNdc,
                  const float           projection[4][4],
-                 float                 near,
-                 float                 far);
+                 float                 nearClip,
+                 float                 farClip);
 
 private:
     void createDescriptorSetLayout();

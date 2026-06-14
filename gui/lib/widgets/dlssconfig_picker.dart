@@ -82,8 +82,10 @@ class DlssConfigPicker extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
                   FilledButton.tonalIcon(
                     onPressed: () => _pickFile(context),
@@ -94,17 +96,20 @@ class DlssConfigPicker extends StatelessWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
                   ),
-                  const SizedBox(width: 12),
                   if (state.currentDlssConfigPath != null)
-                    Expanded(
-                      child: Text(
-                        state.currentDlssConfigPath!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontFamily: 'monospace',
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 360),
+                      child: Tooltip(
+                        message: state.currentDlssConfigPath!,
+                        child: Text(
+                          state.currentDlssConfigPath!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontFamily: 'monospace',
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                 ],

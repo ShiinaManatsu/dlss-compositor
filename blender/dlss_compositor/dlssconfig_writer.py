@@ -38,6 +38,9 @@ def build_top_level_config(scene: Scene, props: object) -> dict[str, Any]:
 
     display_device = getattr(scene.display_settings, "display_device", "sRGB")
     view_transform = getattr(scene.view_settings, "view_transform", "Filmic")
+    look           = getattr(scene.view_settings, "look", "None")
+    exposure       = float(getattr(scene.view_settings, "exposure", 0.0))
+    gamma          = float(getattr(scene.view_settings, "gamma", 1.0))
 
     is_hdr        = display_device in HDR_DISPLAY_DEVICES
     quality_mode  = props.quality_mode.lower()  # type: ignore[attr-defined]
@@ -55,6 +58,9 @@ def build_top_level_config(scene: Scene, props: object) -> dict[str, Any]:
         "quality_mode":      quality_mode,
         "display_device":    display_device,
         "view_transform":    view_transform,
+        "look":              look,
+        "exposure":          exposure,
+        "gamma":             gamma,
         "is_hdr":            is_hdr,
         "fps":               scene.render.fps,
         "filename_pattern":  r"^\d{4}\.exr$",

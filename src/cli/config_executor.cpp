@@ -42,9 +42,7 @@ OutputFormat parseOutputFormat(const std::string& value, bool isHdr) {
         return OutputFormat::Png16;
     }
     if (value == "prores" || value == "prores_422hq") {
-        if (isHdr) {
-            throw std::runtime_error("HDR ProRes export is not supported yet; use EXR scene-linear output");
-        }
+        (void)isHdr;
         return OutputFormat::ProRes422HQ;
     }
     throw std::runtime_error("Unsupported output format: " + value);

@@ -44,6 +44,16 @@
     "view_transform": {
       "type": "string"
     },
+    "look": {
+      "type": "string"
+    },
+    "exposure": {
+      "type": "number"
+    },
+    "gamma": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
     "is_hdr": {
       "type": "boolean"
     },
@@ -65,6 +75,12 @@
         "png_16",
         "prores_422hq"
       ]
+    },
+    "tonemap_lut": {
+      "type": "string"
+    },
+    "inverse_lut": {
+      "type": "string"
     },
     "frames": {
       "type": "object",

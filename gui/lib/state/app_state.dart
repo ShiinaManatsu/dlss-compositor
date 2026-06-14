@@ -3,7 +3,7 @@ import '../plugin/dlss_compositor.dart';
 import '../util/app_log.dart';
 
 /// Task state enum
-enum TaskState { idle, running, done, error }
+enum TaskState { idle, running, cancelling, done, error }
 
 /// Global application state managed by Provider.
 class AppState extends ChangeNotifier {

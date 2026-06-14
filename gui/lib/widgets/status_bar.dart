@@ -50,7 +50,11 @@ class DlssStatusBar extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    state.taskState == TaskState.running ? Icons.sync : Icons.check,
+                    state.taskState == TaskState.running
+                        ? Icons.sync
+                        : state.taskState == TaskState.cancelling
+                            ? Icons.stop
+                            : Icons.check,
                     size: 12,
                     color: Colors.white,
                   ),
@@ -58,7 +62,9 @@ class DlssStatusBar extends StatelessWidget {
                   Text(
                     state.taskState == TaskState.running
                         ? '${state.currentFrame}/${state.totalFrames}'
-                        : 'Ready',
+                        : state.taskState == TaskState.cancelling
+                            ? 'Cancelling...'
+                            : 'Ready',
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ],
