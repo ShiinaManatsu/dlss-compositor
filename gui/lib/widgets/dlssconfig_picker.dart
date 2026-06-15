@@ -1,21 +1,26 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../l10n/app_strings.dart';
 import '../state/app_state.dart';
+import '../util/app_log.dart';
 import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
-import '../util/app_log.dart';
 
 /// dlssconfig.json file picker with schema validation and summary display.
 class DlssConfigPicker extends StatelessWidget {
   const DlssConfigPicker({super.key});
 
   Future<void> _pickFile(BuildContext context) async {
+    final strings = context.strings;
     AppLog.phase('config', 'Opening dlssconfig picker');
     final path = selectFile(
       filterDescription: 'DLSS Config',
       filterPattern: '*.json',
+      title: strings.openDlssConfigDialogTitle,
     );
     if (path == null || !context.mounted) {
       AppLog.phase('config', 'dlssconfig picker cancelled');
@@ -26,19 +31,17 @@ class DlssConfigPicker extends StatelessWidget {
 
     final appState = Provider.of<AppState>(context, listen: false);
 
-    // Load and validate the selected file
     try {
       final content = await File(path).readAsString();
       final config = json.decode(content) as Map<String, dynamic>;
 
-      // Basic validation
       String? error;
       if (config['version'] != 1) {
-        error = 'Invalid version (expected 1, got ${config['version']})';
+        error = strings.invalidVersion(config['version']);
       } else if (!config.containsKey('output_resolution')) {
-        error = 'Missing required field: output_resolution';
+        error = strings.missingRequiredField('output_resolution');
       } else if (!config.containsKey('fps')) {
-        error = 'Missing required field: fps';
+        error = strings.missingRequiredField('fps');
       }
 
       AppLog.phase('config', 'dlssconfig parsed', {
@@ -49,7 +52,7 @@ class DlssConfigPicker extends StatelessWidget {
       if (error != null && context.mounted) {
         await showErrorDialog(
           context,
-          title: 'Invalid dlssconfig.json',
+          title: strings.invalidConfigTitle,
           message: error,
           details: path,
         );
@@ -60,8 +63,8 @@ class DlssConfigPicker extends StatelessWidget {
       if (context.mounted) {
         await showErrorDialog(
           context,
-          title: 'Failed to open dlssconfig.json',
-          message: 'The selected file could not be parsed.',
+          title: strings.failedOpenConfigTitle,
+          message: strings.failedOpenConfigMessage,
           details: '$path\n$e',
         );
       }
@@ -90,7 +93,7 @@ class DlssConfigPicker extends StatelessWidget {
                   FilledButton.tonalIcon(
                     onPressed: () => _pickFile(context),
                     icon: const Icon(Icons.folder_open, size: 16),
-                    label: const Text('Open dlssconfig.json'),
+                    label: Text(context.strings.openDlssConfig),
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -129,11 +132,12 @@ class DlssConfigPicker extends StatelessWidget {
   }
 
   Widget _buildSummary(Map<String, dynamic> config, BuildContext context) {
+    final strings = context.strings;
     final outRes = config['output_resolution'] as Map<String, dynamic>?;
     final renderRes = config['render_resolution'] as Map<String, dynamic>?;
-    
+
     int? numFrames;
-    final dynamic framesRaw = config['frames'];
+    final framesRaw = config['frames'];
     if (framesRaw is List) {
       numFrames = framesRaw.length;
     } else if (framesRaw is Map) {
@@ -144,23 +148,47 @@ class DlssConfigPicker extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        _badge(context, Icons.check_circle, 'Valid', Colors.green),
+        _badge(context, Icons.check_circle, strings.valid, Colors.green),
         if (renderRes != null)
-          _badge(context, Icons.input,
-              'In: ${renderRes['width']}×${renderRes['height']}', Colors.grey),
+          _badge(
+            context,
+            Icons.input,
+            strings.inputResolution(renderRes['width'], renderRes['height']),
+            Colors.grey,
+          ),
         if (outRes != null)
-          _badge(context, Icons.output,
-              'Out: ${outRes['width']}×${outRes['height']}', Colors.blue),
-        _badge(context, Icons.settings, '${config['quality_mode'] ?? 'N/A'}', Colors.orange),
-        if (config['is_hdr'] == true) _badge(context, Icons.hdr_on, 'HDR', Colors.purple),
-        _badge(context, Icons.speed, '${config['fps'] ?? 0} fps', Colors.teal),
+          _badge(
+            context,
+            Icons.output,
+            strings.outputResolution(outRes['width'], outRes['height']),
+            Colors.blue,
+          ),
+        _badge(
+          context,
+          Icons.settings,
+          '${config['quality_mode'] ?? strings.qualityFallback}',
+          Colors.orange,
+        ),
+        if (config['is_hdr'] == true)
+          _badge(context, Icons.hdr_on, strings.hdr, Colors.purple),
+        _badge(
+          context,
+          Icons.speed,
+          strings.fps(config['fps'] as int? ?? 0),
+          Colors.teal,
+        ),
         if (numFrames != null)
-          _badge(context, Icons.movie, '$numFrames frames', Colors.indigo),
+          _badge(context, Icons.movie, strings.frames(numFrames), Colors.indigo),
       ],
     );
   }
 
-  Widget _badge(BuildContext context, IconData icon, String label, MaterialColor color) {
+  Widget _badge(
+    BuildContext context,
+    IconData icon,
+    String label,
+    MaterialColor color,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

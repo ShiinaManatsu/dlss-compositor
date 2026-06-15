@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:dlss_compositor_plugin/dlss_compositor_plugin.dart';
+import '../l10n/app_strings.dart';
 import '../state/app_state.dart';
 import '../plugin/dlss_compositor.dart';
 import '../util/error_dialog.dart';
@@ -111,7 +112,7 @@ class _DetailPanelState extends State<DetailPanel> {
             context,
             listen: false,
           ).setTaskState(TaskState.idle);
-          _addLog('info', 'Task cancelled');
+          _addLog('info', context.strings.taskCancelled);
           setState(() {});
         } else if (type == 'error') {
           _endTime = DateTime.now();
@@ -125,8 +126,8 @@ class _DetailPanelState extends State<DetailPanel> {
           _addLog('error', msg);
           showErrorDialog(
             context,
-            title: 'Backend error',
-            message: 'The backend reported a runtime error.',
+            title: context.strings.backendErrorTitle,
+            message: context.strings.backendErrorMessage,
             details: msg,
           );
           setState(() {});
@@ -138,8 +139,8 @@ class _DetailPanelState extends State<DetailPanel> {
         if (mounted) {
           showErrorDialog(
             context,
-            title: 'Backend stream error',
-            message: 'The backend event stream failed.',
+            title: context.strings.backendStreamErrorTitle,
+            message: context.strings.backendStreamErrorMessage,
             details: '$e',
           );
         }
@@ -308,15 +309,15 @@ class _DetailPanelState extends State<DetailPanel> {
         borderRadius: BorderRadius.circular(8),
         child: _previewImage != null
             ? RawImage(image: _previewImage, fit: BoxFit.contain)
-            : const Center(
+            : Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.image, color: Colors.white24, size: 48),
-                    SizedBox(height: 12),
+                    const Icon(Icons.image, color: Colors.white24, size: 48),
+                    const SizedBox(height: 12),
                     Text(
-                      'Live Preview',
-                      style: TextStyle(
+                      context.strings.livePreview,
+                      style: const TextStyle(
                         color: Colors.white38,
                         fontSize: 13,
                         letterSpacing: 0.5,
@@ -332,16 +333,16 @@ class _DetailPanelState extends State<DetailPanel> {
   Widget _buildProgressSection(AppState state) {
     if (state.taskState == TaskState.idle) return const SizedBox.shrink();
 
-    String statusTitle = 'PROCESSING';
+    String statusTitle = context.strings.processing;
     Color statusColor = Colors.white;
     if (state.taskState == TaskState.done) {
-      statusTitle = 'COMPLETED';
+      statusTitle = context.strings.completed;
       statusColor = Colors.green;
     } else if (state.taskState == TaskState.error) {
-      statusTitle = 'ERROR';
+      statusTitle = context.strings.error;
       statusColor = Colors.red;
     } else if (state.taskState == TaskState.cancelling) {
-      statusTitle = 'CANCELLING';
+      statusTitle = context.strings.cancellingTitle;
       statusColor = Colors.orange;
     }
 
@@ -355,8 +356,9 @@ class _DetailPanelState extends State<DetailPanel> {
       final remainingFrames = state.totalFrames - state.currentFrame;
       final etaMillis = timePerFrame * remainingFrames;
       final eta = Duration(milliseconds: etaMillis.round());
-      etaText =
-          'ETA ${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')}';
+      etaText = context.strings.eta(
+        '${eta.inMinutes}:${(eta.inSeconds % 60).toString().padLeft(2, '0')}',
+      );
     }
 
     return Container(
@@ -395,7 +397,7 @@ class _DetailPanelState extends State<DetailPanel> {
           ),
           const SizedBox(height: 16),
           _buildProgressRow(
-            'DLSS Pipeline',
+            context.strings.dlssPipeline,
             state.dlssCurrentFrame,
             state.dlssTotalFrames,
             state.dlssProgressPercent,
@@ -403,7 +405,7 @@ class _DetailPanelState extends State<DetailPanel> {
           ),
           const SizedBox(height: 12),
           _buildProgressRow(
-            'Disk Output',
+            context.strings.diskOutput,
             state.currentFrame,
             state.totalFrames,
             state.progressPercent,
@@ -493,8 +495,8 @@ class _DetailPanelState extends State<DetailPanel> {
                     color: Colors.white38,
                   ),
                   const SizedBox(width: 6),
-                  const Text(
-                    'TERMINAL LOG',
+                  Text(
+                    context.strings.terminalLog,
                     style: TextStyle(
                       color: Colors.white38,
                       fontSize: 11,
@@ -504,7 +506,9 @@ class _DetailPanelState extends State<DetailPanel> {
                   ),
                   const Spacer(),
                   Text(
-                    logCount == 0 ? 'No entries' : '$logCount entries',
+                    logCount == 0
+                        ? context.strings.noEntries
+                        : context.strings.entries(logCount),
                     style: const TextStyle(color: Colors.white30, fontSize: 11),
                   ),
                 ],
@@ -515,10 +519,10 @@ class _DetailPanelState extends State<DetailPanel> {
             SizedBox(
               height: 180,
               child: logCount == 0
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                        'No terminal output yet',
-                        style: TextStyle(color: Colors.white30, fontSize: 12),
+                        context.strings.noTerminalOutputYet,
+                        style: const TextStyle(color: Colors.white30, fontSize: 12),
                       ),
                     )
                   : ListView.builder(
@@ -578,8 +582,8 @@ class _DetailPanelState extends State<DetailPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'PROCESS COMPLETED',
+                Text(
+                  context.strings.processCompleted,
                   style: TextStyle(
                     color: Color(0xFF00B050),
                     fontWeight: FontWeight.bold,
@@ -588,7 +592,10 @@ class _DetailPanelState extends State<DetailPanel> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Rendered $_outputFrameCount frames in ${duration.inSeconds}s',
+                  context.strings.renderedFramesInSeconds(
+                    _outputFrameCount,
+                    duration.inSeconds,
+                  ),
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
               ],
@@ -603,7 +610,7 @@ class _DetailPanelState extends State<DetailPanel> {
                     ? null
                     : () => _openOutputFolder(state.outputDir),
                 icon: const Icon(Icons.folder_open, size: 15),
-                label: const Text('Open Folder'),
+                label: Text(context.strings.openFolder),
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF00B050),
                   foregroundColor: Colors.white,
@@ -636,8 +643,8 @@ class _DetailPanelState extends State<DetailPanel> {
       if (!mounted) return;
       await showErrorDialog(
         context,
-        title: 'Output folder not found',
-        message: 'The output folder does not exist yet.',
+        title: context.strings.outputFolderNotFoundTitle,
+        message: context.strings.outputFolderNotFoundMessage,
         details: dir.path,
       );
       return;
@@ -657,8 +664,8 @@ class _DetailPanelState extends State<DetailPanel> {
       if (!mounted) return;
       await showErrorDialog(
         context,
-        title: 'Failed to open output folder',
-        message: 'Could not launch the system file manager.',
+        title: context.strings.failedOpenOutputFolderTitle,
+        message: context.strings.failedOpenOutputFolderMessage,
         details: '${e.message}\n${dir.path}',
       );
     }

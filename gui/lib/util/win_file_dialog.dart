@@ -8,6 +8,7 @@ import 'package:filepicker_windows/filepicker_windows.dart';
 String? selectFile({
   String filterDescription = 'DLSS Config',
   String filterPattern = '*.json',
+  String title = 'Open dlssconfig.json',
 }) {
   final picker = OpenFilePicker()
     ..filterSpecification = {filterDescription: filterPattern}
@@ -15,17 +16,17 @@ String? selectFile({
     ..defaultExtension = filterPattern.replaceFirst('*.', '')
     ..fileMustExist = true
     ..forceFileSystemItems = true
-    ..title = 'Open dlssconfig.json';
+    ..title = title;
 
   return picker.getFile()?.path;
 }
 
 /// Opens a Win32 [IFileOpenDialog] in folder-picker mode and returns the
 /// selected directory path, or `null` if cancelled or an error occurred.
-String? selectDirectory() {
+String? selectDirectory({String title = 'Select output directory'}) {
   final picker = DirectoryPicker()
     ..forceFileSystemItems = true
-    ..title = 'Select output directory';
+    ..title = title;
 
   return picker.getDirectory()?.path;
 }

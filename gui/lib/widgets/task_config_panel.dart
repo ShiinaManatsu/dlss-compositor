@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../l10n/app_strings.dart';
+import '../plugin/dlss_compositor.dart';
 import '../state/app_state.dart';
 import '../state/preferences.dart';
-import '../plugin/dlss_compositor.dart';
+import '../util/app_log.dart';
 import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
-import '../util/app_log.dart';
 import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
@@ -13,42 +15,53 @@ enum OutputFormat { png16, exrLinear, proRes422Hq }
 enum ExrCompression { none, zip, dwaa }
 
 extension OutputFormatExt on OutputFormat {
-  String get label {
+  String label(AppStrings strings) {
     switch (this) {
-      case OutputFormat.png16:       return 'PNG (16-bit)';
-      case OutputFormat.exrLinear:   return 'EXR (scene-linear)';
-      case OutputFormat.proRes422Hq: return 'ProRes 422 HQ (.mov)';
+      case OutputFormat.png16:
+        return strings.outputFormatPng16;
+      case OutputFormat.exrLinear:
+        return strings.outputFormatExr;
+      case OutputFormat.proRes422Hq:
+        return strings.outputFormatProRes422Hq;
     }
   }
+
   String get value {
     switch (this) {
-      case OutputFormat.png16:       return 'png_16';
-      case OutputFormat.exrLinear:   return 'exr';
-      case OutputFormat.proRes422Hq: return 'prores_422hq';
+      case OutputFormat.png16:
+        return 'png_16';
+      case OutputFormat.exrLinear:
+        return 'exr';
+      case OutputFormat.proRes422Hq:
+        return 'prores_422hq';
     }
   }
 }
 
 extension ExrCompressionExt on ExrCompression {
-  String get label {
+  String label(AppStrings strings) {
     switch (this) {
-      case ExrCompression.none: return 'Uncompressed';
-      case ExrCompression.zip:  return 'ZIP';
-      case ExrCompression.dwaa: return 'DWAA';
+      case ExrCompression.none:
+        return strings.exrUncompressed;
+      case ExrCompression.zip:
+        return 'ZIP';
+      case ExrCompression.dwaa:
+        return 'DWAA';
     }
   }
 
   String get value {
     switch (this) {
-      case ExrCompression.none: return 'none';
-      case ExrCompression.zip:  return 'zip';
-      case ExrCompression.dwaa: return 'dwaa';
+      case ExrCompression.none:
+        return 'none';
+      case ExrCompression.zip:
+        return 'zip';
+      case ExrCompression.dwaa:
+        return 'dwaa';
     }
   }
 }
 
-/// Left-side task configuration panel.
-/// Contains: dlssconfig picker + readonly info + preset/FG config + output settings + Start button
 class TaskConfigPanel extends StatefulWidget {
   const TaskConfigPanel({super.key});
 
@@ -98,14 +111,17 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   String _stripKnownExtension(String template) {
-    return template.trim().replaceFirst(RegExp(r'\.(png|exr|mov)$', caseSensitive: false), '');
+    return template.trim().replaceFirst(
+      RegExp(r'\.(png|exr|mov)$', caseSensitive: false),
+      '',
+    );
   }
 
   String? _templateError(String text) {
     final template = text.trim();
-    if (template.isEmpty) return 'Filename template is required';
+    if (template.isEmpty) return context.strings.filenameTemplateRequired;
     if (template.contains('/') || template.contains('\\')) {
-      return 'Filename template must not contain path separators';
+      return context.strings.filenameTemplateNoSeparators;
     }
     return null;
   }
@@ -152,7 +168,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         if (slash >= 0) {
           Future.microtask(() {
             if (mounted) {
-              state.setTaskConfig(outputDir: '${normalized.substring(0, slash)}/output');
+              state.setTaskConfig(
+                outputDir: '${normalized.substring(0, slash)}/output',
+              );
             }
           });
         }
@@ -162,14 +180,19 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   String _templateSample(AppState state) {
     final tmpl = _templateForFormat(state.template, state.outputFormat);
-    final formatted = tmpl.replaceAll('####', '0001');
-    return formatted;
+    return tmpl.replaceAll('####', '0001');
   }
 
   String _templateForFormat(String template, String format) {
-    final trimmed = _stripKnownExtension(template).isEmpty ? 'frame_####' : _stripKnownExtension(template);
+    final trimmed = _stripKnownExtension(template).isEmpty
+        ? 'frame_####'
+        : _stripKnownExtension(template);
     final base = format == 'prores_422hq'
-        ? trimmed.replaceAll('#', '').replaceAll(RegExp(r'\{frame(?::0?\d+d)?\}'), '').replaceAll(RegExp(r'_+'), '_').replaceFirst(RegExp(r'_$'), '')
+        ? trimmed
+            .replaceAll('#', '')
+            .replaceAll(RegExp(r'\{frame(?::0?\d+d)?\}'), '')
+            .replaceAll(RegExp(r'_+'), '_')
+            .replaceFirst(RegExp(r'_$'), '')
         : trimmed;
     final expectedExt = format == 'png_16'
         ? '.png'
@@ -181,13 +204,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
     if (isHdr) {
-      // HDR: EXR for scene-linear interchange, ProRes 422 HQ for display-ready review/export.
       return [OutputFormat.exrLinear, OutputFormat.proRes422Hq];
-    } else {
-      // LDR: PNG, EXR, ProRes 422 HQ.
-      return [OutputFormat.png16, OutputFormat.exrLinear, OutputFormat.proRes422Hq];
     }
-    // NOTE: Additional formats reserved for future releases - see docs/cli_reference.md.
+    return [
+      OutputFormat.png16,
+      OutputFormat.exrLinear,
+      OutputFormat.proRes422Hq,
+    ];
   }
 
   Future<void> _onStartPressed(BuildContext context) async {
@@ -198,8 +221,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       AppLog.phase('task', 'Start rejected: invalid config', appState.configError);
       await showErrorDialog(
         context,
-        title: 'No valid dlssconfig.json',
-        message: 'Please select a valid dlssconfig.json before starting.',
+        title: context.strings.noValidConfigTitle,
+        message: context.strings.noValidConfigMessage,
         details: appState.configError,
       );
       return;
@@ -210,7 +233,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       AppLog.phase('task', 'Start rejected: invalid template', templateError);
       await showErrorDialog(
         context,
-        title: 'Invalid filename template',
+        title: context.strings.invalidFilenameTemplateTitle,
         message: templateError,
       );
       return;
@@ -221,8 +244,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       AppLog.phase('task', 'Start rejected: missing output directory');
       await showErrorDialog(
         context,
-        title: 'Output directory required',
-        message: 'Please select an output directory before starting.',
+        title: context.strings.outputDirectoryRequiredTitle,
+        message: context.strings.outputDirectoryRequiredMessage,
       );
       return;
     }
@@ -230,7 +253,10 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final taskParams = {
       'config': appState.currentDlssConfigPath,
       'preset': appState.preset,
-      'fg_enabled': appState.fgEnabled && appState.fgAvailable && appState.fgMaxMultiplier >= 2,
+      'fg_enabled':
+          appState.fgEnabled &&
+          appState.fgAvailable &&
+          appState.fgMaxMultiplier >= 2,
       'fg_multiplier': appState.fgMultiplier,
       'output_format': appState.outputFormat,
       'png_quality': appState.pngQuality,
@@ -240,12 +266,19 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       'writer_buffer_multiplier': appState.writerBufferMultiplier,
       'output_dir': outputDir,
       'template': _templateForFormat(appState.template, appState.outputFormat),
-      'output_template': _templateForFormat(appState.template, appState.outputFormat),
+      'output_template': _templateForFormat(
+        appState.template,
+        appState.outputFormat,
+      ),
       'overwrite_mode': appState.overwriteMode,
       'frame_count': _expectedOutputFrameCount(appState),
     };
 
-    AppLog.phase('task', 'Checking output collisions', AppLog.summarizeTaskParams(taskParams));
+    AppLog.phase(
+      'task',
+      'Checking output collisions',
+      AppLog.summarizeTaskParams(taskParams),
+    );
     final collisions = await DlssCompositor.checkOutputCollisions(taskParams);
     final count = collisions['collisions'] as int? ?? 0;
     AppLog.phase('task', 'Output collision check complete', collisions);
@@ -253,16 +286,21 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Output collisions detected'),
-          content: Text('$count output files may conflict. Mode: ${appState.overwriteMode}. Continue?'),
+          title: Text(context.strings.outputCollisionsTitle),
+          content: Text(
+            context.strings.outputCollisionsMessage(
+              count,
+              appState.overwriteMode,
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
+              child: Text(context.strings.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Continue'),
+              child: Text(context.strings.continueLabel),
             ),
           ],
         ),
@@ -288,8 +326,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       AppLog.phase('task', 'setTask rejected');
       await showErrorDialog(
         context,
-        title: 'Backend rejected task',
-        message: 'Failed to set task parameters.',
+        title: context.strings.backendRejectedTaskTitle,
+        message: context.strings.backendRejectedTaskMessage,
         details: taskParams.toString(),
       );
       return;
@@ -298,17 +336,16 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     AppLog.phase('task', 'Sending startTask');
     final startOk = await DlssCompositor.startTask();
     if (startOk) {
-      // Reset state for new task
       appState.updateProgress(0, 0, 0.0);
       appState.setTaskState(TaskState.running, error: null);
       AppLog.phase('task', 'Task running');
     } else if (context.mounted) {
       AppLog.phase('task', 'startTask rejected');
-      const message = 'The processing backend could not be started. Check the root logs for details.';
+      final message = context.strings.backendUnavailableMessage;
       appState.setTaskState(TaskState.error, error: message);
       await showErrorDialog(
         context,
-        title: 'Processing backend unavailable',
+        title: context.strings.backendUnavailableTitle,
         message: message,
         details: taskParams.toString(),
       );
@@ -316,6 +353,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   Future<void> _onCancelPressed(BuildContext context) async {
+    final strings = context.strings;
     final appState = context.read<AppState>();
     if (appState.taskState != TaskState.running) return;
 
@@ -324,13 +362,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     try {
       final ok = await DlssCompositor.cancelTask();
       if (!ok) {
-        const message = 'The processing backend did not accept the cancel request.';
+        final message = strings.cancelRejectedMessage;
         AppLog.phase('task', 'cancelTask rejected');
         appState.setTaskState(TaskState.error, error: message);
         if (context.mounted) {
           await showErrorDialog(
             context,
-            title: 'Cancel failed',
+            title: strings.cancelFailedTitle,
             message: message,
           );
         }
@@ -342,8 +380,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       if (context.mounted) {
         await showErrorDialog(
           context,
-          title: 'Cancel failed',
-          message: 'The cancel request failed.',
+          title: strings.cancelFailedTitle,
+          message: strings.cancelFailedMessage,
           details: '$e',
         );
       }
@@ -393,9 +431,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         final isHdr = state.currentDlssConfig?['is_hdr'] as bool? ?? false;
         final availableFormats = _getAvailableFormats(isHdr);
 
-        // Reset format if not available for current HDR/LDR mode
         if (!availableFormats.map((f) => f.value).contains(state.outputFormat)) {
-          // Use Future.microtask to avoid setState during build
           Future.microtask(() {
             state.setTaskConfig(outputFormat: availableFormats.first.value);
           });
@@ -406,15 +442,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. dlssconfig picker
               const DlssConfigPicker(),
               const SizedBox(height: 24),
-
-              // 2. Preset selector
-              _buildSection('Settings', _buildSettings(state, availableFormats)),
+              _buildSection(
+                context.strings.settings,
+                _buildSettings(state, availableFormats),
+              ),
               const SizedBox(height: 24),
-
-              // Start / cancel button
               SizedBox(
                 height: 48,
                 child: FilledButton.icon(
@@ -433,18 +467,23 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                   ),
                   label: Text(
                     state.taskState == TaskState.running
-                        ? 'CANCEL'
+                        ? context.strings.cancel
                         : state.taskState == TaskState.cancelling
-                            ? 'CANCELLING...'
-                            : 'START PROCESSING',
-                    style: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                            ? context.strings.cancellingUpper
+                            : context.strings.startProcessing,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: state.taskState == TaskState.running
                         ? const Color(0xFFC62828)
                         : const Color(0xFF00B050),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
               ),
@@ -459,7 +498,15 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.white70, letterSpacing: 0.5)),
+        Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+            color: Colors.white70,
+            letterSpacing: 0.5,
+          ),
+        ),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
@@ -482,7 +529,10 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         children: [
           SizedBox(
             width: 110,
-            child: Text(label, style: const TextStyle(fontSize: 13, color: Colors.white60)),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 13, color: Colors.white60),
+            ),
           ),
           Expanded(child: child),
         ],
@@ -491,9 +541,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   Widget _buildSettings(AppState state, List<OutputFormat> formats) {
+    final strings = context.strings;
     final fgCanRun = state.fgAvailable && state.fgMaxMultiplier >= 2;
     final multipliers = [
-      for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++) multiplier,
+      for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++)
+        multiplier,
     ];
     final writerThreads = _effectiveWriterThreads(state);
     final bufferMultiplier = state.writerBufferMultiplier;
@@ -502,7 +554,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     return Column(
       children: [
         _buildFormRow(
-          'DLSS Preset',
+          strings.dlssPreset,
           DropdownButtonFormField<String>(
             initialValue: state.preset,
             isDense: true,
@@ -512,26 +564,39 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               border: OutlineInputBorder(),
             ),
             items: ['auto', 'J', 'K', 'L', 'M']
-                .map((p) => DropdownMenuItem(value: p, child: Text(p == 'auto' ? 'Auto' : 'Preset $p', style: const TextStyle(fontSize: 13))))
+                .map(
+                  (p) => DropdownMenuItem(
+                    value: p,
+                    child: Text(
+                      p == 'auto' ? strings.autoPreset : 'Preset $p',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                )
                 .toList(),
             onChanged: (v) => state.setTaskConfig(preset: v!),
           ),
         ),
         _buildFormRow(
-          'Frame Gen',
+          strings.frameGen,
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Switch(
                 value: state.fgEnabled,
-                onChanged: fgCanRun ? (v) => state.setTaskConfig(fgEnabled: v) : null,
+                onChanged: fgCanRun
+                    ? (v) => state.setTaskConfig(fgEnabled: v)
+                    : null,
               ),
               const SizedBox(width: 8),
               if (!fgCanRun)
                 Expanded(
                   child: Text(
-                    'Unavailable on this device',
-                    style: TextStyle(fontSize: 12, color: Colors.orange.shade300),
+                    strings.unavailableOnThisDevice,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade300,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 )
@@ -543,11 +608,17 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                     children: [
                       for (final multiplier in multipliers)
                         ChoiceChip(
-                          label: Text('${multiplier}x', style: const TextStyle(fontSize: 12)),
+                          label: Text(
+                            '${multiplier}x',
+                            style: const TextStyle(fontSize: 12),
+                          ),
                           selected: state.fgMultiplier == multiplier,
-                          onSelected: (_) => state.setTaskConfig(fgMultiplier: multiplier),
+                          onSelected: (_) => state.setTaskConfig(
+                            fgMultiplier: multiplier,
+                          ),
                           visualDensity: VisualDensity.compact,
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
                         ),
                     ],
                   ),
@@ -557,9 +628,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         ),
         const Divider(height: 24, color: Color(0xFF333333)),
         _buildFormRow(
-          'Format',
+          strings.format,
           DropdownButtonFormField<String>(
-            initialValue: formats.map((f) => f.value).contains(state.outputFormat) ? state.outputFormat : formats.first.value,
+            initialValue: formats.map((f) => f.value).contains(state.outputFormat)
+                ? state.outputFormat
+                : formats.first.value,
             isExpanded: true,
             isDense: true,
             decoration: const InputDecoration(
@@ -568,22 +641,33 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               border: OutlineInputBorder(),
             ),
             items: formats
-                .map((f) => DropdownMenuItem(value: f.value, child: Text(f.label, style: const TextStyle(fontSize: 13))))
+                .map(
+                  (f) => DropdownMenuItem(
+                    value: f.value,
+                    child: Text(
+                      f.label(strings),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                )
                 .toList(),
-              onChanged: (v) => state.setTaskConfig(outputFormat: v),
+            onChanged: (v) => state.setTaskConfig(outputFormat: v),
           ),
         ),
         if (state.outputFormat == 'png_16')
           _buildPercentSlider(
-            'PNG Quality',
+            strings.pngQuality,
             state.pngQuality,
             (v) => state.setTaskConfig(pngQuality: v),
           ),
         if (state.outputFormat == 'exr') ...[
           _buildFormRow(
-            'EXR Compression',
+            strings.exrCompression,
             DropdownButtonFormField<String>(
-              initialValue: ExrCompression.values.map((c) => c.value).contains(state.exrCompression)
+              initialValue:
+                  ExrCompression.values.map((c) => c.value).contains(
+                        state.exrCompression,
+                      )
                   ? state.exrCompression
                   : ExrCompression.zip.value,
               isExpanded: true,
@@ -594,35 +678,50 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                 border: OutlineInputBorder(),
               ),
               items: ExrCompression.values
-                  .map((c) => DropdownMenuItem(value: c.value, child: Text(c.label, style: const TextStyle(fontSize: 13))))
+                  .map(
+                    (c) => DropdownMenuItem(
+                      value: c.value,
+                      child: Text(
+                        c.label(strings),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) => state.setTaskConfig(exrCompression: v),
             ),
           ),
           if (state.exrCompression != ExrCompression.none.value)
             _buildPercentSlider(
-              'Compression',
+              strings.compression,
               state.exrCompressionLevel,
               (v) => state.setTaskConfig(exrCompressionLevel: v),
             ),
         ],
         _buildFormRow(
-          'Output Dir',
+          strings.outputDir,
           Row(
             children: [
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.white24),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    state.outputDir.isEmpty ? 'Select folder...' : state.outputDir,
+                    state.outputDir.isEmpty
+                        ? strings.selectFolder
+                        : state.outputDir,
                     style: TextStyle(
                       fontSize: 13,
                       fontFamily: 'monospace',
-                      color: state.outputDir.isEmpty ? Colors.white38 : Colors.white70,
+                      color: state.outputDir.isEmpty
+                          ? Colors.white38
+                          : Colors.white70,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -632,7 +731,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               IconButton.outlined(
                 icon: const Icon(Icons.folder, size: 16),
                 onPressed: () async {
-                  final dir = selectDirectory();
+                  final dir = selectDirectory(
+                    title: strings.selectOutputDirectoryTitle,
+                  );
                   if (dir != null) state.setTaskConfig(outputDir: dir);
                 },
               ),
@@ -640,26 +741,33 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           ),
         ),
         _buildFormRow(
-          'Template',
+          strings.template,
           Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _templateController,
                   style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    border: OutlineInputBorder(),
-                    hintText: 'frame_####',
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    border: const OutlineInputBorder(),
+                    hintText: strings.templateHint,
                   ),
                 ),
               ),
               const SizedBox(width: 12),
               Flexible(
                 child: Text(
-                  '→ ${_templateSample(state)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.white38, fontFamily: 'monospace'),
+                  strings.templatePreview(_templateSample(state)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.white38,
+                    fontFamily: 'monospace',
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -667,7 +775,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           ),
         ),
         _buildFormRow(
-          'On Conflict',
+          strings.onConflict,
           DropdownButtonFormField<String>(
             initialValue: state.overwriteMode,
             isExpanded: true,
@@ -677,24 +785,42 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               border: OutlineInputBorder(),
             ),
-            items: const [
-              DropdownMenuItem(value: 'skip', child: Text('Skip existing', style: TextStyle(fontSize: 13))),
-              DropdownMenuItem(value: 'overwrite', child: Text('Overwrite', style: TextStyle(fontSize: 13))),
-              DropdownMenuItem(value: 'autoVersion', child: Text('Auto-version (_v##)', style: TextStyle(fontSize: 13))),
+            items: [
+              DropdownMenuItem(
+                value: 'skip',
+                child: Text(
+                  strings.skipExisting,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              DropdownMenuItem(
+                value: 'overwrite',
+                child: Text(
+                  strings.overwrite,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+              DropdownMenuItem(
+                value: 'autoVersion',
+                child: Text(
+                  strings.autoVersion,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
             ],
             onChanged: (v) => state.setTaskConfig(overwriteMode: v!),
           ),
         ),
         const Divider(height: 24, color: Color(0xFF333333)),
         _buildIntSlider(
-          'Disk Writes',
+          strings.diskWrites,
           writerThreads,
           min: 1,
           max: 16,
           onChanged: (v) => state.setTaskConfig(writerThreads: v),
         ),
         _buildIntSlider(
-          'Buffer Size',
+          strings.bufferSize,
           bufferMultiplier,
           min: 1,
           max: 10,
@@ -703,7 +829,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         Padding(
           padding: const EdgeInsets.only(left: 110),
           child: Text(
-            'Runs about $writerThreads write jobs in parallel and keeps up to $maxQueuedFrames frames buffered.',
+            strings.writeBufferSummary(writerThreads, maxQueuedFrames),
             style: const TextStyle(fontSize: 11, color: Colors.white38),
           ),
         ),
@@ -711,7 +837,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     );
   }
 
-  Widget _buildPercentSlider(String label, int value, ValueChanged<int> onChanged) {
+  Widget _buildPercentSlider(
+    String label,
+    int value,
+    ValueChanged<int> onChanged,
+  ) {
     return _buildFormRow(
       label,
       Row(
@@ -731,7 +861,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             child: Text(
               '$value%',
               textAlign: TextAlign.right,
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
             ),
           ),
         ],
@@ -766,7 +900,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             child: Text(
               '$clamped',
               textAlign: TextAlign.right,
-              style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
             ),
           ),
         ],

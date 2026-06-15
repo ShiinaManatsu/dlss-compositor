@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_version.dart';
+import 'l10n/app_strings.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'widgets/detail_panel.dart';
@@ -58,11 +59,25 @@ class DlssCompositorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    AppPreferences? prefs;
+    try {
+      prefs = context.watch<AppPreferences>();
+    } on ProviderNotFoundException {
+      prefs = null;
+    }
     return MaterialApp(
       title: 'DLSS Compositor $kAppVersion',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: fluent.FluentLocalizations.localizationsDelegates,
-      supportedLocales: fluent.FluentLocalizations.supportedLocales,
+      supportedLocales: const [Locale('en'), Locale('zh', 'CN')],
+      locale: prefs?.localeOverride,
+      localeResolutionCallback: (locale, supportedLocales) {
+        final languageCode = locale?.languageCode.toLowerCase();
+        if (languageCode == 'zh') {
+          return const Locale('zh', 'CN');
+        }
+        return const Locale('en');
+      },
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         brightness: Brightness.dark,
@@ -181,13 +196,17 @@ class _HomePageState extends State<HomePage> {
               color: DlssCompositorApp._accent,
             ),
           ),
-          title: const Text(
-            'DLSS Compositor $kAppVersion',
-            style: TextStyle(
+          title: Text(
+            '${context.strings.appTitle} $kAppVersion',
+            style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: Color(0xFFE8F2EC),
             ),
+          ),
+          endHeader: const Padding(
+            padding: EdgeInsets.only(right: 8),
+            child: _LanguageSwitcher(),
           ),
           captionControls: const _WindowButtons(),
           onDragStarted: !kIsWeb ? windowManager.startDragging : null,
@@ -278,6 +297,74 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           bottomNavigationBar: const DlssStatusBar(),
+        ),
+      ),
+    );
+  }
+}
+
+class _LanguageSwitcher extends StatelessWidget {
+  const _LanguageSwitcher();
+
+  @override
+  Widget build(BuildContext context) {
+    AppPreferences? prefs;
+    try {
+      prefs = context.watch<AppPreferences>();
+    } on ProviderNotFoundException {
+      prefs = null;
+    }
+    final strings = context.strings;
+    final languageCode = prefs?.languageCode ?? '';
+    final shortLabel = switch (languageCode) {
+      'en' => strings.languageButtonEnglishShort,
+      'zh' => strings.languageButtonChineseShort,
+      _ => strings.languageButtonSystemShort,
+    };
+
+    return Material(
+      type: MaterialType.transparency,
+      child: PopupMenuButton<String>(
+        tooltip: strings.language,
+        initialValue: languageCode,
+        onSelected: (value) => prefs?.setLanguageCode(value),
+        color: const Color(0xFF111713),
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: '',
+            child: Text('${strings.languageSystem} (${strings.languageButtonSystemShort})'),
+          ),
+          PopupMenuItem(
+            value: 'en',
+            child: Text(strings.languageEnglish),
+          ),
+          PopupMenuItem(
+            value: 'zh',
+            child: Text(strings.languageChinese),
+          ),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF171F1A),
+            border: Border.all(color: const Color(0xFF26322B)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.language, size: 14, color: Color(0xFFE8F2EC)),
+              const SizedBox(width: 6),
+              Text(
+                shortLabel,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFFE8F2EC),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

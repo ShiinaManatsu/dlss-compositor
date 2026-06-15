@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math';
@@ -31,6 +32,7 @@ class AppPreferences extends ChangeNotifier {
   static const _kOutputDir      = 'output_directory';
   static const _kSplitterPos    = 'splitter_position';
   static const _kSessionTitle   = 'session_title';
+  static const _kLanguageCode   = 'language_code';
 
   // Current values with defaults
   String lastDlssConfigPath = '';
@@ -46,6 +48,18 @@ class AppPreferences extends ChangeNotifier {
   String outputDirectory = '';
   double splitterPosition = 0.4;
   String sessionTitle = '';
+  String languageCode = '';
+
+  Locale? get localeOverride {
+    switch (languageCode) {
+      case 'en':
+        return const Locale('en');
+      case 'zh':
+        return const Locale('zh', 'CN');
+      default:
+        return null;
+    }
+  }
 
   @override
   void dispose() {
@@ -69,6 +83,7 @@ class AppPreferences extends ChangeNotifier {
     outputDirectory     = _get(_kOutputDir, '');
     splitterPosition    = _getDouble(_kSplitterPos, 0.4);
     sessionTitle        = _get(_kSessionTitle, '');
+    languageCode        = _get(_kLanguageCode, '');
     AppLog.phase('preferences', 'load complete', {
       'has_last_config': lastDlssConfigPath.isNotEmpty,
       'output_format': outputFormat,
@@ -108,6 +123,7 @@ class AppPreferences extends ChangeNotifier {
     await _prefs!.setString(_key(_kOutputDir), outputDirectory);
     await _prefs!.setDouble(_key(_kSplitterPos), splitterPosition);
     await _prefs!.setString(_key(_kSessionTitle), sessionTitle);
+    await _prefs!.setString(_key(_kLanguageCode), languageCode);
     AppLog.phase('preferences', 'persist complete');
   }
 
@@ -125,6 +141,7 @@ class AppPreferences extends ChangeNotifier {
   void setOutputDirectory(String v) => _scheduleWrite(() { outputDirectory = v; notifyListeners(); });
   void setSplitterPosition(double v) => _scheduleWrite(() { splitterPosition = v; notifyListeners(); });
   void setSessionTitle(String v) => _scheduleWrite(() { sessionTitle = v; notifyListeners(); });
+  void setLanguageCode(String v) => _scheduleWrite(() { languageCode = v; notifyListeners(); });
 
   /// Generate a session title from the dlssconfig path if none is set.
   /// Format: `<aov_dir_name>_<random4>`
@@ -164,6 +181,7 @@ class AppPreferences extends ChangeNotifier {
     outputDirectory     = '';
     splitterPosition    = 0.4;
     sessionTitle        = '';
+    languageCode        = '';
     notifyListeners();
   }
 }
