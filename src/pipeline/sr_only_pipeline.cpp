@@ -315,7 +315,11 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
         } else {
             LOG_INFO("[SR-only] No tonemap LUT configured; using built-in tonemap shader for display outputs");
         }
-        AsyncFrameWriter writer;
+        const int writerThreads = std::clamp(config.writerThreads, 1, 32);
+        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 20);
+        const int writerQueueLow = writerThreads;
+        const int writerQueueHigh = writerThreads * writerQueueMultiplier;
+        AsyncFrameWriter writer(writerThreads, writerQueueHigh, writerQueueLow);
         std::unique_ptr<ProResProgressWriter> proresWriter;
         const bool outputSceneLinear = config.outputFormat == OutputFormat::ExrLinear;
 
@@ -333,6 +337,8 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 dlssCfg.is_hdr,
                 PixelEncoding::DisplayReady,
                 inferHdrMasteringNits(dlssCfg.view_transform),
+                writerQueueHigh,
+                writerQueueLow,
                 totalFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);

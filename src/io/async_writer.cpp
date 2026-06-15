@@ -281,6 +281,22 @@ int resolveThreadCount(int ctorValue)
     return 4;
 }
 
+int resolveHighWatermark(int explicitValue, int threadCount)
+{
+    if (explicitValue > 0) {
+        return explicitValue;
+    }
+    return std::max(threadCount * 3, threadCount);
+}
+
+int resolveLowWatermark(int explicitValue, int highWatermark, int threadCount)
+{
+    if (explicitValue > 0) {
+        return std::clamp(explicitValue, 0, highWatermark);
+    }
+    return std::clamp(threadCount, 0, highWatermark);
+}
+
 std::string zeroPad(int value, int width)
 {
     std::ostringstream os;
@@ -308,14 +324,19 @@ std::filesystem::path insertVersionSuffix(const std::filesystem::path& path, int
 // AsyncFrameWriter
 // =============================================================================
 
-AsyncFrameWriter::AsyncFrameWriter(int numThreads)
-    : m_numThreads(resolveThreadCount(numThreads))
+AsyncFrameWriter::AsyncFrameWriter(int numThreads, int queueHighWatermark, int queueLowWatermark)
+    : m_numThreads(resolveThreadCount(numThreads)),
+      m_queueHighWatermark(resolveHighWatermark(queueHighWatermark, m_numThreads)),
+      m_queueLowWatermark(resolveLowWatermark(queueLowWatermark, m_queueHighWatermark, m_numThreads))
 {
     m_workers.reserve(static_cast<std::size_t>(m_numThreads));
     for (int i = 0; i < m_numThreads; ++i) {
         m_workers.emplace_back([this] { workerLoop(); });
     }
-    LOG_INFO("AsyncFrameWriter started with {} worker thread(s)", m_numThreads);
+    LOG_INFO("AsyncFrameWriter started with {} worker thread(s), queue low/high={}/{}",
+             m_numThreads,
+             m_queueLowWatermark,
+             m_queueHighWatermark);
 }
 
 AsyncFrameWriter::~AsyncFrameWriter()
@@ -344,7 +365,16 @@ void AsyncFrameWriter::enqueue(WriteJob job)
             "(use ExrLinear or ProRes422HQ for HDR output)");
     }
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::unique_lock<std::mutex> lock(m_mutex);
+        if (m_pending.load(std::memory_order_acquire) >= m_queueHighWatermark) {
+            m_capacityCv.wait(lock, [&] {
+                return m_stop.load() ||
+                       m_pending.load(std::memory_order_acquire) <= m_queueLowWatermark;
+            });
+        }
+        if (m_stop.load()) {
+            throw std::runtime_error("AsyncFrameWriter::enqueue after cancel/stop");
+        }
         m_queue.push(std::move(job));
         m_pending.fetch_add(1, std::memory_order_acq_rel);
     }
@@ -374,6 +404,7 @@ void AsyncFrameWriter::cancel()
         m_pending.fetch_sub(discarded, std::memory_order_acq_rel);
     }
     m_cv.notify_all();
+    m_capacityCv.notify_all();
     std::lock_guard<std::mutex> flock(m_flushMutex);
     m_flushCv.notify_all();
 }
@@ -395,6 +426,13 @@ void AsyncFrameWriter::recordError(WriteError err)
     LOG_ERROR("AsyncFrameWriter: {} ({})", err.message, err.path.string());
     std::lock_guard<std::mutex> lock(m_errorMutex);
     m_errors.push_back(std::move(err));
+}
+
+void AsyncFrameWriter::notifyCapacityAvailable()
+{
+    if (m_pending.load(std::memory_order_acquire) <= m_queueLowWatermark) {
+        m_capacityCv.notify_all();
+    }
 }
 
 void AsyncFrameWriter::workerLoop()
@@ -433,6 +471,7 @@ void AsyncFrameWriter::workerLoop()
 
         // Decrement pending and wake flush() if drained.
         const int remaining = m_pending.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        notifyCapacityAvailable();
         if (remaining == 0) {
             std::lock_guard<std::mutex> flock(m_flushMutex);
             m_flushCv.notify_all();

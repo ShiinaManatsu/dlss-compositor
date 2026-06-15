@@ -27,6 +27,8 @@ struct SrOnlyConfig {
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     EncoderOptions encoderOptions{};
+    int writerThreads = 4;
+    int writerQueueMultiplier = 3;
     std::function<bool()> wantsPreviewFrame;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewRgba8Callback;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewCallback;

@@ -20,6 +20,8 @@ struct ConfigExecutionOptions {
     int pngQualityPercent = 97;
     std::string exrCompression = "zip";
     int exrCompressionLevelPercent = 97;
+    int writerThreads = 4;
+    int writerQueueMultiplier = 3;
     bool fgEnabled = false;
     int fgMultiplier = 2;
     bool emitEvents = false;

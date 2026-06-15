@@ -26,6 +26,8 @@ class AppPreferences extends ChangeNotifier {
   static const _kPngQuality     = 'png_quality';
   static const _kExrCompression = 'exr_compression';
   static const _kExrCompressionLevel = 'exr_compression_level';
+  static const _kWriterThreads  = 'writer_threads';
+  static const _kWriterBufferMultiplier = 'writer_buffer_multiplier';
   static const _kOutputDir      = 'output_directory';
   static const _kSplitterPos    = 'splitter_position';
   static const _kSessionTitle   = 'session_title';
@@ -39,6 +41,8 @@ class AppPreferences extends ChangeNotifier {
   int pngQuality = 97;
   String exrCompression = 'zip';
   int exrCompressionLevel = 97;
+  int writerThreads = 0;
+  int writerBufferMultiplier = 3;
   String outputDirectory = '';
   double splitterPosition = 0.4;
   String sessionTitle = '';
@@ -60,6 +64,8 @@ class AppPreferences extends ChangeNotifier {
     pngQuality          = _getInt(_kPngQuality, 97).clamp(0, 100);
     exrCompression      = _get(_kExrCompression, 'zip');
     exrCompressionLevel = _getInt(_kExrCompressionLevel, 97).clamp(0, 100);
+    writerThreads       = _getInt(_kWriterThreads, 0).clamp(0, 32);
+    writerBufferMultiplier = _getInt(_kWriterBufferMultiplier, 3).clamp(1, 20);
     outputDirectory     = _get(_kOutputDir, '');
     splitterPosition    = _getDouble(_kSplitterPos, 0.4);
     sessionTitle        = _get(_kSessionTitle, '');
@@ -97,6 +103,8 @@ class AppPreferences extends ChangeNotifier {
     await _prefs!.setInt(_key(_kPngQuality), pngQuality);
     await _prefs!.setString(_key(_kExrCompression), exrCompression);
     await _prefs!.setInt(_key(_kExrCompressionLevel), exrCompressionLevel);
+    await _prefs!.setInt(_key(_kWriterThreads), writerThreads);
+    await _prefs!.setInt(_key(_kWriterBufferMultiplier), writerBufferMultiplier);
     await _prefs!.setString(_key(_kOutputDir), outputDirectory);
     await _prefs!.setDouble(_key(_kSplitterPos), splitterPosition);
     await _prefs!.setString(_key(_kSessionTitle), sessionTitle);
@@ -112,6 +120,8 @@ class AppPreferences extends ChangeNotifier {
   void setPngQuality(int v) => _scheduleWrite(() { pngQuality = v.clamp(0, 100); notifyListeners(); });
   void setExrCompression(String v) => _scheduleWrite(() { exrCompression = v; notifyListeners(); });
   void setExrCompressionLevel(int v) => _scheduleWrite(() { exrCompressionLevel = v.clamp(0, 100); notifyListeners(); });
+  void setWriterThreads(int v) => _scheduleWrite(() { writerThreads = v.clamp(0, 32); notifyListeners(); });
+  void setWriterBufferMultiplier(int v) => _scheduleWrite(() { writerBufferMultiplier = v.clamp(1, 20); notifyListeners(); });
   void setOutputDirectory(String v) => _scheduleWrite(() { outputDirectory = v; notifyListeners(); });
   void setSplitterPosition(double v) => _scheduleWrite(() { splitterPosition = v; notifyListeners(); });
   void setSessionTitle(String v) => _scheduleWrite(() { sessionTitle = v; notifyListeners(); });
@@ -149,6 +159,8 @@ class AppPreferences extends ChangeNotifier {
     pngQuality          = 97;
     exrCompression      = 'zip';
     exrCompressionLevel = 97;
+    writerThreads       = 0;
+    writerBufferMultiplier = 3;
     outputDirectory     = '';
     splitterPosition    = 0.4;
     sessionTitle        = '';

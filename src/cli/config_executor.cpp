@@ -214,12 +214,16 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
         const int totalFrames = outputFrameCount(inputFrames, options.fgEnabled, options.fgMultiplier);
         const std::string outputDirString = outputDir.string();
         const std::string formatString = options.outputFormat.empty() ? std::string("exr") : options.outputFormat;
+        const int writerThreads = std::clamp(options.writerThreads, 1, 32);
+        const int writerQueueMultiplier = std::clamp(options.writerQueueMultiplier, 1, 20);
 
-        LOG_INFO("[cli] Executing config: input_frames={} output_frames={} output_dir={} format={}",
+        LOG_INFO("[cli] Executing config: input_frames={} output_frames={} output_dir={} format={} writer_threads={} queue_multiplier={}",
                  inputFrames,
                  totalFrames,
                  outputDirString,
-                 formatString);
+                 formatString,
+                 writerThreads,
+                 writerQueueMultiplier);
 
         LOG_INFO("[cli] Using provided Vulkan/NGX runtime");
         RpcDispatcher dispatcher;
@@ -246,6 +250,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.encoderOptions = encoderOptions;
+            pipelineConfig.writerThreads = writerThreads;
+            pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -265,6 +271,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.encoderOptions = encoderOptions;
+            pipelineConfig.writerThreads = writerThreads;
+            pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -284,6 +292,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.filenameTemplate = filenameTemplate;
             pipelineConfig.overwriteMode = overwrite;
             pipelineConfig.encoderOptions = encoderOptions;
+            pipelineConfig.writerThreads = writerThreads;
+            pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;

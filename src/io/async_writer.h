@@ -4,7 +4,8 @@
 //
 // Workflow:
 //   1. Caller enqueue()s WriteJob with format + pixels + outputPath.
-//   2. enqueue() pushes to internal queue and returns immediately.
+//   2. enqueue() pushes to internal queue; it blocks only when write backlog
+//      hits the configured high-water mark.
 //   3. Worker threads pull jobs, look up encoder via EncoderRegistry, write file.
 //   4. Caller flush()es to wait for all queued jobs to finish.
 //
@@ -12,6 +13,8 @@
 //   - HDR + PNG combination is REJECTED at enqueue() time (throws).
 //   - Only ExrLinear / Png16 are registered encoders.
 //   - Thread count: ctor param > env DLSS_COMPOSITOR_WRITER_THREADS > 4 default.
+//   - Backpressure: DLSS_COMPOSITOR_WRITER_QUEUE_HIGH_FRAMES / _LOW_FRAMES
+//     bound queued+active jobs so fast GPU readback cannot exhaust RAM.
 // =============================================================================
 
 #include "../core/types.h"
@@ -72,13 +75,16 @@ class AsyncFrameWriter {
 public:
     /// numThreads: explicit thread count.  When left at 0 (default), the env
     /// variable DLSS_COMPOSITOR_WRITER_THREADS is consulted; falls back to 4.
-    explicit AsyncFrameWriter(int numThreads = 0);
+    explicit AsyncFrameWriter(int numThreads = 0,
+                              int queueHighWatermark = 0,
+                              int queueLowWatermark = 0);
     ~AsyncFrameWriter();
 
     AsyncFrameWriter(const AsyncFrameWriter&)            = delete;
     AsyncFrameWriter& operator=(const AsyncFrameWriter&) = delete;
 
-    /// Enqueue a frame for async writing. Returns immediately.
+    /// Enqueue a frame for async writing. Blocks if the writer backlog is above
+    /// the configured high-water mark, then resumes at the low-water mark.
     /// Throws std::runtime_error if format is HDR+PNG (unsupported per T29).
     void enqueue(WriteJob job);
 
@@ -113,11 +119,15 @@ private:
     void                  processJob(WriteJob& job);
     std::filesystem::path resolveOutputPath(const WriteJob& job, bool& outShouldSkip);
     void                  recordError(WriteError err);
+    void                  notifyCapacityAvailable();
 
     int                          m_numThreads;
+    int                          m_queueHighWatermark;
+    int                          m_queueLowWatermark;
     std::vector<std::thread>     m_workers;
     mutable std::mutex           m_mutex;
     std::condition_variable      m_cv;
+    std::condition_variable      m_capacityCv;
     std::queue<WriteJob>         m_queue;
     std::atomic<bool>            m_stop{false};
     std::atomic<int>             m_pending{0};

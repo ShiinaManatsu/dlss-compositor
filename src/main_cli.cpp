@@ -45,6 +45,8 @@ void printHelp() {
         << "  --png-quality <0-100>        PNG zlib compression percent (default 97).\n"
         << "  --exr-compression <mode>     none | zip | dwaa (default zip).\n"
         << "  --exr-compression-level <0-100>  EXR zip/DWAA compression level (default 97).\n"
+        << "  --writer-threads <1-32>      Image sequence write concurrency (default 4).\n"
+        << "  --writer-buffer-multiplier <1-20>  Max queued frames = threads * multiplier (default 3).\n"
         << "  --fg <2x..6x>                Enable frame generation multiplier.\n"
         << "  --events stderr              Emit structured progress events on stderr.\n"
         << "  --self-check                 Check GPU + NGX availability.\n"
@@ -98,6 +100,8 @@ int main(int argc, char* argv[]) {
         options.pngQualityPercent = std::stoi(getArg(args, "--png-quality", "97"));
         options.exrCompression = getArg(args, "--exr-compression", "zip");
         options.exrCompressionLevelPercent = std::stoi(getArg(args, "--exr-compression-level", "97"));
+        options.writerThreads = std::stoi(getArg(args, "--writer-threads", "4"));
+        options.writerQueueMultiplier = std::stoi(getArg(args, "--writer-buffer-multiplier", "3"));
         options.previewSharedMemoryName = getArg(args, "--preview-shm");
         options.emitEvents = getArg(args, "--events") == "stderr";
         options.fgEnabled = !fg.empty();

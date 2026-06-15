@@ -352,7 +352,11 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             LOG_INFO("[FG-only] No tonemap LUT configured; using built-in tonemap shader");
         }
         PreviewPass previewPass(m_ctx);
-        AsyncFrameWriter writer;
+        const int writerThreads = std::clamp(config.writerThreads, 1, 32);
+        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 20);
+        const int writerQueueLow = writerThreads;
+        const int writerQueueHigh = writerThreads * writerQueueMultiplier;
+        AsyncFrameWriter writer(writerThreads, writerQueueHigh, writerQueueLow);
         std::unique_ptr<ProResProgressWriter> proresWriter;
         std::unique_ptr<LutInversePass> lutInversePass;
         if (!dlssCfg.inverse_lut.empty()) {
@@ -381,6 +385,8 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                 dlssCfg.is_hdr,
                 PixelEncoding::DisplayReady,
                 inferHdrMasteringNits(dlssCfg.view_transform),
+                writerQueueHigh,
+                writerQueueLow,
                 outputFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);

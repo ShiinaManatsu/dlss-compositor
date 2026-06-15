@@ -20,7 +20,9 @@ public:
                  int fps,
                  bool isHdr,
                  PixelEncoding pixelEncoding,
-                 float hdrMasteringNits = 1000.0f);
+                 float hdrMasteringNits = 1000.0f,
+                 int queueHighWatermark = 0,
+                 int queueLowWatermark = 0);
     ~ProResWriter();
 
     ProResWriter(const ProResWriter&) = delete;
@@ -48,6 +50,8 @@ public:
                          bool isHdr,
                          PixelEncoding pixelEncoding,
                          float hdrMasteringNits,
+                         int queueHighWatermark,
+                         int queueLowWatermark,
                          int totalFrames,
                          std::function<void(int current, int total)> progressCallback);
 

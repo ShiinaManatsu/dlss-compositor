@@ -120,6 +120,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           prefs.pngQuality != state.pngQuality ||
           prefs.exrCompression != state.exrCompression ||
           prefs.exrCompressionLevel != state.exrCompressionLevel ||
+          prefs.writerThreads != state.writerThreads ||
+          prefs.writerBufferMultiplier != state.writerBufferMultiplier ||
           prefs.outputDirectory != state.outputDir) {
         Future.microtask(() {
           if (!mounted) return;
@@ -131,6 +133,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             pngQuality: prefs.pngQuality,
             exrCompression: prefs.exrCompression,
             exrCompressionLevel: prefs.exrCompressionLevel,
+            writerThreads: prefs.writerThreads,
+            writerBufferMultiplier: prefs.writerBufferMultiplier,
             outputDir: prefs.outputDirectory,
           );
         });
@@ -232,6 +236,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       'png_quality': appState.pngQuality,
       'exr_compression': appState.exrCompression,
       'exr_compression_level': appState.exrCompressionLevel,
+      'writer_threads': _effectiveWriterThreads(appState),
+      'writer_buffer_multiplier': appState.writerBufferMultiplier,
       'output_dir': outputDir,
       'template': _templateForFormat(appState.template, appState.outputFormat),
       'output_template': _templateForFormat(appState.template, appState.outputFormat),
@@ -272,6 +278,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     prefs.setPngQuality(appState.pngQuality);
     prefs.setExrCompression(appState.exrCompression);
     prefs.setExrCompressionLevel(appState.exrCompressionLevel);
+    prefs.setWriterThreads(appState.writerThreads);
+    prefs.setWriterBufferMultiplier(appState.writerBufferMultiplier);
     prefs.setOutputDirectory(outputDir);
 
     AppLog.phase('task', 'Sending setTask');
@@ -353,6 +361,22 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       return inputFrames;
     }
     return appState.fgMultiplier * inputFrames - (appState.fgMultiplier - 1);
+  }
+
+  int _effectiveWriterThreads(AppState state) {
+    if (state.writerThreads > 0) {
+      return state.writerThreads.clamp(1, 32);
+    }
+    final resolution = state.currentDlssConfig?['output_resolution'];
+    final width = resolution is Map ? resolution['width'] as int? : null;
+    final height = resolution is Map ? resolution['height'] as int? : null;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return 4;
+    }
+    const targetDiskMiBPerSecond = 200.0;
+    final frameMiB = width * height * 8 / (1024 * 1024);
+    if (frameMiB <= 0) return 4;
+    return (targetDiskMiBPerSecond / frameMiB).round().clamp(1, 8);
   }
 
   @override
@@ -471,6 +495,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final multipliers = [
       for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++) multiplier,
     ];
+    final writerThreads = _effectiveWriterThreads(state);
+    final bufferMultiplier = state.writerBufferMultiplier;
+    final maxQueuedFrames = writerThreads * bufferMultiplier;
 
     return Column(
       children: [
@@ -658,6 +685,28 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             onChanged: (v) => state.setTaskConfig(overwriteMode: v!),
           ),
         ),
+        const Divider(height: 24, color: Color(0xFF333333)),
+        _buildIntSlider(
+          'Disk Writes',
+          writerThreads,
+          min: 1,
+          max: 16,
+          onChanged: (v) => state.setTaskConfig(writerThreads: v),
+        ),
+        _buildIntSlider(
+          'Buffer Size',
+          bufferMultiplier,
+          min: 1,
+          max: 10,
+          onChanged: (v) => state.setTaskConfig(writerBufferMultiplier: v),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 110),
+          child: Text(
+            'Runs about $writerThreads write jobs in parallel and keeps up to $maxQueuedFrames frames buffered.',
+            style: const TextStyle(fontSize: 11, color: Colors.white38),
+          ),
+        ),
       ],
     );
   }
@@ -681,6 +730,41 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             width: 48,
             child: Text(
               '$value%',
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntSlider(
+    String label,
+    int value, {
+    required int min,
+    required int max,
+    required ValueChanged<int> onChanged,
+  }) {
+    final clamped = value.clamp(min, max);
+    return _buildFormRow(
+      label,
+      Row(
+        children: [
+          Expanded(
+            child: Slider(
+              value: clamped.toDouble(),
+              min: min.toDouble(),
+              max: max.toDouble(),
+              divisions: max - min,
+              label: '$clamped',
+              onChanged: (v) => onChanged(v.round()),
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: Text(
+              '$clamped',
               textAlign: TextAlign.right,
               style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace'),
             ),

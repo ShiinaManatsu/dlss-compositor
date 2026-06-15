@@ -174,6 +174,8 @@ TEST_CASE("ProResProgressWriter - reports final frame as complete", "[unit][pror
         false,
         dlss::PixelEncoding::DisplayReady,
         1000.0f,
+        3,
+        1,
         1,
         [&](int current, int total) {
             reportedCurrent = current;

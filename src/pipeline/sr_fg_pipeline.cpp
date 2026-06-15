@@ -577,7 +577,11 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             LOG_INFO("[SR+FG] No tonemap LUT configured; using built-in tonemap shader");
         }
         PreviewPass previewPass(m_ctx);
-        AsyncFrameWriter writer;                       // Stage 7
+        const int writerThreads = std::clamp(config.writerThreads, 1, 32);
+        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 20);
+        const int writerQueueLow = writerThreads;
+        const int writerQueueHigh = writerThreads * writerQueueMultiplier;
+        AsyncFrameWriter writer(writerThreads, writerQueueHigh, writerQueueLow); // Stage 7
         std::unique_ptr<ProResProgressWriter> proresWriter;
         std::unique_ptr<LutInversePass> lutInversePass;
         if (!dlssCfg.inverse_lut.empty()) {
@@ -608,6 +612,8 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 dlssCfg.is_hdr,
                 PixelEncoding::DisplayReady,
                 inferHdrMasteringNits(dlssCfg.view_transform),
+                writerQueueHigh,
+                writerQueueLow,
                 outputFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);

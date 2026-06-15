@@ -231,8 +231,11 @@ struct ProResWriter::Impl {
     std::mutex encodeMutex;
     std::mutex queueMutex;
     std::condition_variable queueCv;
+    std::condition_variable capacityCv;
     std::deque<QueuedFrame> pendingFrames;
     std::thread worker;
+    std::size_t queueHighWatermark = 3;
+    std::size_t queueLowWatermark = 1;
     bool stopWorker = false;
     bool cancelRequested = false;
     std::exception_ptr workerError;
@@ -244,7 +247,9 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
                            int fps,
                            bool isHdr,
                            PixelEncoding pixelEncoding,
-                           float hdrMasteringNits)
+                           float hdrMasteringNits,
+                           int queueHighWatermark,
+                           int queueLowWatermark)
 {
     if (width == 0 || height == 0 || fps <= 0) {
         throw std::runtime_error("ProResWriter: invalid dimensions or fps");
@@ -255,6 +260,11 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     m_impl->isHdr = isHdr;
     m_impl->hdrMasteringNits = std::clamp(hdrMasteringNits, 100.0f, 10000.0f);
     m_impl->pixelEncoding = pixelEncoding;
+    const int high = queueHighWatermark > 0 ? queueHighWatermark : 3;
+    m_impl->queueHighWatermark = static_cast<std::size_t>(std::max(1, high));
+    const int low = queueLowWatermark > 0 ? queueLowWatermark : 1;
+    m_impl->queueLowWatermark = static_cast<std::size_t>(
+        std::clamp(low, 0, static_cast<int>(m_impl->queueHighWatermark)));
     std::error_code ec;
     if (outputPath.has_parent_path()) {
         std::filesystem::create_directories(outputPath.parent_path(), ec);
@@ -366,6 +376,9 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
                 }
                 frame = std::move(m_impl->pendingFrames.front());
                 m_impl->pendingFrames.pop_front();
+                if (m_impl->pendingFrames.size() <= m_impl->queueLowWatermark) {
+                    m_impl->capacityCv.notify_all();
+                }
             }
 
             try {
@@ -379,6 +392,7 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
                     m_impl->workerError = std::current_exception();
                 }
                 m_impl->pendingFrames.clear();
+                m_impl->capacityCv.notify_all();
                 return;
             }
         }
@@ -432,9 +446,19 @@ void ProResWriter::enqueueFrame(std::vector<std::uint8_t> rgba16f, std::function
         throw std::runtime_error("ProResWriter: enqueue after close");
     }
     {
-        std::lock_guard<std::mutex> lock(m_impl->queueMutex);
+        std::unique_lock<std::mutex> lock(m_impl->queueMutex);
+        if (m_impl->pendingFrames.size() >= m_impl->queueHighWatermark) {
+            m_impl->capacityCv.wait(lock, [this]() {
+                return m_impl->stopWorker ||
+                       m_impl->workerError ||
+                       m_impl->pendingFrames.size() <= m_impl->queueLowWatermark;
+            });
+        }
         if (m_impl->workerError) {
             std::rethrow_exception(m_impl->workerError);
+        }
+        if (m_impl->stopWorker) {
+            throw std::runtime_error("ProResWriter: enqueue after close/cancel");
         }
         m_impl->pendingFrames.push_back(Impl::QueuedFrame{
             std::move(rgba16f),
@@ -456,6 +480,7 @@ void ProResWriter::cancel()
         m_impl->pendingFrames.clear();
     }
     m_impl->queueCv.notify_one();
+    m_impl->capacityCv.notify_all();
     close();
 }
 
@@ -515,6 +540,7 @@ void ProResWriter::close()
         m_impl->stopWorker = true;
     }
     m_impl->queueCv.notify_one();
+    m_impl->capacityCv.notify_all();
     if (m_impl->worker.joinable()) {
         m_impl->worker.join();
     }
@@ -561,9 +587,12 @@ ProResProgressWriter::ProResProgressWriter(const std::filesystem::path& outputPa
                                            bool isHdr,
                                            PixelEncoding pixelEncoding,
                                            float hdrMasteringNits,
+                                           int queueHighWatermark,
+                                           int queueLowWatermark,
                                            int totalFrames,
                                            std::function<void(int current, int total)> progressCallback)
-    : m_writer(outputPath, width, height, fps, isHdr, pixelEncoding, hdrMasteringNits),
+    : m_writer(outputPath, width, height, fps, isHdr, pixelEncoding, hdrMasteringNits,
+               queueHighWatermark, queueLowWatermark),
       m_total(totalFrames),
       m_progressCallback(std::move(progressCallback))
 {

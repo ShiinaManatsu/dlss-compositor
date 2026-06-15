@@ -32,6 +32,8 @@ struct SrFgConfig {
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     EncoderOptions encoderOptions{};
+    int writerThreads = 4;
+    int writerQueueMultiplier = 3;
     int fgMultiplier = 2;  // 2..6, capped by NGX capability query
     std::function<bool()> wantsPreviewFrame;
     std::function<void(const std::vector<std::uint8_t>&, std::uint32_t, std::uint32_t)> previewRgba8Callback;

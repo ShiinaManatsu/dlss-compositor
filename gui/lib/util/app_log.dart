@@ -46,6 +46,8 @@ class AppLog {
       'fg_enabled': params['fg_enabled'],
       'fg_multiplier': params['fg_multiplier'],
       'output_format': params['output_format'],
+      'writer_threads': params['writer_threads'],
+      'writer_buffer_multiplier': params['writer_buffer_multiplier'],
       'overwrite_mode': params['overwrite_mode'],
     };
   }

@@ -181,6 +181,8 @@ class DlssCompositor {
     args.addAll(['--png-quality', '${params['png_quality'] ?? 97}']);
     args.addAll(['--exr-compression', params['exr_compression'] as String? ?? 'zip']);
     args.addAll(['--exr-compression-level', '${params['exr_compression_level'] ?? 97}']);
+    args.addAll(['--writer-threads', '${params['writer_threads'] ?? 4}']);
+    args.addAll(['--writer-buffer-multiplier', '${params['writer_buffer_multiplier'] ?? 3}']);
     args.addAll(['--events', 'stderr']);
     if (params['fg_enabled'] == true) {
       args.addAll(['--fg', '${params['fg_multiplier'] ?? 2}x']);

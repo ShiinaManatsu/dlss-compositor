@@ -40,6 +40,8 @@ class AppState extends ChangeNotifier {
   int pngQuality = 97;
   String exrCompression = 'zip';
   int exrCompressionLevel = 97;
+  int writerThreads = 0;
+  int writerBufferMultiplier = 3;
   String outputDir = '';
   String template = 'frame_####';
 
@@ -127,6 +129,8 @@ class AppState extends ChangeNotifier {
     int? pngQuality,
     String? exrCompression,
     int? exrCompressionLevel,
+    int? writerThreads,
+    int? writerBufferMultiplier,
     String? outputDir,
     String? template,
   }) {
@@ -138,6 +142,8 @@ class AppState extends ChangeNotifier {
     if (pngQuality != null) this.pngQuality = pngQuality.clamp(0, 100);
     if (exrCompression != null) this.exrCompression = exrCompression;
     if (exrCompressionLevel != null) this.exrCompressionLevel = exrCompressionLevel.clamp(0, 100);
+    if (writerThreads != null) this.writerThreads = writerThreads.clamp(0, 32);
+    if (writerBufferMultiplier != null) this.writerBufferMultiplier = writerBufferMultiplier.clamp(1, 20);
     if (outputDir != null) this.outputDir = outputDir;
     if (template != null) this.template = template;
     notifyListeners();

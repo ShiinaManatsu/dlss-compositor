@@ -486,6 +486,8 @@ dlss::ConfigExecutionOptions DlssCompositorPlugin::BuildExecutionOptions() const
   options.pngQualityPercent = ReadIntArgument(args, "png_quality", 97);
   options.exrCompression = ReadStringArgument(args, "exr_compression", "zip");
   options.exrCompressionLevelPercent = ReadIntArgument(args, "exr_compression_level", 97);
+  options.writerThreads = ReadIntArgument(args, "writer_threads", 4);
+  options.writerQueueMultiplier = ReadIntArgument(args, "writer_buffer_multiplier", 3);
   options.fgEnabled = ReadBoolArgument(args, "fg_enabled", false);
   options.fgMultiplier = ReadIntArgument(args, "fg_multiplier", 2);
   options.emitEvents = false;
