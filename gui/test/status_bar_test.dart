@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:dlss_compositor_gui/app_version.dart';
 import 'package:dlss_compositor_gui/state/app_state.dart';
 import 'package:dlss_compositor_gui/widgets/status_bar.dart';
 
@@ -19,7 +20,7 @@ void main() {
       ),
     );
 
-    expect(find.text('DLSS Compositor v2 - Connecting...'), findsOneWidget);
+    expect(find.text('DLSS Compositor $kAppVersion - Connecting...'), findsOneWidget);
   });
 
   testWidgets('DlssStatusBar shows DLSS info when populated', (WidgetTester tester) async {
@@ -39,7 +40,7 @@ void main() {
       ),
     );
 
-    expect(find.text('DLSS 3.5.10 | RTX 4090 | FG Max 4x'), findsOneWidget);
+    expect(find.text('DLSS Compositor $kAppVersion | DLSS 3.5.10 | RTX 4090 | FG Max 4x'), findsOneWidget);
   });
 
   testWidgets('DlssStatusBar shows progress when running', (WidgetTester tester) async {

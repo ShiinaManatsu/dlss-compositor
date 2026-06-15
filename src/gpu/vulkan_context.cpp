@@ -90,7 +90,7 @@ VulkanContext::VulkanContext() {
     discoveryInfo.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
     discoveryInfo.Identifier.v.ProjectDesc.ProjectId = "d4a7ef3e-2d2d-4e9d-b8bb-2d773ef3b2fd";
     discoveryInfo.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
-    discoveryInfo.Identifier.v.ProjectDesc.EngineVersion = "2.0.0";
+    discoveryInfo.Identifier.v.ProjectDesc.EngineVersion = "1.0.0";
     discoveryInfo.ApplicationDataPath = L".";
 
     std::vector<const char*> extraInstExts;
@@ -164,9 +164,9 @@ void VulkanContext::createInstance(const std::vector<const char*>& extraExtensio
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "DLSS Compositor";
-    appInfo.applicationVersion = VK_MAKE_VERSION(2, 0, 0);
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "DlssCompositorEngine";
-    appInfo.engineVersion = VK_MAKE_VERSION(2, 0, 0);
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
     std::vector<const char*> extensions = extraExtensions;

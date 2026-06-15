@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'app_version.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'widgets/detail_panel.dart';
@@ -21,7 +22,7 @@ Future<void> main() async {
       ].contains(defaultTargetPlatform)) {
     await windowManager.ensureInitialized();
     const windowOptions = WindowOptions(
-      title: 'DLSS Compositor v2',
+      title: 'DLSS Compositor $kAppVersion',
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: false,
       minimumSize: Size(960, 640),
@@ -58,7 +59,7 @@ class DlssCompositorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DLSS Compositor v2',
+      title: 'DLSS Compositor $kAppVersion',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: fluent.FluentLocalizations.localizationsDelegates,
       supportedLocales: fluent.FluentLocalizations.supportedLocales,
@@ -181,7 +182,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           title: const Text(
-            'DLSS Compositor v2',
+            'DLSS Compositor $kAppVersion',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,

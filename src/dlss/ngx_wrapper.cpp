@@ -60,7 +60,7 @@ NgxContext::NgxContext(VkInstance instance, VkPhysicalDevice physicalDevice, VkD
     NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_Init_with_ProjectID(
         "d4a7ef3e-2d2d-4e9d-b8bb-2d773ef3b2fd",
         NVSDK_NGX_ENGINE_TYPE_CUSTOM,
-        "2.0.0",
+        "1.0.0",
         L".",
         instance,
         physicalDevice,

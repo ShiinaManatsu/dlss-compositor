@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_version.dart';
 import '../state/app_state.dart';
 
 /// VS Code-style bottom status bar.
@@ -26,7 +27,7 @@ class DlssStatusBar extends StatelessWidget {
                 const Icon(Icons.memory, size: 12, color: Colors.white),
                 const SizedBox(width: 6),
                 Text(
-                  'DLSS ${state.dlssVersion} | ${state.gpuName} | FG Max ${state.fgMaxMultiplier}x',
+                  'DLSS Compositor $kAppVersion | DLSS ${state.dlssVersion} | ${state.gpuName} | FG Max ${state.fgMaxMultiplier}x',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
@@ -38,7 +39,7 @@ class DlssStatusBar extends StatelessWidget {
                     SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
                     SizedBox(width: 8),
                     Text(
-                      'DLSS Compositor v2 - Connecting...',
+                      'DLSS Compositor $kAppVersion - Connecting...',
                       style: TextStyle(color: Colors.white, fontSize: 11),
                     ),
                   ],

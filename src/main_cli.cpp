@@ -35,7 +35,7 @@ std::string getArg(const std::vector<std::string>& args,
 
 void printHelp() {
     std::cerr
-        << "dlss-compositor-cli v2.0.0\n"
+        << "dlss-compositor-cli v1.0.0\n"
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     if (hasArg(args, "--version")) {
         LOG_INFO("[startup] CLI mode=version");
-        std::cerr << "dlss-compositor-cli v2.0.0 (DLSS SDK 310.6.0)\n";
+        std::cerr << "dlss-compositor-cli v1.0.0 (DLSS SDK 310.6.0)\n";
         return 0;
     }
 
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
 
     if (hasArg(args, "--self-check")) {
         LOG_INFO("[startup] CLI mode=self-check");
-        LOG_INFO("[self-check] DLSS Compositor v2 self-check");
+        LOG_INFO("[self-check] DLSS Compositor 1.0.0 self-check");
         // TODO(T36+): boot Vulkan + NGX and report device, driver, NGX feature
         // availability. Today we only verify the logger pipeline is alive.
         LOG_INFO("[self-check] GPU: pending integration");
