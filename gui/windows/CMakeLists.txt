@@ -1,6 +1,13 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
 
+# Flutter's Windows configure step traverses third-party package CMake files
+# from vcpkg (OpenColorIO/OpenImageIO) that currently emit developer-only
+# warnings unrelated to this project. Keep those out of normal app/package
+# builds so actionable warnings remain visible.
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "Suppress third-party developer warnings")
+set(CMAKE_WARN_DEPRECATED OFF CACHE INTERNAL "Suppress third-party deprecation warnings")
+
 # The native Windows plugin links the C++ DLSS engine directly. Make sure the
 # vcpkg toolchain is active before project() so the engine's manifest packages
 # resolve during Flutter's CMake configure step.

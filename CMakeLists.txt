@@ -1,5 +1,5 @@
 # =============================================================================
-# DLSS Compositor v2 — Headless compute pipeline (engine lib + CLI exe)
+# DLSS Compositor 1.0.0 — Headless compute pipeline (engine lib + CLI exe)
 # =============================================================================
 cmake_minimum_required(VERSION 3.20)
 
@@ -10,7 +10,7 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
 endif()
 
 project(DlssCompositor
-    VERSION     2.0.0
+    VERSION     1.0.0
     DESCRIPTION "Headless DLSS Super-Resolution + Frame-Generation compute compositor"
     LANGUAGES   CXX)
 
@@ -101,6 +101,18 @@ endif()
 # -----------------------------------------------------------------------------
 # Third-party dependencies (via vcpkg manifest)
 # -----------------------------------------------------------------------------
+macro(dlss_find_package_external)
+    set(_DLSS_PREV_SUPPRESS_DEV_WARNINGS "${CMAKE_SUPPRESS_DEVELOPER_WARNINGS}")
+    set(_DLSS_PREV_WARN_DEPRECATED "${CMAKE_WARN_DEPRECATED}")
+    set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1)
+    set(CMAKE_WARN_DEPRECATED OFF)
+    find_package(${ARGV})
+    set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS "${_DLSS_PREV_SUPPRESS_DEV_WARNINGS}")
+    set(CMAKE_WARN_DEPRECATED "${_DLSS_PREV_WARN_DEPRECATED}")
+    unset(_DLSS_PREV_SUPPRESS_DEV_WARNINGS)
+    unset(_DLSS_PREV_WARN_DEPRECATED)
+endmacro()
+
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog        CONFIG REQUIRED)
 find_package(fmt           CONFIG REQUIRED)
@@ -109,7 +121,10 @@ find_package(volk          CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Imath         CONFIG REQUIRED)
 find_package(OpenEXR       CONFIG REQUIRED)
-find_package(OpenImageIO   CONFIG REQUIRED)
+# OpenImageIO currently pulls OpenColorIO/expat configs that emit CMake
+# developer/deprecation noise from third-party package files on Windows.
+# Suppress those transitive warnings locally so our own configure warnings stay visible.
+dlss_find_package_external(OpenImageIO CONFIG REQUIRED)
 find_package(ZLIB          REQUIRED)
 find_package(FFMPEG        REQUIRED)
 
