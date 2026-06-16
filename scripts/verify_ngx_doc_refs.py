@@ -4,8 +4,8 @@ Verify that every NVSDK_NGX_* API call has a // DLSS § citation comment nearby.
 Per v2 plan Must Have: every NGX call must have §X.X reference to prevent UE cargo-cult bugs.
 
 Usage:
-    python scripts/verify_ngx_doc_refs.py src/dlss/
-    python scripts/verify_ngx_doc_refs.py src/dlss/ngx_wrapper.cpp
+    python scripts/verify_ngx_doc_refs.py dlss-plugin/src/dlss/
+    python scripts/verify_ngx_doc_refs.py dlss-plugin/src/dlss/ngx_wrapper.cpp
 """
 import os
 import re

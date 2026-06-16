@@ -4,6 +4,11 @@
 
 #include <volk.h>
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+
 namespace {
 
 void identity(float (&m)[4][4]) {
@@ -44,6 +49,17 @@ dlss::FgInputs makeFgInputs(
 }
 
 } // namespace
+
+TEST_CASE("DlssFgPass - normalizes pixel motion vectors for FG", "[unit]") {
+    std::ifstream in("dlss-plugin/src/dlss/dlss_fg.cpp", std::ios::binary);
+    REQUIRE(in.good());
+    const std::string source((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    REQUIRE(source.find("1.0f / static_cast<float>(depthMotionWidth)") != std::string::npos);
+    REQUIRE(source.find("1.0f / static_cast<float>(depthMotionHeight)") != std::string::npos);
+    REQUIRE(source.find("mvecsSubrectSize = {depthMotionWidth, depthMotionHeight}") != std::string::npos);
+    REQUIRE(source.find("backbufferSubrectSize = {in.width, in.height}") != std::string::npos);
+}
 
 TEST_CASE("DlssFgPass - create/destroy FG feature", "[gpu]") {
     dlss::VulkanContext ctx;

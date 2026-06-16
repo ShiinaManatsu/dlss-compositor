@@ -21,9 +21,7 @@ cmake-build-*/
 
 # Output
 output/
-qa_output/
 test_output/
-test_gui_out/
 
 # Reference sample (read-only, not part of our project)
 DLSS_Sample_App/
@@ -40,14 +38,7 @@ __pycache__/
 compile_commands.json
 build-clangd/
 .cache/
-2026.02.10_UE5.7_DLSS4.5Plugin_v8.5.0/
-
-# Generated LUTs
-luts/
-
-# Research notes (scratch)
-ACES2_QUICK_REFERENCE.txt
-ACES2_RESEARCH.md
+docs/external/2026.02.10_UE5.7_DLSS4.5Plugin_v8.5.0/
 
 # Node.js (gui/)
 gui/node_modules/
@@ -59,9 +50,6 @@ gui/playwright-report/
 
 # GUI runtime settings (project-relative; .example.json is committed)
 gui/dlss-compositor.json
-
-# Release packages
-dist/
 
 # Scratch / temp test output directories
 tmp/
@@ -86,3 +74,6 @@ build_t31*.log
 .omo/run-continuation/
 .omo/evidence/
 .omo/release/
+build/release/
+gui-windows.zip
+blender-plugin-v*.zip

@@ -400,9 +400,9 @@ TEST_CASE("FramePrefetcher: detects non-sequential frame indices", "[unit][io]")
 // ===========================================================================
 TEST_CASE("FramePrefetcher: tests/fixtures/sequence sweep", "[gpu][io]")
 {
-    fs::path fixturesDir = "tests/fixtures/sequence";
+    fs::path fixturesDir = "dlss-plugin/tests/fixtures/sequence";
     if (!fs::exists(fixturesDir)) {
-        SKIP("tests/fixtures/sequence directory not present");
+        SKIP("dlss-plugin/tests/fixtures/sequence directory not present");
     }
 
     std::vector<fs::path> exrFiles;

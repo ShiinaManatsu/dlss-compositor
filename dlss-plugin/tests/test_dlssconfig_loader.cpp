@@ -28,14 +28,14 @@ void requireLoadError(const std::expected<dlss::DlssConfig, dlss::LoadError>& re
 } // namespace
 
 TEST_CASE("Load valid config", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/sample-dlssconfig.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/sample-dlssconfig.json");
     REQUIRE(result.has_value());
     REQUIRE(result->version == 1);
     REQUIRE(result->fps == 30);
 }
 
 TEST_CASE("Load valid config maps metadata", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/sample-dlssconfig.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/sample-dlssconfig.json");
     REQUIRE(result.has_value());
     REQUIRE(result->output_resolution.width == 1920);
     REQUIRE(result->output_resolution.height == 1080);
@@ -74,7 +74,7 @@ TEST_CASE("Load valid config keeps LUT paths optional", "[dlssconfig]") {
 }
 
 TEST_CASE("Load valid config maps frame payload", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/sample-dlssconfig.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/sample-dlssconfig.json");
     REQUIRE(result.has_value());
     REQUIRE(result->frames.size() == 5);
 
@@ -150,36 +150,36 @@ TEST_CASE("Jitter clamp - never reject", "[dlssconfig]") {
 }
 
 TEST_CASE("BadJson", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-json.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-json.json");
     requireLoadError(result, dlss::LoadErrorCode::BadJson);
 }
 
 TEST_CASE("VersionMismatch", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-version.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-version.json");
     requireLoadError(result, dlss::LoadErrorCode::VersionMismatch);
     REQUIRE(result.error().path == "/version");
 }
 
 TEST_CASE("SchemaFail missing fps", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-schema.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-schema.json");
     requireLoadError(result, dlss::LoadErrorCode::SchemaFail);
     REQUIRE(result.error().path == "/fps");
 }
 
 TEST_CASE("ResolutionInconsistent", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-resolution.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-resolution.json");
     requireLoadError(result, dlss::LoadErrorCode::ResolutionInconsistent);
     REQUIRE(result.error().path == "/render_resolution");
 }
 
 TEST_CASE("FrameKeyMismatch", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-framekey.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-framekey.json");
     requireLoadError(result, dlss::LoadErrorCode::FrameKeyMismatch);
     REQUIRE(result.error().path == "/frames/abc");
 }
 
 TEST_CASE("FileNotFound", "[dlssconfig]") {
-    auto result = dlss::DlssConfigLoader::Load("tests/fixtures/dlssconfig-bad-file.json");
+    auto result = dlss::DlssConfigLoader::Load("dlss-plugin/tests/fixtures/dlssconfig-bad-file.json");
     requireLoadError(result, dlss::LoadErrorCode::FileNotFound);
     REQUIRE(result.error().path.find("dlssconfig-bad-file.json") != std::string::npos);
 }

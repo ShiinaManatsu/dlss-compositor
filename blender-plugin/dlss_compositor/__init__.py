@@ -4,7 +4,7 @@ bl_info = {
     "name": "DLSS Compositor",
     "blender": (5, 1, 0),
     "category": "Render",
-    "version": (2, 0, 0),
+    "version": (1, 0, 0),
 }
 
 # Blender requires bl_info before imports — E402 is expected here

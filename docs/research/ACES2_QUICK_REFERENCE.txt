@@ -1,0 +1,120 @@
+﻿ACES 2.0 IMPLEMENTATION SUMMARY (1000 nits, P3D65, ST.2084)
+
+=== CRITICAL CODE: ST.2084 (PQ) ENCODING ===
+
+GLSL/Vulkan Version:
+  vec3 LinearToPQ(vec3 lin, float peakNits) {
+    const float m1 = 0.1593017578125;
+    const float m2 = 0.0068408203125;
+    const float c1 = 0.8359375;
+    const float c2 = 0.58984375;
+    const float c3 = 0.58447265625;
+    
+    vec3 norm = lin * (peakNits / 10000.0);
+    vec3 V = pow(norm, vec3(m1));
+    vec3 Lp = (c1 + c2 * V) / (1.0 + c3 * V);
+    return pow(Lp, vec3(m2));
+  }
+
+=== COLOR MATRICES: P3D65 ===
+
+RGB to XYZ:
+  [0.4865709486  0.2656676932  0.1982172852]
+  [0.2289745641  0.6917385218  0.0792869141]
+  [-0.0000000000 0.0451133819  1.0439443689]
+
+XYZ to RGB:
+  [2.4934969119  -0.9313836179 -0.4027107845]
+  [-0.8294889696  1.7626640603  0.0236246858]
+  [0.0358458302  -0.0761723893  0.9568845240]
+
+=== RENDERING TRANSFORM PIPELINE ===
+
+1. RGB → JMh (Hellwig 2022 CAM)
+2. Tonescale (operates on J)
+3. Chroma Compression (operates on M)
+4. Gamut Compression (360-element LUT)
+5. JMh → RGB
+6. White Limiting
+7. Display Encoding (PQ)
+
+=== CRITICAL CONSTANTS ===
+
+1000-nit parameters:
+  daniele_n = 1000.0
+  daniele_m_2 = 10.1729113787
+  daniele_s_2 = 5.8959268851
+  daniele_u_2 = 0.9869191713
+  
+Tonescale:
+  limitJmax = 283.249899
+  midJ = 40.8168834391
+  
+Chroma:
+  chromaCompressScale = 2.4845958
+
+=== GITHUB IMPLEMENTATIONS ===
+
+Full ACES 2.0 1000-nit DCTL:
+https://github.com/nick-shaw/aces-ot-vwg-experiments/blob/master/dctl/ACES%20Transforms/IDT/ACES2OT_rc1/ACES2OT_rc1_PQ_P3D65_1000nit_inverse.dctl
+
+ACES Core CTL:
+https://github.com/aces-aswf/aces-core
+
+OpenColorIO (GPU shader generation, v2.4.2+):
+https://github.com/AcademySoftwareFoundation/OpenColorIO
+
+ACES 1.x HLSL Reference:
+https://github.com/Unity-Technologies/PostProcessing/blob/v2/PostProcessing/Shaders/ACES.hlsl
+
+=== PERFORMANCE ===
+
+CPU (ACES 2 full pipeline):
+  M1 Pro: 4027ms (7.8x slower than ACES 1)
+  Intel i9: 4760ms (5.2x slower)
+  AMD EPYC: 3806ms (4.7x slower)
+
+GPU (optimized OCIO 2.4.2):
+  HLSL (Windows): 26% slower than ACES 1
+  MSL (macOS): 35-40% slower than ACES 1
+
+Recommendation: Use pre-baked 3D LUT for real-time:
+  - 64x64x64 LUT = ~0.5-1ms for 4K
+  - ±0.5-1% accuracy (perceptually transparent)
+  - Single 3D texture lookup per pixel
+
+=== INVERSE TRANSFORM ===
+
+Full inverse available in Nick Shaw's DCTL implementation:
+ACES2OT_rc1_PQ_P3D65_1000nit_inverse.dctl (same repo as above)
+
+Inverse PQ (for decoding):
+  V_inv = pow(pqValue, m2_inv)
+  V = pow(max(V_inv - c1, 0) / (c2 - c3 * V_inv), m1_inv)
+  linear = V * ref_white_nits / peakNits
+
+=== BLENDER COMPATIBILITY ===
+
+To match Blender ACES 2.0:
+1. Use OCIO 2.4.2+
+2. Load ACES 2.0 configs
+3. Select: ACES 2.0 - HDR (1000 nit)
+4. Your implementation should produce identical results
+
+=== QUICK START ===
+
+Step 1: Apply tone mapping + chroma + gamut compression
+  (Use pre-computed LUT or full algorithm)
+
+Step 2: Convert to P3D65 via matrix multiplication
+
+Step 3: Apply ST.2084 encoding (LinearToPQ function above)
+
+Step 4: Output as P3D65 ST.2084 PQ-encoded values
+
+=== FOR FURTHER READING ===
+
+Official: https://docs.acescentral.com/
+OpenColorIO: https://opencolorio.readthedocs.io/
+Papers: Hellwig 2022 CAM (https://doi.org/10.1002/col.22792)
+

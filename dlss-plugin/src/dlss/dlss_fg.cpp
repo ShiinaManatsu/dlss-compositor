@@ -241,13 +241,21 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
         copyMatrix(optParams.clipToPrevClip, in.clipToPrevClip);
         copyMatrix(optParams.prevClipToClip, in.prevClipToClip);
 
-        // DLSS FG §6 L591-593 - MvecScaleX = 1.0f and Y = 1.0f for pixel-unit MVs. // FG §6 L591
-        optParams.mvecScale[0] = 1.0f;
-        optParams.mvecScale[1] = 1.0f;
+        // DLSS FG SDK header: mvecScale normalizes motion vectors to [-1,1].
+        // Blender/SR motion vectors are pixel units at the pMVecs resolution, so
+        // FG needs resource-size normalization even when pMVecs is lower-res than
+        // the display-ready backbuffer. See DLSS FG §6 L548-L556 and defs_dlssg.h.
+        optParams.mvecScale[0] = 1.0f / static_cast<float>(depthMotionWidth);
+        optParams.mvecScale[1] = 1.0f / static_cast<float>(depthMotionHeight);
         optParams.jitterOffset[0] = 0.0f;
         optParams.jitterOffset[1] = 0.0f;
         optParams.cameraPinholeOffset[0] = 0.0f;
         optParams.cameraPinholeOffset[1] = 0.0f;
+        optParams.mvecsSubrectSize = {depthMotionWidth, depthMotionHeight};
+        optParams.depthSubrectSize = {depthMotionWidth, depthMotionHeight};
+        optParams.backbufferSubrectSize = {in.width, in.height};
+        optParams.outputInterpSubrectSize = {in.width, in.height};
+        optParams.outputRealSubrectSize = {in.width, in.height};
 
         // DLSS FG §6 L599 - Camera vectors and projection parameters. // FG §6 L599
         optParams.cameraPos[0] = in.camPosX;

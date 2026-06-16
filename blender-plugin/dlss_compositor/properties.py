@@ -37,5 +37,6 @@ def register() -> None:
     bpy.types.Scene.dlss_compositor = bpy.props.PointerProperty(type=DLSSCompositorProperties)
 
 def unregister() -> None:
-    del bpy.types.Scene.dlss_compositor
+    if hasattr(bpy.types.Scene, "dlss_compositor"):
+        del bpy.types.Scene.dlss_compositor
     bpy.utils.unregister_class(DLSSCompositorProperties)

@@ -59,6 +59,9 @@ class DLSS_OT_ConfigureAllPasses(Operator):
     def execute(self, context: Context) -> set[str]:
         scene: Scene = context.scene
         props = scene.dlss_compositor  # type: ignore[attr-defined]
+        if hasattr(bpy.app, "is_job_running") and bpy.app.is_job_running("RENDER"):
+            self.report({"ERROR"}, "Cannot configure DLSS while a render job is running")
+            return {"CANCELLED"}
 
         # 1. Enable required render passes
         view_layer = context.view_layer

@@ -10,7 +10,7 @@ This guide explains how to configure Blender for DLSS Compositor v2 rendering an
 2. Go to **Edit → Preferences → Extensions**
 3. Click the dropdown ▼ in the top-right corner
 4. Select **Install from Disk**
-5. Navigate to the repo and select the `blender/dlss_compositor/` folder (or a `.zip` of it)
+5. Navigate to the repo and select the `blender-plugin/dlss_compositor/` folder (or a `.zip` of it)
 6. Enable **DLSS Compositor** in the Extensions list
 
 **Verify**: Open **Render Properties** — you should see the **DLSS Compositor** panel.

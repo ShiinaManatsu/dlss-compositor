@@ -2,13 +2,10 @@
 DLSS Compositor render handlers — transparent resolution management + per-frame data collection.
 
 Handler lifecycle:
-1. render_init: save user's resolution_percentage → override with DLSS quality percentage
-2. render_pre (per-frame): collect camera data + apply jitter → write per-frame cam.json
-3. render_complete OR render_cancel: merge per-frame jsons → write dlssconfig.json → restore percentage
-4. load_post (Blender startup): crash recovery → restore stale percentage if found
-
-CRITICAL: resolution_percentage save/override/restore is TRANSPARENT to the user.
-The user never sees the percentage change — it happens only during active render.
+1. render_init: save user's resolution_percentage -> override with DLSS quality percentage
+2. render_pre (per-frame): apply jitter + collect camera data -> write per-frame cam.json
+3. render_complete OR render_cancel: merge per-frame jsons -> write dlssconfig.json -> restore percentage
+4. load_post (Blender startup): crash recovery -> restore stale percentage if found
 """
 from __future__ import annotations
 
@@ -23,6 +20,7 @@ from typing import Optional
 from bpy.types import Scene
 
 log = logging.getLogger("dlss_compositor.handlers")
+_RENDER_STATE: dict[int, dict[str, float]] = {}
 
 
 def _get_props(scene: Scene) -> Optional[object]:
@@ -156,20 +154,20 @@ def dlss_render_init(scene: Scene) -> None:
 
     original_pct = scene.render.resolution_percentage
     scene["_dlss_saved_pct"] = original_pct
-    scene["_dlss_written_frames"] = []
 
-    # Save original camera shift so we can restore after render
     camera = scene.camera
     if camera is not None:
-        scene["_dlss_saved_shift_x"] = camera.data.shift_x
-        scene["_dlss_saved_shift_y"] = camera.data.shift_y
+        _RENDER_STATE[scene.as_pointer()] = {
+            "shift_x": float(camera.data.shift_x),
+            "shift_y": float(camera.data.shift_y),
+        }
         log.debug("dlss_render_init: saved camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
 
     dlss_pct = _get_quality_percentage(props.quality_mode)  # type: ignore[attr-defined]
     scene.render.resolution_percentage = dlss_pct
 
     log.info(
-        "dlss_render_init: ENGAGED — original=%d%% → dlss=%d%% (quality=%s)",
+        "dlss_render_init: ENGAGED; original=%d%% -> dlss=%d%% (quality=%s)",
         original_pct, dlss_pct, props.quality_mode,  # type: ignore[attr-defined]
     )
 
@@ -189,10 +187,6 @@ def dlss_render_pre(scene: Scene) -> None:
     if not props.enabled:  # type: ignore[attr-defined]
         log.debug("dlss_render_pre: not enabled, skipping")
         return
-    if "_dlss_saved_pct" not in scene:
-        log.warning("dlss_render_pre: _dlss_saved_pct missing — render_init was not called properly")
-        return
-
     frame_num  = scene.frame_current
     output_dir = props.output_dir  # type: ignore[attr-defined]
 
@@ -200,18 +194,20 @@ def dlss_render_pre(scene: Scene) -> None:
         log.warning("dlss_render_pre: output_dir not set — skipping per-frame cam.json")
         return
 
-    # Apply sub-pixel jitter to camera so the rendered frame is actually jittered
     from .jitter import apply_jitter_to_frame
     jitter_x, jitter_y = _frame_jitter(scene, frame_num)
-    apply_jitter_to_frame(scene, frame_num, jitter_x, jitter_y)
+    state = _RENDER_STATE.get(scene.as_pointer(), {})
+    apply_jitter_to_frame(
+        scene,
+        frame_num,
+        jitter_x,
+        jitter_y,
+        state.get("shift_x"),
+        state.get("shift_y"),
+    )
 
     cam_data = _collect_camera_data(scene, frame_num, jitter_x, jitter_y)
     _write_cam_json_atomic(output_dir, frame_num, cam_data)
-
-    written_frames = list(scene.get("_dlss_written_frames", []))
-    if frame_num not in written_frames:
-        written_frames.append(frame_num)
-        scene["_dlss_written_frames"] = written_frames
 
     log.info(
         "dlss_render_pre: frame=%d jitter=(%.4f, %.4f) cam.json written to %s",
@@ -255,21 +251,13 @@ def _finalize(scene: Scene) -> None:
     finally:
         scene.render.resolution_percentage = int(saved_pct)
         del scene["_dlss_saved_pct"]
-        if "_dlss_written_frames" in scene:
-            del scene["_dlss_written_frames"]
         log.info("_finalize: restored resolution_percentage to %d%%", saved_pct)
 
-        # Restore original camera shift
         camera = scene.camera
-        if camera is not None:
-            saved_sx = scene.get("_dlss_saved_shift_x")
-            saved_sy = scene.get("_dlss_saved_shift_y")
-            if saved_sx is not None:
-                camera.data.shift_x = float(saved_sx)
-                del scene["_dlss_saved_shift_x"]
-            if saved_sy is not None:
-                camera.data.shift_y = float(saved_sy)
-                del scene["_dlss_saved_shift_y"]
+        state = _RENDER_STATE.pop(scene.as_pointer(), {})
+        if camera is not None and state:
+            camera.data.shift_x = float(state["shift_x"])
+            camera.data.shift_y = float(state["shift_y"])
             log.info("_finalize: restored camera shift (%.4f, %.4f)", camera.data.shift_x, camera.data.shift_y)
 
 
@@ -288,46 +276,66 @@ def dlss_render_cancel(scene: Scene) -> None:
 
 
 @bpy.app.handlers.persistent
-def dlss_load_post(scene: Scene | None = None) -> None:
+def dlss_load_post(_filepath: str | None = None) -> None:
     """
     Called when Blender starts or loads a .blend file.
     Crash recovery: if _dlss_saved_pct exists, restore it.
     """
     log.debug("dlss_load_post called")
 
-    target_scene = scene
-    if target_scene is None:
-        ctx = getattr(bpy, "context", None)
-        target_scene = getattr(ctx, "scene", None) if ctx is not None else None
-
-    if target_scene is None:
-        log.debug("dlss_load_post: no scene available")
+    scenes = list(getattr(bpy.data, "scenes", []))
+    if not scenes:
+        log.debug("dlss_load_post: no scenes available")
         return
 
-    if "_dlss_saved_pct" in target_scene:
-        saved_pct   = target_scene["_dlss_saved_pct"]
+    restored = 0
+    for target_scene in scenes:
+        if "_dlss_saved_pct" not in target_scene:
+            continue
+
+        saved_pct = target_scene["_dlss_saved_pct"]
         current_pct = target_scene.render.resolution_percentage
         log.warning(
-            "dlss_load_post: detected stale saved_pct=%d%% (current=%d%%) — restoring",
-            saved_pct, current_pct,
+            "dlss_load_post: scene='%s' detected stale saved_pct=%d%% (current=%d%%); restoring",
+            target_scene.name, saved_pct, current_pct,
         )
         target_scene.render.resolution_percentage = int(saved_pct)
         del target_scene["_dlss_saved_pct"]
-        if "_dlss_written_frames" in target_scene:
-            del target_scene["_dlss_written_frames"]
-    else:
+        restored += 1
+
+    if restored == 0:
         log.debug("dlss_load_post: no stale saved_pct found")
+    return
 
 
 def register_handlers() -> None:
     """Register all DLSS render handlers with Blender."""
     log.info("register_handlers: registering render hooks")
-    bpy.app.handlers.render_init.append(dlss_render_init)
-    bpy.app.handlers.render_pre.append(dlss_render_pre)
-    bpy.app.handlers.render_complete.append(dlss_render_complete)
-    bpy.app.handlers.render_cancel.append(dlss_render_cancel)
-    bpy.app.handlers.load_post.append(dlss_load_post)
+    unregister_handlers()
+    for handler, func in [
+        (bpy.app.handlers.render_init,    dlss_render_init),
+        (bpy.app.handlers.render_pre,     dlss_render_pre),
+        (bpy.app.handlers.render_complete, dlss_render_complete),
+        (bpy.app.handlers.render_cancel,  dlss_render_cancel),
+        (bpy.app.handlers.load_post,      dlss_load_post),
+    ]:
+        handler.append(func)
     log.info("register_handlers: done")
+
+
+def _remove_handler(handler, func) -> None:  # type: ignore[no-untyped-def]
+    """Remove current and stale copies of a handler after addon reloads."""
+    func_name = getattr(func, "__name__", None)
+    func_module = getattr(func, "__module__", None)
+    for existing in list(handler):
+        if existing is func:
+            handler.remove(existing)
+            continue
+        if (
+            getattr(existing, "__name__", None) == func_name
+            and getattr(existing, "__module__", None) == func_module
+        ):
+            handler.remove(existing)
 
 
 def unregister_handlers() -> None:
@@ -340,6 +348,5 @@ def unregister_handlers() -> None:
         (bpy.app.handlers.render_cancel,  dlss_render_cancel),
         (bpy.app.handlers.load_post,      dlss_load_post),
     ]:
-        if func in handler:
-            handler.remove(func)
+        _remove_handler(handler, func)
     log.info("unregister_handlers: done")

@@ -6,6 +6,15 @@
 
 DLSS Compositor v2 reads multi-channel EXR sequences from Blender Cycles (Combined RGBA + Depth + Motion Vector passes), applies NVIDIA DLSS SR for upscaling and/or DLSS FG for frame interpolation, and outputs scene-linear EXR or 16-bit PNG image sequences.
 
+## Repo Layout
+
+- `dlss-plugin/` - native Vulkan/NGX engine, shaders, tests, and engine-side reference resources
+- `blender-plugin/` - Blender extension source
+- `gui/` - Flutter Windows GUI
+- `docs/` - guides, bundled DLSS refs, research notes, and external references
+- `scripts/` - packaging and verification helpers
+- `build/` - local build trees and release artifacts
+
 **Three-layer architecture:**
 - **Blender 5.1+ Extension** — Quality mode selection, render pass configuration, transparent jitter injection, silent `dlssconfig.json` export
 - **Flutter Windows GUI** — Task configuration, real-time preview frames (zero-copy FFI), progress monitoring
@@ -40,7 +49,7 @@ Blender Cycles render
 2. **Setup vcpkg**: `git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.bat && set VCPKG_ROOT=<path>`
 3. **Build C++**: `cmake -B build --preset x64-windows-msvc-release -DDLSS_SDK_ROOT=DLSS && cmake --build build --config Release`
 4. **Build GUI**: `cd gui && flutter pub get && flutter build windows --release`
-5. **Install Blender extension**: Blender → Edit → Preferences → Extensions → Install from Disk → select `blender/dlss_compositor/`
+5. **Install Blender extension**: Blender → Edit → Preferences → Extensions → Install from Disk → select `blender-plugin/dlss_compositor/`
 6. **Render**: Open Render Properties → DLSS Compositor → select quality → Apply Settings → render animation
 7. **Process**: Launch `dlss_compositor_gui.exe` → Open `dlssconfig.json` → configure → Start
 

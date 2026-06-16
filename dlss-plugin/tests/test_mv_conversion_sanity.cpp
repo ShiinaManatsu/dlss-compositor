@@ -65,7 +65,7 @@ TEST_CASE("MV mapping - NOT double negation (v1 bug check)", "[unit]") {
 
 TEST_CASE("MV mapping - sanity result file exists", "[unit]") {
     // MV_SANITY_RESULT.md must exist for T23 to have proceeded
-    std::filesystem::path resultPath = "blender/tests/MV_SANITY_RESULT.md";
+    std::filesystem::path resultPath = "blender-plugin/tests/MV_SANITY_RESULT.md";
     REQUIRE(std::filesystem::exists(resultPath));
 
     // Must contain VERDICT or MAPPING
@@ -75,6 +75,21 @@ TEST_CASE("MV mapping - sanity result file exists", "[unit]") {
     bool hasVerdict = all.find("VERDICT") != std::string::npos ||
                       all.find("MAPPING") != std::string::npos;
     REQUIRE(hasVerdict);
+}
+
+TEST_CASE("MV conversion pass - execute reuses descriptor set", "[unit]") {
+    auto content = std::ifstream("dlss-plugin/src/gpu/passes/mv_pass.cpp");
+    REQUIRE(content.good());
+    std::string source((std::istreambuf_iterator<char>(content)),
+                       std::istreambuf_iterator<char>());
+
+    const auto executePos = source.find("void MvConversionPass::execute");
+    REQUIRE(executePos != std::string::npos);
+    const auto executeBody = source.substr(executePos);
+
+    REQUIRE(source.find("vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &m_descSet)") != std::string::npos);
+    REQUIRE(executeBody.find("vkAllocateDescriptorSets") == std::string::npos);
+    REQUIRE(executeBody.find("&m_descSet") != std::string::npos);
 }
 
 TEST_CASE("MV conversion pass - executes on GPU", "[gpu]") {

@@ -64,19 +64,30 @@ MvConversionPass::MvConversionPass(VulkanContext* ctx)
 
     VkDescriptorPoolSize poolSizes[2]{};
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[0].descriptorCount = 1024;
+    poolSizes[0].descriptorCount = 1;
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    poolSizes[1].descriptorCount = 1024;
+    poolSizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.maxSets       = 1024;
+    poolInfo.maxSets       = 1;
     poolInfo.poolSizeCount = 2;
     poolInfo.pPoolSizes    = poolSizes;
 
-    const VkResult result = vkCreateDescriptorPool(m_ctx->device(), &poolInfo, nullptr, &m_descPool);
+    VkResult result = vkCreateDescriptorPool(m_ctx->device(), &poolInfo, nullptr, &m_descPool);
     if (result != VK_SUCCESS) {
         throw std::runtime_error("MvConversionPass: vkCreateDescriptorPool failed: " + std::to_string(result));
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_descPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts        = &m_descSetLayout;
+
+    result = vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &m_descSet);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("MvConversionPass: vkAllocateDescriptorSets failed: " + std::to_string(result));
     }
 }
 
@@ -190,16 +201,8 @@ void MvConversionPass::execute(VkCommandBuffer cmd,
         throw std::runtime_error("MvConversionPass::execute: source and destination dimensions differ");
     }
 
-    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_descPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts        = &m_descSetLayout;
-
-    VkResult result = vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &descriptorSet);
-    if (result != VK_SUCCESS) {
-        throw std::runtime_error("MvConversionPass::execute: vkAllocateDescriptorSets failed: " + std::to_string(result));
+    if (m_descSet == VK_NULL_HANDLE) {
+        throw std::runtime_error("MvConversionPass::execute: descriptor set is null");
     }
 
     VkDescriptorImageInfo srcInfo{};
@@ -213,14 +216,14 @@ void MvConversionPass::execute(VkCommandBuffer cmd,
 
     VkWriteDescriptorSet writes[2]{};
     writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet          = descriptorSet;
+    writes[0].dstSet          = m_descSet;
     writes[0].dstBinding      = 0;
     writes[0].descriptorCount = 1;
     writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[0].pImageInfo      = &srcInfo;
 
     writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet          = descriptorSet;
+    writes[1].dstSet          = m_descSet;
     writes[1].dstBinding      = 1;
     writes[1].descriptorCount = 1;
     writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -253,7 +256,7 @@ void MvConversionPass::execute(VkCommandBuffer cmd,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout,
-                            0, 1, &descriptorSet, 0, nullptr);
+                            0, 1, &m_descSet, 0, nullptr);
 
     vkCmdDispatch(cmd, ceilDiv(dstDlss2ch->desc.width, 8), ceilDiv(dstDlss2ch->desc.height, 8), 1);
 }

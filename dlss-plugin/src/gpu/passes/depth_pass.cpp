@@ -85,6 +85,7 @@ DepthConversionPass::~DepthConversionPass() {
     if (m_descPool        != VK_NULL_HANDLE) vkDestroyDescriptorPool(dev, m_descPool, nullptr);
     if (m_descSetLayout   != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(dev, m_descSetLayout, nullptr);
     if (m_shaderModule    != VK_NULL_HANDLE) vkDestroyShaderModule(dev, m_shaderModule, nullptr);
+    if (m_sampler         != VK_NULL_HANDLE) vkDestroySampler(dev, m_sampler, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,22 +117,44 @@ void DepthConversionPass::createDescriptorSetLayout() {
         throw std::runtime_error("DepthConversionPass: failed to create descriptor set layout");
     }
 
-    // Create descriptor pool (one set per execute call; pre-allocate 8 sets)
+    // Create one reusable descriptor set. The pipeline submits and waits once per frame.
     VkDescriptorPoolSize poolSizes[2]{};
     poolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[0].descriptorCount = 8;
+    poolSizes[0].descriptorCount = 1;
     poolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    poolSizes[1].descriptorCount = 8;
+    poolSizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolCI{};
     poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolCI.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolCI.maxSets       = 8;
+    poolCI.maxSets       = 1;
     poolCI.poolSizeCount = 2;
     poolCI.pPoolSizes    = poolSizes;
 
     if (vkCreateDescriptorPool(m_ctx->device(), &poolCI, nullptr, &m_descPool) != VK_SUCCESS) {
         throw std::runtime_error("DepthConversionPass: failed to create descriptor pool");
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool     = m_descPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts        = &m_descSetLayout;
+
+    if (vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &m_descSet) != VK_SUCCESS) {
+        throw std::runtime_error("DepthConversionPass: failed to allocate descriptor set");
+    }
+
+    VkSamplerCreateInfo samplerCI{};
+    samplerCI.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCI.magFilter    = VK_FILTER_NEAREST;
+    samplerCI.minFilter    = VK_FILTER_NEAREST;
+    samplerCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+    if (vkCreateSampler(m_ctx->device(), &samplerCI, nullptr, &m_sampler) != VK_SUCCESS) {
+        throw std::runtime_error("DepthConversionPass: failed to create sampler");
     }
 }
 
@@ -200,37 +223,13 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
 {
     VkDevice dev = m_ctx->device();
 
-    // Allocate a transient descriptor set
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = m_descPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts        = &m_descSetLayout;
-
-    VkDescriptorSet descSet = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(dev, &allocInfo, &descSet) != VK_SUCCESS) {
-        throw std::runtime_error("DepthConversionPass: failed to allocate descriptor set");
-    }
-
-    // Create a nearest-neighbour sampler for the depth source
-    VkSamplerCreateInfo samplerCI{};
-    samplerCI.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerCI.magFilter    = VK_FILTER_NEAREST;
-    samplerCI.minFilter    = VK_FILTER_NEAREST;
-    samplerCI.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-    VkSampler sampler = VK_NULL_HANDLE;
-    if (vkCreateSampler(dev, &samplerCI, nullptr, &sampler) != VK_SUCCESS) {
-        vkFreeDescriptorSets(dev, m_descPool, 1, &descSet);
-        throw std::runtime_error("DepthConversionPass: failed to create sampler");
+    if (m_descSet == VK_NULL_HANDLE || m_sampler == VK_NULL_HANDLE) {
+        throw std::runtime_error("DepthConversionPass: descriptor resources are not initialized");
     }
 
     // Write descriptor bindings
     VkDescriptorImageInfo srcInfo{};
-    srcInfo.sampler     = sampler;
+    srcInfo.sampler     = m_sampler;
     srcInfo.imageView   = srcWorldLinear->view;
     srcInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -241,14 +240,14 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
 
     VkWriteDescriptorSet writes[2]{};
     writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet          = descSet;
+    writes[0].dstSet          = m_descSet;
     writes[0].dstBinding      = 0;
     writes[0].descriptorCount = 1;
     writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[0].pImageInfo      = &srcInfo;
 
     writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet          = descSet;
+    writes[1].dstSet          = m_descSet;
     writes[1].dstBinding      = 1;
     writes[1].descriptorCount = 1;
     writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -265,7 +264,7 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
     // Record commands
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout,
-                            0, 1, &descSet, 0, nullptr);
+                            0, 1, &m_descSet, 0, nullptr);
     vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(pc), &pc);
 
@@ -275,15 +274,6 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
     uint32_t groupX = (width  + 7u) / 8u;
     uint32_t groupY = (height + 7u) / 8u;
     vkCmdDispatch(cmd, groupX, groupY, 1);
-
-    // Destroy transient resources after GPU work completes.
-    // In production, a fence/semaphore would guard this; here we destroy
-    // the sampler after submit via a post-submit callback pattern.
-    // For simplicity, we destroy it immediately (GPU idle assumed in tests).
-    // Production callers should track and defer destruction.
-    vkDeviceWaitIdle(dev);  // sync before destroying transient sampler
-    vkDestroySampler(dev, sampler, nullptr);
-    vkFreeDescriptorSets(dev, m_descPool, 1, &descSet);
 }
 
 } // namespace dlss

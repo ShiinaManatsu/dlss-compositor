@@ -19,7 +19,7 @@ std::filesystem::path tempOutputDir(const char* name) {
 TEST_CASE("CLI config executor reports missing input frames", "[unit][cli]") {
     const auto out = tempOutputDir("dlss_cli_executor_sr");
     dlss::ConfigExecutionOptions options;
-    options.configPath = "tests/fixtures/sample-dlssconfig.json";
+    options.configPath = "dlss-plugin/tests/fixtures/sample-dlssconfig.json";
     options.outputDir = out;
     options.outputTemplate = "frame_####.png";
     options.outputFormat = "png_16";
@@ -34,7 +34,7 @@ TEST_CASE("CLI config executor reports missing input frames", "[unit][cli]") {
 TEST_CASE("CLI config executor rejects missing FG inputs", "[unit][cli]") {
     const auto out = tempOutputDir("dlss_cli_executor_fg");
     dlss::ConfigExecutionOptions options;
-    options.configPath = "tests/fixtures/sample-dlssconfig.json";
+    options.configPath = "dlss-plugin/tests/fixtures/sample-dlssconfig.json";
     options.outputDir = out;
     options.outputTemplate = "frame_####.exr";
     options.outputFormat = "exr";

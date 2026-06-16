@@ -97,7 +97,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
   </ul>
   <h3>五步流程</h3>
   <ol>
-    <li>安装 Blender 扩展：打开 Blender → 编辑 → 首选项 → 扩展 → 从本地安装 <code>blender/dlss_compositor/</code></li>
+    <li>安装 Blender 扩展：打开 Blender → 编辑 → 首选项 → 扩展 → 从本地安装 <code>blender-plugin/dlss_compositor/</code></li>
     <li>在 Blender 中打开你的场景，在 N 面板找到 <strong>DLSS Compositor</strong> 选项卡</li>
     <li>设置输出分辨率 → 选择质量模式 → 点击 <strong>Apply Settings</strong> → 渲染动画（Ctrl+F12）</li>
     <li>渲染完成后，EXR 序列与 <code>dlssconfig.json</code> 已自动生成</li>
@@ -120,7 +120,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
   输出：EXR（场景线性）/ PNG（16 位，LDR）</pre>
   <table>
     <tr><th>层次</th><th>组件</th><th>职责</th></tr>
-    <tr><td>Blender 扩展</td><td><code>blender/dlss_compositor/</code></td><td>配置渲染通道、自动导出相机数据、生成 dlssconfig.json</td></tr>
+    <tr><td>Blender 扩展</td><td><code>blender-plugin/dlss_compositor/</code></td><td>配置渲染通道、自动导出相机数据、生成 dlssconfig.json</td></tr>
     <tr><td>Flutter GUI</td><td><code>dlss_compositor_gui.exe</code></td><td>任务配置、实时预览、进度监控、日志查看</td></tr>
     <tr><td>C++ 引擎</td><td><code>dlss-compositor-cli.exe</code></td><td>Vulkan + NGX SR+FG 管线、EXR/ProRes 输出</td></tr>
   </table>
@@ -286,7 +286,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
   </ul>
   <h3>Five-step workflow</h3>
   <ol>
-    <li>Install the Blender extension: Edit → Preferences → Extensions → Install from Local → select <code>blender/dlss_compositor/</code></li>
+    <li>Install the Blender extension: Edit → Preferences → Extensions → Install from Local → select <code>blender-plugin/dlss_compositor/</code></li>
     <li>Open your scene in Blender, find the <strong>DLSS Compositor</strong> tab in the N panel</li>
     <li>Set output resolution → pick a quality mode → click <strong>Apply Settings</strong> → render animation (Ctrl+F12)</li>
     <li>After render: EXR sequences and <code>dlssconfig.json</code> are generated automatically</li>
@@ -309,7 +309,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
 
   <table>
     <tr><th>Layer</th><th>Component</th><th>Responsibility</th></tr>
-    <tr><td>Blender Extension</td><td><code>blender/dlss_compositor/</code></td><td>Configure render passes, export camera data, generate dlssconfig.json</td></tr>
+    <tr><td>Blender Extension</td><td><code>blender-plugin/dlss_compositor/</code></td><td>Configure render passes, export camera data, generate dlssconfig.json</td></tr>
     <tr><td>Flutter GUI</td><td><code>dlss_compositor_gui.exe</code></td><td>Task config, live preview, progress monitoring, log viewer</td></tr>
     <tr><td>C++ Engine</td><td><code>dlss-compositor-cli.exe</code></td><td>Vulkan + NGX SR+FG pipeline, EXR/ProRes output</td></tr>
   </table>
@@ -493,8 +493,8 @@ NOT in v2 (enum placeholders only, not registered):
 - stdout is JSON-RPC only — diagnostics to spdlog stderr + rotating file
 
 ## Schema
-src/core/dlssconfig.schema.json is the single source of truth.
-Do NOT copy it to blender/ or gui/assets/ — reference via relative path.
+dlss-plugin/src/core/dlssconfig.schema.json is the single source of truth.
+Do NOT copy it to dlss-plugin/ or gui/assets/ — reference via relative path.
 
 ## Self-Check
   dlss-compositor-cli.exe --self-check

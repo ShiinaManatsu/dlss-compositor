@@ -130,7 +130,14 @@ def jitter_for_frame_number(quality_mode: str, frame_number: int) -> tuple[float
     )
 
 
-def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: float, jitter_y: float) -> None:
+def apply_jitter_to_frame(
+    scene: bpy.types.Scene,
+    frame_num: int,
+    jitter_x: float,
+    jitter_y: float,
+    base_shift_x: float | None = None,
+    base_shift_y: float | None = None,
+) -> None:
     """
     Apply sub-pixel jitter to camera for this frame via lens shift.
 
@@ -146,10 +153,16 @@ def apply_jitter_to_frame(scene: bpy.types.Scene, frame_num: int, jitter_x: floa
     if camera is None:
         return
 
-    base_shift_x = float(scene.get("_dlss_saved_shift_x", camera.data.shift_x))
-    base_shift_y = float(scene.get("_dlss_saved_shift_y", camera.data.shift_y))
+    if base_shift_x is None:
+        base_shift_x = float(camera.data.shift_x)
+    if base_shift_y is None:
+        base_shift_y = float(camera.data.shift_y)
 
     shift_denominator = _camera_shift_denominator(scene)
     if shift_denominator > 0:
-        camera.data.shift_x = base_shift_x + (jitter_x / shift_denominator)
-        camera.data.shift_y = base_shift_y + (jitter_y / shift_denominator)
+        new_shift_x = base_shift_x + (jitter_x / shift_denominator)
+        new_shift_y = base_shift_y + (jitter_y / shift_denominator)
+        if camera.data.shift_x != new_shift_x:
+            camera.data.shift_x = new_shift_x
+        if camera.data.shift_y != new_shift_y:
+            camera.data.shift_y = new_shift_y

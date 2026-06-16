@@ -48,7 +48,7 @@ target_include_directories(${PROJECT_NAME}_plugin INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 target_include_directories(${PROJECT_NAME}_plugin PRIVATE
-  "${DLSS_COMPOSITOR_ROOT}/src"
+  "${DLSS_COMPOSITOR_ROOT}/dlss-plugin/src"
 )
 target_link_libraries(${PROJECT_NAME}_plugin PRIVATE flutter flutter_wrapper_plugin dlss_engine_lib)
 
