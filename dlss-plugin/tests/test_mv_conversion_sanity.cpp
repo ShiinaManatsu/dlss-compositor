@@ -3,10 +3,21 @@
 #include "../src/gpu/vulkan_context.h"
 #include "../src/gpu/texture_pool.h"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+
+#ifndef DLSS_SOURCE_DIR
+#define DLSS_SOURCE_DIR "."
+#endif
+
+namespace {
+std::filesystem::path sourcePath(const char* relative) {
+    return std::filesystem::path(DLSS_SOURCE_DIR) / relative;
+}
+}
 
 // CPU-side sign mapping test — does NOT require GPU
 // Verifies the mathematical mapping from T13 MV_SANITY_RESULT.md
@@ -65,20 +76,24 @@ TEST_CASE("MV mapping - NOT double negation (v1 bug check)", "[unit]") {
 
 TEST_CASE("MV mapping - sanity result file exists", "[unit]") {
     // MV_SANITY_RESULT.md must exist for T23 to have proceeded
-    std::filesystem::path resultPath = "blender-plugin/tests/MV_SANITY_RESULT.md";
+    std::filesystem::path resultPath = sourcePath("blender-plugin/tests/MV_SANITY_RESULT.md");
     REQUIRE(std::filesystem::exists(resultPath));
 
     // Must contain VERDICT or MAPPING
     auto content = std::ifstream(resultPath.string());
     std::string all((std::istreambuf_iterator<char>(content)),
                      std::istreambuf_iterator<char>());
-    bool hasVerdict = all.find("VERDICT") != std::string::npos ||
-                      all.find("MAPPING") != std::string::npos;
+    std::string lower = all;
+    for (char& c : lower) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    bool hasVerdict = lower.find("verdict") != std::string::npos ||
+                      lower.find("mapping") != std::string::npos;
     REQUIRE(hasVerdict);
 }
 
 TEST_CASE("MV conversion pass - execute reuses descriptor set", "[unit]") {
-    auto content = std::ifstream("dlss-plugin/src/gpu/passes/mv_pass.cpp");
+    auto content = std::ifstream(sourcePath("dlss-plugin/src/gpu/passes/mv_pass.cpp"));
     REQUIRE(content.good());
     std::string source((std::istreambuf_iterator<char>(content)),
                        std::istreambuf_iterator<char>());
@@ -90,6 +105,19 @@ TEST_CASE("MV conversion pass - execute reuses descriptor set", "[unit]") {
     REQUIRE(source.find("vkAllocateDescriptorSets(m_ctx->device(), &allocInfo, &m_descSet)") != std::string::npos);
     REQUIRE(executeBody.find("vkAllocateDescriptorSets") == std::string::npos);
     REQUIRE(executeBody.find("&m_descSet") != std::string::npos);
+}
+
+TEST_CASE("MV shader - matches documented Blender to DLSS mapping", "[unit]") {
+    auto content = std::ifstream(sourcePath("dlss-plugin/src/shaders/mv_blender_to_dlss.comp"));
+    REQUIRE(content.good());
+    std::string source((std::istreambuf_iterator<char>(content)),
+                       std::istreambuf_iterator<char>());
+
+    REQUIRE(source.find("uniform sampler2D srcMV4ch") != std::string::npos);
+    REQUIRE(source.find("texelFetch(srcMV4ch, coord, 0)") != std::string::npos);
+    REQUIRE(source.find("texture(srcMV4ch") == std::string::npos);
+    REQUIRE(source.find("vec2 dlss = vec2(blender.x, -blender.y);") != std::string::npos);
+    REQUIRE(source.find("vec2 dlss = vec2(-blender.x, -blender.y);") == std::string::npos);
 }
 
 TEST_CASE("MV conversion pass - executes on GPU", "[gpu]") {

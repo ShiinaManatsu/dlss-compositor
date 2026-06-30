@@ -35,7 +35,12 @@ public:
 
     /// Create the NGX SR feature for given resolutions + quality mode.
     /// Must be called before the first evaluate().
-    void create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, QualityMode quality);
+    void create(uint32_t inW,
+                uint32_t inH,
+                uint32_t outW,
+                uint32_t outH,
+                QualityMode quality,
+                DlssPreset presetOverride = DlssPreset::Auto);
 
     /// Evaluate SR for one frame.
     void evaluate(VkCommandBuffer cmd, const SrInputs& in);
@@ -47,7 +52,7 @@ public:
 
 private:
     static int toNgxQuality(QualityMode q);
-    static void setPresetForQuality(NVSDK_NGX_Parameter* params, QualityMode q);
+    static void setPresetForQuality(NVSDK_NGX_Parameter* params, QualityMode q, DlssPreset presetOverride);
 
     NgxContext*   m_ngx;
     VulkanContext* m_ctx;

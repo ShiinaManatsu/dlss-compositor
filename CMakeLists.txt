@@ -67,6 +67,7 @@ if(NOT EXISTS "${DLSS_SDK_ROOT}/include/nvsdk_ngx_vk.h")
 endif()
 
 set(DLSS_LIB_DIR "${DLSS_SDK_ROOT}/lib/Windows_x86_64/x64")
+set(DLSS_DLL_DEV_DIR "${DLSS_SDK_ROOT}/lib/Windows_x86_64/dev")
 set(DLSS_DLL_REL_DIR "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel")
 set(DLSS_LIB_RELEASE "${DLSS_LIB_DIR}/nvsdk_ngx_d.lib")
 set(DLSS_LIB_DEBUG   "${DLSS_LIB_DIR}/nvsdk_ngx_d_dbg.lib")
@@ -192,6 +193,7 @@ add_library(dlss_engine_lib STATIC
     dlss-plugin/src/gpu/passes/lut_inverse_pass.cpp
     dlss-plugin/src/gpu/passes/lut_tonemap_pass.cpp
     dlss-plugin/src/gpu/passes/mv_pass.cpp
+    dlss-plugin/src/gpu/passes/prores_convert_pass.cpp
     dlss-plugin/src/gpu/passes/preview_pass.cpp
     dlss-plugin/src/gpu/passes/tonemap_pass.cpp
     dlss-plugin/src/gpu/passes/inverse_tonemap_pass.cpp
@@ -254,18 +256,20 @@ if(WIN32)
 endif()
 
 # Copy DLSS runtime DLLs next to the exe so it can launch out-of-box.
-set(_dlss_dlls
-    "${DLSS_DLL_REL_DIR}/nvngx_dlss.dll"
-    "${DLSS_DLL_REL_DIR}/nvngx_dlssg.dll")
-foreach(_dll IN LISTS _dlss_dlls)
-    if(EXISTS "${_dll}")
+# Debug uses the SDK dev DLLs for DLSS troubleshooting overlays; release builds
+# always package the production DLLs from rel/.
+foreach(_dll_name IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll)
+    set(_dev_dll "${DLSS_DLL_DEV_DIR}/${_dll_name}")
+    set(_rel_dll "${DLSS_DLL_REL_DIR}/${_dll_name}")
+    if(EXISTS "${_dev_dll}" AND EXISTS "${_rel_dll}")
         add_custom_command(TARGET dlss-compositor-cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${_dll}" "$<TARGET_FILE_DIR:dlss-compositor-cli>"
-            COMMENT "Copying DLSS runtime DLL: ${_dll}"
+                "$<$<CONFIG:Debug>:${_dev_dll}>$<$<NOT:$<CONFIG:Debug>>:${_rel_dll}>"
+                "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+            COMMENT "Copying DLSS runtime DLL for CLI (${_dll_name}; Debug=dev, non-Debug=rel)"
             VERBATIM)
     else()
-        message(WARNING "DLSS runtime DLL missing (skipped copy): ${_dll}")
+        message(WARNING "DLSS runtime DLL missing (skipped copy): ${_dll_name}")
     endif()
 endforeach()
 
@@ -318,6 +322,7 @@ endfunction()
 dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/depth_world_to_ndc.comp)
 dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/mv_blender_to_dlss.comp)
 dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/preview_display.comp)
+dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/prores_yuv422.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 4 tonemap + EOTF

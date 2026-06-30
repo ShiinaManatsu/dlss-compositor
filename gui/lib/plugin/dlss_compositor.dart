@@ -62,7 +62,10 @@ class DlssCompositor {
       return _startCliTask();
     }
     final result = await _plugin.startTask();
-    AppLog.phase('plugin', 'startTask complete', {'backend': 'native', 'ok': result});
+    AppLog.phase('plugin', 'startTask complete', {
+      'backend': 'native',
+      'ok': result,
+    });
     return result;
   }
 
@@ -77,7 +80,10 @@ class DlssCompositor {
       return true;
     }
     final result = await _plugin.cancelTask();
-    AppLog.phase('plugin', 'cancelTask complete', {'backend': 'native', 'ok': result});
+    AppLog.phase('plugin', 'cancelTask complete', {
+      'backend': 'native',
+      'ok': result,
+    });
     return result;
   }
 
@@ -102,22 +108,27 @@ class DlssCompositor {
 
     final args = _buildCliArgs(params);
     args.addAll(['--preview-shm', _previewSharedMemoryName]);
-    AppLog.phase('plugin', 'startTask spawning cli', {'exe': cli.path, 'args': args});
+    AppLog.phase('plugin', 'startTask spawning cli', {
+      'exe': cli.path,
+      'args': args,
+    });
     try {
       final process = await Process.start(cli.path, args);
       _runningProcess = process;
       _wireProcessOutput(process);
-      unawaited(process.exitCode.then((code) {
-        _runningProcess = null;
-        if (code == 0) {
-          AppLog.phase('plugin', 'cli process complete');
-          _events.add({'type': 'done'});
-        } else {
-          final message = 'CLI exited with code $code';
-          AppLog.phase('plugin', 'cli process failed', message);
-          _events.add({'type': 'error', 'message': message});
-        }
-      }));
+      unawaited(
+        process.exitCode.then((code) {
+          _runningProcess = null;
+          if (code == 0) {
+            AppLog.phase('plugin', 'cli process complete');
+            _events.add({'type': 'done'});
+          } else {
+            final message = 'CLI exited with code $code';
+            AppLog.phase('plugin', 'cli process failed', message);
+            _events.add({'type': 'error', 'message': message});
+          }
+        }),
+      );
       AppLog.phase('plugin', 'startTask complete', {'ok': true});
       return true;
     } on ProcessException catch (e) {
@@ -127,7 +138,8 @@ class DlssCompositor {
   }
 
   static bool get _useCliBackend {
-    final value = Platform.environment['DLSS_COMPOSITOR_GUI_BACKEND']?.toLowerCase();
+    final value = Platform.environment['DLSS_COMPOSITOR_GUI_BACKEND']
+        ?.toLowerCase();
     return value == 'cli' || value == 'process' || value == 'subprocess';
   }
 
@@ -135,7 +147,11 @@ class DlssCompositor {
   static Future<Map<String, dynamic>> checkOutputCollisions(
     Map<String, dynamic> params,
   ) async {
-    AppLog.phase('plugin', 'checkOutputCollisions begin', AppLog.summarizeTaskParams(params));
+    AppLog.phase(
+      'plugin',
+      'checkOutputCollisions begin',
+      AppLog.summarizeTaskParams(params),
+    );
     final result = _checkOutputCollisionsLocally(params);
     AppLog.phase('plugin', 'checkOutputCollisions complete', result);
     return result;
@@ -165,24 +181,59 @@ class DlssCompositor {
   }
 
   static void _ensureNativeEventsForwarded() {
-    _nativeEvents ??= _plugin.progressStream.listen(_events.add, onError: _events.addError);
+    _nativeEvents ??= _plugin.progressStream.listen(
+      _events.add,
+      onError: _events.addError,
+    );
   }
 
   static List<String> _buildCliArgs(Map<String, dynamic> params) {
     final args = <String>['--config', params['config'] as String? ?? ''];
     final outputDir = params['output_dir'] as String? ?? '';
     if (outputDir.isNotEmpty) args.addAll(['--output-dir', outputDir]);
-    final template = (params['template'] ?? params['output_template']) as String? ?? '';
+    final template =
+        (params['template'] ?? params['output_template']) as String? ?? '';
     if (template.isNotEmpty) args.addAll(['--output-template', template]);
     final format = params['output_format'] as String? ?? 'exr';
     args.addAll(['--output-format', format]);
+    args.addAll(['--preset', params['preset'] as String? ?? 'auto']);
     final overwrite = params['overwrite_mode'] as String? ?? 'overwrite';
     args.addAll(['--overwrite-mode', overwrite]);
     args.addAll(['--png-quality', '${params['png_quality'] ?? 97}']);
-    args.addAll(['--exr-compression', params['exr_compression'] as String? ?? 'zip']);
-    args.addAll(['--exr-compression-level', '${params['exr_compression_level'] ?? 97}']);
+    args.addAll([
+      '--exr-compression',
+      params['exr_compression'] as String? ?? 'zip',
+    ]);
+    args.addAll([
+      '--exr-compression-level',
+      '${params['exr_compression_level'] ?? 97}',
+    ]);
     args.addAll(['--writer-threads', '${params['writer_threads'] ?? 4}']);
-    args.addAll(['--writer-buffer-multiplier', '${params['writer_buffer_multiplier'] ?? 3}']);
+    args.addAll([
+      '--writer-buffer-multiplier',
+      '${params['writer_buffer_multiplier'] ?? 3}',
+    ]);
+    args.addAll(['--h265-cq', '${params['h265_cq'] ?? 18}']);
+    args.addAll(['--h265-preset', params['h265_preset'] as String? ?? 'p5']);
+    args.addAll([
+      '--h265-multipass',
+      params['h265_multipass'] as String? ?? 'qres',
+    ]);
+    args.addAll([
+      '--h265-spatial-aq',
+      params['h265_spatial_aq'] == false ? '0' : '1',
+    ]);
+    args.addAll([
+      '--h265-temporal-aq',
+      params['h265_temporal_aq'] == false ? '0' : '1',
+    ]);
+    args.addAll(['--h265-vfr', params['h265_vfr'] == true ? '1' : '0']);
+    if (params['frame_start'] != null) {
+      args.addAll(['--frame-start', '${params['frame_start']}']);
+    }
+    if (params['frame_end'] != null) {
+      args.addAll(['--frame-end', '${params['frame_end']}']);
+    }
     args.addAll(['--events', 'stderr']);
     if (params['fg_enabled'] == true) {
       args.addAll(['--fg', '${params['fg_multiplier'] ?? 2}x']);
@@ -191,23 +242,36 @@ class DlssCompositor {
   }
 
   static File? _findCliExecutable() {
-    final exeName = Platform.isWindows ? 'dlss-compositor-cli.exe' : 'dlss-compositor-cli';
+    final exeName = Platform.isWindows
+        ? 'dlss-compositor-cli.exe'
+        : 'dlss-compositor-cli';
     final roots = <Directory>[
       Directory.current,
       File(Platform.resolvedExecutable).parent,
     ];
-    final projectRoot = _findProjectRoot(Directory.current) ??
+    final projectRoot =
+        _findProjectRoot(Directory.current) ??
         _findProjectRoot(File(Platform.resolvedExecutable).parent);
     if (projectRoot != null) roots.insert(0, projectRoot);
 
     for (final root in roots) {
       final candidates = [
         File('${root.path}${Platform.pathSeparator}$exeName'),
-        File('${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}Release${Platform.pathSeparator}$exeName'),
-        File('${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}Debug${Platform.pathSeparator}$exeName'),
-        File('${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}RelWithDebInfo${Platform.pathSeparator}$exeName'),
-        File('${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}x64-windows-msvc-release${Platform.pathSeparator}Release${Platform.pathSeparator}$exeName'),
-        File('${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}x64-windows-msvc-release${Platform.pathSeparator}Debug${Platform.pathSeparator}$exeName'),
+        File(
+          '${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}Release${Platform.pathSeparator}$exeName',
+        ),
+        File(
+          '${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}Debug${Platform.pathSeparator}$exeName',
+        ),
+        File(
+          '${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}RelWithDebInfo${Platform.pathSeparator}$exeName',
+        ),
+        File(
+          '${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}x64-windows-msvc-release${Platform.pathSeparator}Release${Platform.pathSeparator}$exeName',
+        ),
+        File(
+          '${root.path}${Platform.pathSeparator}build${Platform.pathSeparator}x64-windows-msvc-release${Platform.pathSeparator}Debug${Platform.pathSeparator}$exeName',
+        ),
       ];
       for (final candidate in candidates) {
         if (candidate.existsSync()) return candidate;
@@ -217,8 +281,10 @@ class DlssCompositor {
   }
 
   static String get _previewSharedMemoryName {
-    final raw = Directory.current.absolute.path
-        .replaceAll(RegExp(r'[^A-Za-z0-9_]'), '_');
+    final raw = Directory.current.absolute.path.replaceAll(
+      RegExp(r'[^A-Za-z0-9_]'),
+      '_',
+    );
     return 'Local\\DLSSCompositorPreview_$raw';
   }
 
@@ -226,7 +292,9 @@ class DlssCompositor {
     var dir = start.absolute;
     while (true) {
       if (File('${dir.path}${Platform.pathSeparator}AGENTS.md').existsSync() &&
-          File('${dir.path}${Platform.pathSeparator}CMakeLists.txt').existsSync()) {
+          File(
+            '${dir.path}${Platform.pathSeparator}CMakeLists.txt',
+          ).existsSync()) {
         return dir;
       }
       final parent = dir.parent;
@@ -247,26 +315,42 @@ class DlssCompositor {
     }
 
     const tolerantUtf8 = Utf8Decoder(allowMalformed: true);
-    process.stdout.transform(tolerantUtf8).transform(const LineSplitter()).listen(handleLine);
-    process.stderr.transform(tolerantUtf8).transform(const LineSplitter()).listen(handleLine);
+    process.stdout
+        .transform(tolerantUtf8)
+        .transform(const LineSplitter())
+        .listen(handleLine);
+    process.stderr
+        .transform(tolerantUtf8)
+        .transform(const LineSplitter())
+        .listen(handleLine);
   }
 
-  static Map<String, dynamic> _checkOutputCollisionsLocally(Map<String, dynamic> params) {
+  static Map<String, dynamic> _checkOutputCollisionsLocally(
+    Map<String, dynamic> params,
+  ) {
     final outputDir = params['output_dir'] as String? ?? '';
-    final template = (params['template'] ?? params['output_template']) as String? ?? 'frame_####.exr';
+    final template =
+        (params['template'] ?? params['output_template']) as String? ??
+        'frame_####.exr';
     final frameCount = params['frame_count'] as int? ?? 0;
     if (outputDir.isEmpty || frameCount <= 0) {
       return {'collisions': 0, 'files': <String>[]};
     }
-    if ((params['output_format'] as String? ?? '') == 'prores_422hq') {
-      final path = '${Directory(outputDir).path}${Platform.pathSeparator}$template';
+    final outputFormat = params['output_format'] as String? ?? '';
+    if (outputFormat == 'prores_422hq' || outputFormat == 'h265_hevc') {
+      final path =
+          '${Directory(outputDir).path}${Platform.pathSeparator}$template';
       return File(path).existsSync()
-          ? {'collisions': 1, 'files': <String>[path]}
+          ? {
+              'collisions': 1,
+              'files': <String>[path],
+            }
           : {'collisions': 0, 'files': <String>[]};
     }
     final files = <String>[];
     for (var frame = 1; frame <= frameCount; frame++) {
-      final path = '${Directory(outputDir).path}${Platform.pathSeparator}${_formatTemplate(template, frame)}';
+      final path =
+          '${Directory(outputDir).path}${Platform.pathSeparator}${_formatTemplate(template, frame)}';
       if (File(path).existsSync()) files.add(path);
     }
     return {'collisions': files.length, 'files': files};

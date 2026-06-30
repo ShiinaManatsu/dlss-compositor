@@ -1,6 +1,7 @@
 #include "prores_writer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <cmath>
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include <thread>
 #include <utility>
 
+#include "../core/log.h"
 #include "encoder_registry.h"
 
 extern "C" {
@@ -90,9 +92,40 @@ int clamp10(float value) noexcept
     return std::clamp(static_cast<int>(std::lround(value)), 64, 960);
 }
 
+std::uint16_t p010Sample(std::uint32_t value) noexcept
+{
+    return static_cast<std::uint16_t>(std::clamp(value, 0u, 1023u) << 6u);
+}
+
 AVRational rat(int num, int den) noexcept
 {
     return AVRational{num, den};
+}
+
+int resolveEncoderThreadCount(int requested) noexcept
+{
+    const unsigned detected = std::thread::hardware_concurrency();
+    const int fallback = detected > 0 ? static_cast<int>(detected) : 4;
+    return std::clamp(requested > 0 ? requested : fallback, 1, 16);
+}
+
+H265EncoderOptions sanitizeH265Options(H265EncoderOptions options)
+{
+    options.cq = std::clamp(options.cq, 0, 30);
+    if (options.preset.empty()) {
+        options.preset = "p5";
+    }
+    if (options.preset.size() == 1 && options.preset[0] >= '1' && options.preset[0] <= '7') {
+        options.preset = "p" + options.preset;
+    }
+    if (options.preset.size() != 2 || options.preset[0] != 'p' ||
+        options.preset[1] < '1' || options.preset[1] > '7') {
+        options.preset = "p5";
+    }
+    if (options.multipass != "disabled" && options.multipass != "qres" && options.multipass != "fullres") {
+        options.multipass = "qres";
+    }
+    return options;
 }
 
 void addHdr10SideData(AVStream* stream, float masteringNits)
@@ -210,8 +243,14 @@ float inferHdrMasteringNits(std::string_view viewTransform)
 }
 
 struct ProResWriter::Impl {
+    enum class FrameStorageLayout {
+        Rgba16f,
+        PackedYuv422Pairs,
+    };
+
     struct QueuedFrame {
         std::vector<std::uint8_t> pixels;
+        FrameStorageLayout storageLayout = FrameStorageLayout::Rgba16f;
         std::function<void()> completionCallback;
     };
 
@@ -227,6 +266,9 @@ struct ProResWriter::Impl {
     bool isHdr = false;
     float hdrMasteringNits = 1000.0f;
     PixelEncoding pixelEncoding = PixelEncoding::SceneLinear;
+    int encoderThreadCount = 1;
+    VideoCodec videoCodec = VideoCodec::ProRes422HQ;
+    H265EncoderOptions h265Options{};
 
     std::mutex encodeMutex;
     std::mutex queueMutex;
@@ -239,6 +281,9 @@ struct ProResWriter::Impl {
     bool stopWorker = false;
     bool cancelRequested = false;
     std::exception_ptr workerError;
+    std::uint64_t framesEncoded = 0;
+    std::chrono::microseconds convertTime{0};
+    std::chrono::microseconds encodeTime{0};
 };
 
 ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
@@ -249,7 +294,10 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
                            PixelEncoding pixelEncoding,
                            float hdrMasteringNits,
                            int queueHighWatermark,
-                           int queueLowWatermark)
+                           int queueLowWatermark,
+                           int encoderThreadCount,
+                           VideoCodec videoCodec,
+                           H265EncoderOptions h265Options)
 {
     if (width == 0 || height == 0 || fps <= 0) {
         throw std::runtime_error("ProResWriter: invalid dimensions or fps");
@@ -260,6 +308,9 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     m_impl->isHdr = isHdr;
     m_impl->hdrMasteringNits = std::clamp(hdrMasteringNits, 100.0f, 10000.0f);
     m_impl->pixelEncoding = pixelEncoding;
+    m_impl->encoderThreadCount = resolveEncoderThreadCount(encoderThreadCount);
+    m_impl->videoCodec = videoCodec;
+    m_impl->h265Options = sanitizeH265Options(std::move(h265Options));
     const int high = queueHighWatermark > 0 ? queueHighWatermark : 3;
     m_impl->queueHighWatermark = static_cast<std::size_t>(std::max(1, high));
     const int low = queueLowWatermark > 0 ? queueLowWatermark : 1;
@@ -270,17 +321,24 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
         std::filesystem::create_directories(outputPath.parent_path(), ec);
     }
 
-    int err = avformat_alloc_output_context2(&m_impl->format, nullptr, "mov", outputPath.string().c_str());
+    const char* muxer = videoCodec == VideoCodec::H265Hevc ? "mp4" : "mov";
+    int err = avformat_alloc_output_context2(&m_impl->format, nullptr, muxer, outputPath.string().c_str());
     if (err < 0 || !m_impl->format) {
-        throw std::runtime_error("ProResWriter: cannot create MOV muxer: " + fferr(err));
+        throw std::runtime_error("ProResWriter: cannot create video muxer: " + fferr(err));
     }
 
-    const AVCodec* codec = avcodec_find_encoder_by_name("prores_ks");
-    if (!codec) {
+    const AVCodec* codec = videoCodec == VideoCodec::H265Hevc
+        ? avcodec_find_encoder_by_name("libx265")
+        : avcodec_find_encoder_by_name("prores_ks");
+    if (!codec && videoCodec == VideoCodec::H265Hevc) {
+        codec = avcodec_find_encoder_by_name("hevc_nvenc");
+    } else if (!codec) {
         codec = avcodec_find_encoder(AV_CODEC_ID_PRORES);
     }
     if (!codec) {
-        throw std::runtime_error("ProResWriter: FFmpeg ProRes encoder not available");
+        throw std::runtime_error(videoCodec == VideoCodec::H265Hevc
+            ? "ProResWriter: FFmpeg HEVC encoder not available"
+            : "ProResWriter: FFmpeg ProRes encoder not available");
     }
 
     m_impl->stream = avformat_new_stream(m_impl->format, nullptr);
@@ -292,14 +350,18 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     if (!m_impl->codec) {
         throw std::runtime_error("ProResWriter: cannot allocate codec context");
     }
-    m_impl->codec->codec_id = AV_CODEC_ID_PRORES;
+    m_impl->codec->codec_id = videoCodec == VideoCodec::H265Hevc ? AV_CODEC_ID_HEVC : AV_CODEC_ID_PRORES;
     m_impl->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     m_impl->codec->width = static_cast<int>(width);
     m_impl->codec->height = static_cast<int>(height);
     m_impl->codec->time_base = AVRational{1, fps};
     m_impl->codec->framerate = AVRational{fps, 1};
-    m_impl->codec->pix_fmt = AV_PIX_FMT_YUV422P10LE;
-    m_impl->codec->profile = FF_PROFILE_PRORES_HQ;
+    m_impl->codec->pix_fmt = videoCodec == VideoCodec::H265Hevc ? AV_PIX_FMT_P010LE : AV_PIX_FMT_YUV422P10LE;
+    if (videoCodec == VideoCodec::ProRes422HQ) {
+        m_impl->codec->profile = FF_PROFILE_PRORES_HQ;
+    }
+    m_impl->codec->thread_count = m_impl->encoderThreadCount;
+    m_impl->codec->thread_type = FF_THREAD_SLICE;
     m_impl->codec->color_primaries = isHdr ? AVCOL_PRI_BT2020 : AVCOL_PRI_BT709;
     m_impl->codec->color_trc = isHdr ? AVCOL_TRC_SMPTE2084 : AVCOL_TRC_BT709;
     m_impl->codec->colorspace = isHdr ? AVCOL_SPC_BT2020_NCL : AVCOL_SPC_BT709;
@@ -307,8 +369,27 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     if (m_impl->format->oformat->flags & AVFMT_GLOBALHEADER) {
         m_impl->codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
-    if (m_impl->codec->priv_data) {
+    if (m_impl->codec->priv_data && videoCodec == VideoCodec::ProRes422HQ) {
         av_opt_set_int(m_impl->codec->priv_data, "profile", 3, 0);
+    } else if (m_impl->codec->priv_data) {
+        const std::string codecName = codec->name ? codec->name : "";
+        if (codecName == "libx265") {
+            av_opt_set(m_impl->codec->priv_data, "preset", "slow", 0);
+            av_opt_set(m_impl->codec->priv_data, "crf", isHdr ? "15" : "16", 0);
+        } else if (codecName == "hevc_nvenc") {
+            av_opt_set(m_impl->codec->priv_data, "preset", m_impl->h265Options.preset.c_str(), 0);
+            av_opt_set(m_impl->codec->priv_data, "rc", "vbr", 0);
+            av_opt_set(m_impl->codec->priv_data, "cq", std::to_string(m_impl->h265Options.cq).c_str(), 0);
+            av_opt_set(m_impl->codec->priv_data, "profile", "main10", 0);
+            av_opt_set(m_impl->codec->priv_data, "multipass", m_impl->h265Options.multipass.c_str(), 0);
+            av_opt_set_int(m_impl->codec->priv_data, "spatial-aq", m_impl->h265Options.spatialAq ? 1 : 0, 0);
+            av_opt_set_int(m_impl->codec->priv_data, "temporal-aq", m_impl->h265Options.temporalAq ? 1 : 0, 0);
+        }
+        if (isHdr && codecName == "libx265") {
+            av_opt_set(m_impl->codec->priv_data, "x265-params",
+                       "repeat-headers=1:hdr-opt=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+                       0);
+        }
     }
 
     err = avcodec_open2(m_impl->codec, codec, nullptr);
@@ -357,6 +438,23 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
         throw std::runtime_error("ProResWriter: cannot allocate frame buffer: " + fferr(err));
     }
 
+    LOG_INFO(
+        "ProResWriter: {}x{} @ {} fps hdr={} codec={} queue low/high={}/{} encoder_threads={} h265_cq={} h265_preset={} h265_multipass={} h265_spatial_aq={} h265_temporal_aq={} h265_vfr={}",
+        width,
+        height,
+        fps,
+        isHdr,
+        videoCodec == VideoCodec::H265Hevc ? "h265_hevc" : "prores_422hq",
+        m_impl->queueLowWatermark,
+        m_impl->queueHighWatermark,
+        m_impl->encoderThreadCount,
+        m_impl->h265Options.cq,
+        m_impl->h265Options.preset,
+        m_impl->h265Options.multipass,
+        m_impl->h265Options.spatialAq,
+        m_impl->h265Options.temporalAq,
+        m_impl->h265Options.vfr);
+
     m_impl->worker = std::thread([this]() {
         for (;;) {
             Impl::QueuedFrame frame;
@@ -382,7 +480,11 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
             }
 
             try {
-                writeFrameImpl(frame.pixels);
+                if (frame.storageLayout == Impl::FrameStorageLayout::PackedYuv422Pairs) {
+                    writePackedFrameImpl(frame.pixels);
+                } else {
+                    writeFrameImpl(frame.pixels);
+                }
                 if (frame.completionCallback) {
                     frame.completionCallback();
                 }
@@ -440,6 +542,11 @@ void ProResWriter::writeFrame(const std::vector<std::uint8_t>& rgba16f)
     writeFrameImpl(rgba16f);
 }
 
+void ProResWriter::writePackedYuv422Frame(const std::vector<std::uint8_t>& packedWords)
+{
+    writePackedFrameImpl(packedWords);
+}
+
 void ProResWriter::enqueueFrame(std::vector<std::uint8_t> rgba16f, std::function<void()> completionCallback)
 {
     if (!m_impl || m_impl->closed) {
@@ -462,6 +569,37 @@ void ProResWriter::enqueueFrame(std::vector<std::uint8_t> rgba16f, std::function
         }
         m_impl->pendingFrames.push_back(Impl::QueuedFrame{
             std::move(rgba16f),
+            Impl::FrameStorageLayout::Rgba16f,
+            std::move(completionCallback),
+        });
+    }
+    m_impl->queueCv.notify_one();
+}
+
+void ProResWriter::enqueuePackedYuv422Frame(std::vector<std::uint8_t> packedWords,
+                                            std::function<void()> completionCallback)
+{
+    if (!m_impl || m_impl->closed) {
+        throw std::runtime_error("ProResWriter: enqueue after close");
+    }
+    {
+        std::unique_lock<std::mutex> lock(m_impl->queueMutex);
+        if (m_impl->pendingFrames.size() >= m_impl->queueHighWatermark) {
+            m_impl->capacityCv.wait(lock, [this]() {
+                return m_impl->stopWorker ||
+                       m_impl->workerError ||
+                       m_impl->pendingFrames.size() <= m_impl->queueLowWatermark;
+            });
+        }
+        if (m_impl->workerError) {
+            std::rethrow_exception(m_impl->workerError);
+        }
+        if (m_impl->stopWorker) {
+            throw std::runtime_error("ProResWriter: enqueue after close/cancel");
+        }
+        m_impl->pendingFrames.push_back(Impl::QueuedFrame{
+            std::move(packedWords),
+            Impl::FrameStorageLayout::PackedYuv422Pairs,
             std::move(completionCallback),
         });
     }
@@ -501,32 +639,159 @@ void ProResWriter::writeFrameImpl(const std::vector<std::uint8_t>& rgba16f)
     }
 
     auto* yPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[0]);
-    auto* uPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[1]);
-    auto* vPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[2]);
     const int yStride = m_impl->frame->linesize[0] / static_cast<int>(sizeof(std::uint16_t));
-    const int uStride = m_impl->frame->linesize[1] / static_cast<int>(sizeof(std::uint16_t));
-    const int vStride = m_impl->frame->linesize[2] / static_cast<int>(sizeof(std::uint16_t));
+    const auto convertStart = std::chrono::steady_clock::now();
 
-    for (std::uint32_t y = 0; y < m_impl->height; ++y) {
-        for (std::uint32_t x = 0; x < m_impl->width; x += 2) {
-            const std::uint8_t* p0 = rgba16f.data() + (static_cast<std::size_t>(y) * m_impl->width + x) * 8u;
-            const std::uint8_t* p1 = (x + 1 < m_impl->width)
-                ? p0 + 8u
-                : p0;
-            const YuvPixel a = rgbaHalfToYuv(p0, m_impl->pixelEncoding, m_impl->isHdr);
-            const YuvPixel b = rgbaHalfToYuv(p1, m_impl->pixelEncoding, m_impl->isHdr);
-            yPlane[y * yStride + x] = static_cast<std::uint16_t>(a.y);
-            if (x + 1 < m_impl->width) {
-                yPlane[y * yStride + x + 1] = static_cast<std::uint16_t>(b.y);
+    if (m_impl->videoCodec == VideoCodec::H265Hevc) {
+        auto* uvPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[1]);
+        const int uvStride = m_impl->frame->linesize[1] / static_cast<int>(sizeof(std::uint16_t));
+        const std::uint32_t chromaWidth = (m_impl->width + 1u) / 2u;
+        const std::uint32_t chromaHeight = (m_impl->height + 1u) / 2u;
+        for (std::uint32_t cy = 0; cy < chromaHeight; ++cy) {
+            const std::uint32_t y0 = cy * 2u;
+            const std::uint32_t y1 = std::min(y0 + 1u, m_impl->height - 1u);
+            for (std::uint32_t chromaX = 0; chromaX < chromaWidth; ++chromaX) {
+                const std::uint32_t x0 = chromaX * 2u;
+                const std::uint32_t x1 = std::min(x0 + 1u, m_impl->width - 1u);
+                const auto* p00 = rgba16f.data() + (static_cast<std::size_t>(y0) * m_impl->width + x0) * 8u;
+                const auto* p10 = rgba16f.data() + (static_cast<std::size_t>(y0) * m_impl->width + x1) * 8u;
+                const auto* p01 = rgba16f.data() + (static_cast<std::size_t>(y1) * m_impl->width + x0) * 8u;
+                const auto* p11 = rgba16f.data() + (static_cast<std::size_t>(y1) * m_impl->width + x1) * 8u;
+                const YuvPixel a = rgbaHalfToYuv(p00, m_impl->pixelEncoding, m_impl->isHdr);
+                const YuvPixel b = rgbaHalfToYuv(p10, m_impl->pixelEncoding, m_impl->isHdr);
+                const YuvPixel c = rgbaHalfToYuv(p01, m_impl->pixelEncoding, m_impl->isHdr);
+                const YuvPixel d = rgbaHalfToYuv(p11, m_impl->pixelEncoding, m_impl->isHdr);
+                yPlane[y0 * yStride + x0] = p010Sample(a.y);
+                if (x1 != x0) {
+                    yPlane[y0 * yStride + x1] = p010Sample(b.y);
+                }
+                if (y1 != y0) {
+                    yPlane[y1 * yStride + x0] = p010Sample(c.y);
+                    if (x1 != x0) {
+                        yPlane[y1 * yStride + x1] = p010Sample(d.y);
+                    }
+                }
+                uvPlane[cy * uvStride + chromaX * 2u] = p010Sample((a.u + b.u + c.u + d.u + 2) / 4);
+                uvPlane[cy * uvStride + chromaX * 2u + 1u] = p010Sample((a.v + b.v + c.v + d.v + 2) / 4);
             }
-            const std::uint32_t chromaX = x / 2;
-            uPlane[y * uStride + chromaX] = static_cast<std::uint16_t>((a.u + b.u + 1) / 2);
-            vPlane[y * vStride + chromaX] = static_cast<std::uint16_t>((a.v + b.v + 1) / 2);
+        }
+    } else {
+        auto* uPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[1]);
+        auto* vPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[2]);
+        const int uStride = m_impl->frame->linesize[1] / static_cast<int>(sizeof(std::uint16_t));
+        const int vStride = m_impl->frame->linesize[2] / static_cast<int>(sizeof(std::uint16_t));
+        for (std::uint32_t y = 0; y < m_impl->height; ++y) {
+            for (std::uint32_t x = 0; x < m_impl->width; x += 2) {
+                const std::uint8_t* p0 = rgba16f.data() + (static_cast<std::size_t>(y) * m_impl->width + x) * 8u;
+                const std::uint8_t* p1 = (x + 1 < m_impl->width)
+                    ? p0 + 8u
+                    : p0;
+                const YuvPixel a = rgbaHalfToYuv(p0, m_impl->pixelEncoding, m_impl->isHdr);
+                const YuvPixel b = rgbaHalfToYuv(p1, m_impl->pixelEncoding, m_impl->isHdr);
+                yPlane[y * yStride + x] = static_cast<std::uint16_t>(a.y);
+                if (x + 1 < m_impl->width) {
+                    yPlane[y * yStride + x + 1] = static_cast<std::uint16_t>(b.y);
+                }
+                const std::uint32_t chromaX = x / 2;
+                uPlane[y * uStride + chromaX] = static_cast<std::uint16_t>((a.u + b.u + 1) / 2);
+                vPlane[y * vStride + chromaX] = static_cast<std::uint16_t>((a.v + b.v + 1) / 2);
+            }
         }
     }
+    m_impl->convertTime += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - convertStart);
 
     m_impl->frame->pts = m_impl->nextPts++;
+    const auto encodeStart = std::chrono::steady_clock::now();
     encodeFrame(m_impl->frame);
+    m_impl->encodeTime += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - encodeStart);
+    ++m_impl->framesEncoded;
+}
+
+void ProResWriter::writePackedFrameImpl(const std::vector<std::uint8_t>& packedWords)
+{
+    if (!m_impl || m_impl->closed) {
+        throw std::runtime_error("ProResWriter: write after close");
+    }
+    const std::uint32_t chromaWidth = (m_impl->width + 1u) / 2u;
+    const std::size_t expectedWords = static_cast<std::size_t>(chromaWidth) * m_impl->height * 2u;
+    const std::size_t expectedBytes = expectedWords * sizeof(std::uint32_t);
+    if (packedWords.size() < expectedBytes) {
+        throw std::runtime_error("ProResWriter: packed YUV buffer too small");
+    }
+
+    std::lock_guard<std::mutex> encodeLock(m_impl->encodeMutex);
+
+    int err = av_frame_make_writable(m_impl->frame);
+    if (err < 0) {
+        throw std::runtime_error("ProResWriter: frame not writable: " + fferr(err));
+    }
+
+    const auto* words = reinterpret_cast<const std::uint32_t*>(packedWords.data());
+    const auto lumaWordCount = static_cast<std::size_t>(chromaWidth) * m_impl->height;
+    const auto* yWords = words;
+    const auto* uvWords = words + lumaWordCount;
+    const auto convertStart = std::chrono::steady_clock::now();
+
+    auto* yPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[0]);
+    const int yStride = m_impl->frame->linesize[0] / static_cast<int>(sizeof(std::uint16_t));
+    if (m_impl->videoCodec == VideoCodec::H265Hevc) {
+        auto* uvPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[1]);
+        const int uvStride = m_impl->frame->linesize[1] / static_cast<int>(sizeof(std::uint16_t));
+        for (std::uint32_t y = 0; y < m_impl->height; ++y) {
+            for (std::uint32_t chromaX = 0; chromaX < chromaWidth; ++chromaX) {
+                const std::size_t wordIndex = static_cast<std::size_t>(y) * chromaWidth + chromaX;
+                const std::uint32_t yPair = yWords[wordIndex];
+                const std::uint32_t x = chromaX * 2u;
+                yPlane[y * yStride + x] = p010Sample(yPair & 0xffffu);
+                if (x + 1u < m_impl->width) {
+                    yPlane[y * yStride + x + 1u] = p010Sample((yPair >> 16) & 0xffffu);
+                }
+            }
+        }
+        const std::uint32_t chromaHeight = (m_impl->height + 1u) / 2u;
+        for (std::uint32_t cy = 0; cy < chromaHeight; ++cy) {
+            const std::uint32_t y0 = cy * 2u;
+            const std::uint32_t y1 = std::min(y0 + 1u, m_impl->height - 1u);
+            for (std::uint32_t chromaX = 0; chromaX < chromaWidth; ++chromaX) {
+                const std::uint32_t uv0 = uvWords[static_cast<std::size_t>(y0) * chromaWidth + chromaX];
+                const std::uint32_t uv1 = uvWords[static_cast<std::size_t>(y1) * chromaWidth + chromaX];
+                const std::uint32_t u = ((uv0 & 0xffffu) + (uv1 & 0xffffu) + 1u) / 2u;
+                const std::uint32_t v = (((uv0 >> 16) & 0xffffu) + ((uv1 >> 16) & 0xffffu) + 1u) / 2u;
+                uvPlane[cy * uvStride + chromaX * 2u] = p010Sample(u);
+                uvPlane[cy * uvStride + chromaX * 2u + 1u] = p010Sample(v);
+            }
+        }
+    } else {
+        auto* uPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[1]);
+        auto* vPlane = reinterpret_cast<std::uint16_t*>(m_impl->frame->data[2]);
+        const int uStride = m_impl->frame->linesize[1] / static_cast<int>(sizeof(std::uint16_t));
+        const int vStride = m_impl->frame->linesize[2] / static_cast<int>(sizeof(std::uint16_t));
+        for (std::uint32_t y = 0; y < m_impl->height; ++y) {
+            for (std::uint32_t chromaX = 0; chromaX < chromaWidth; ++chromaX) {
+                const std::size_t wordIndex = static_cast<std::size_t>(y) * chromaWidth + chromaX;
+                const std::uint32_t yPair = yWords[wordIndex];
+                const std::uint32_t uvPair = uvWords[wordIndex];
+                const std::uint32_t x = chromaX * 2u;
+                yPlane[y * yStride + x] = static_cast<std::uint16_t>(yPair & 0xffffu);
+                if (x + 1u < m_impl->width) {
+                    yPlane[y * yStride + x + 1u] = static_cast<std::uint16_t>((yPair >> 16) & 0xffffu);
+                }
+                uPlane[y * uStride + chromaX] = static_cast<std::uint16_t>(uvPair & 0xffffu);
+                vPlane[y * vStride + chromaX] = static_cast<std::uint16_t>((uvPair >> 16) & 0xffffu);
+            }
+        }
+    }
+    m_impl->convertTime += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - convertStart);
+
+    m_impl->frame->pts = m_impl->nextPts++;
+    const auto encodeStart = std::chrono::steady_clock::now();
+    encodeFrame(m_impl->frame);
+    m_impl->encodeTime += std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - encodeStart);
+    ++m_impl->framesEncoded;
 }
 
 void ProResWriter::close()
@@ -559,6 +824,17 @@ void ProResWriter::close()
     } catch (...) {
         closeError = std::current_exception();
     }
+    if (m_impl->framesEncoded > 0) {
+        const double frames = static_cast<double>(m_impl->framesEncoded);
+        const double avgConvertMs = static_cast<double>(m_impl->convertTime.count()) / 1000.0 / frames;
+        const double avgEncodeMs = static_cast<double>(m_impl->encodeTime.count()) / 1000.0 / frames;
+        LOG_INFO(
+            "ProResWriter: encoded {} frame(s); avg convert {:.3f} ms, avg encode+write {:.3f} ms, encoder_threads={}",
+            m_impl->framesEncoded,
+            avgConvertMs,
+            avgEncodeMs,
+            m_impl->encoderThreadCount);
+    }
     m_impl->closed = true;
     if (!(m_impl->format->oformat->flags & AVFMT_NOFILE) && m_impl->format->pb) {
         avio_closep(&m_impl->format->pb);
@@ -589,10 +865,13 @@ ProResProgressWriter::ProResProgressWriter(const std::filesystem::path& outputPa
                                            float hdrMasteringNits,
                                            int queueHighWatermark,
                                            int queueLowWatermark,
+                                           int encoderThreadCount,
                                            int totalFrames,
-                                           std::function<void(int current, int total)> progressCallback)
+                                           std::function<void(int current, int total)> progressCallback,
+                                           VideoCodec codec,
+                                           H265EncoderOptions h265Options)
     : m_writer(outputPath, width, height, fps, isHdr, pixelEncoding, hdrMasteringNits,
-               queueHighWatermark, queueLowWatermark),
+               queueHighWatermark, queueLowWatermark, encoderThreadCount, codec, std::move(h265Options)),
       m_total(totalFrames),
       m_progressCallback(std::move(progressCallback))
 {
@@ -607,9 +886,28 @@ void ProResProgressWriter::writeFrame(const std::vector<std::uint8_t>& rgba16f)
     }
 }
 
+void ProResProgressWriter::writePackedYuv422Frame(const std::vector<std::uint8_t>& packedWords)
+{
+    m_writer.writePackedYuv422Frame(packedWords);
+    ++m_written;
+    if (m_progressCallback) {
+        m_progressCallback(m_written, m_total);
+    }
+}
+
 void ProResProgressWriter::enqueueFrame(std::vector<std::uint8_t> rgba16f)
 {
     m_writer.enqueueFrame(std::move(rgba16f), [this]() {
+        ++m_written;
+        if (m_progressCallback) {
+            m_progressCallback(m_written, m_total);
+        }
+    });
+}
+
+void ProResProgressWriter::enqueuePackedYuv422Frame(std::vector<std::uint8_t> packedWords)
+{
+    m_writer.enqueuePackedYuv422Frame(std::move(packedWords), [this]() {
         ++m_written;
         if (m_progressCallback) {
             m_progressCallback(m_written, m_total);

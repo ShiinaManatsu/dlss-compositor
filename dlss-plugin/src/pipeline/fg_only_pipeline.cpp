@@ -1,6 +1,7 @@
 #include "fg_only_pipeline.h"
 
 #include "../core/log.h"
+#include "../gpu/passes/prores_convert_pass.h"
 #include "../gpu/passes/preview_pass.h"
 #include "../io/prores_writer.h"
 #include "fg_camera.h"
@@ -353,11 +354,12 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
         }
         PreviewPass previewPass(m_ctx);
         const int writerThreads = std::clamp(config.writerThreads, 1, 32);
-        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 20);
+        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 64);
         const int writerQueueLow = writerThreads;
         const int writerQueueHigh = writerThreads * writerQueueMultiplier;
         AsyncFrameWriter writer(writerThreads, writerQueueHigh, writerQueueLow);
         std::unique_ptr<ProResProgressWriter> proresWriter;
+        std::unique_ptr<ProresConvertPass> proresConvertPass;
         std::unique_ptr<LutInversePass> lutInversePass;
         if (!dlssCfg.inverse_lut.empty()) {
             auto inverseLut = LutLoader::LoadCube(dlssCfg.inverse_lut);
@@ -376,7 +378,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
 
         const uint32_t w = dlssCfg.output_resolution.width;
         const uint32_t h = dlssCfg.output_resolution.height;
-        if (config.outputFormat == OutputFormat::ProRes422HQ) {
+        if (config.outputFormat == OutputFormat::ProRes422HQ || config.outputFormat == OutputFormat::H265Mp4) {
             proresWriter = std::make_unique<ProResProgressWriter>(
                 std::filesystem::path(config.outputDir) / config.filenameTemplate,
                 w,
@@ -387,12 +389,16 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                 inferHdrMasteringNits(dlssCfg.view_transform),
                 writerQueueHigh,
                 writerQueueLow,
+                writerThreads,
                 outputFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);
                     m_dispatcher->progress().percent.store(
                         total > 0 ? static_cast<float>(current) / static_cast<float>(total) : 0.0f);
-                });
+                },
+                config.outputFormat == OutputFormat::H265Mp4 ? VideoCodec::H265Hevc : VideoCodec::ProRes422HQ,
+                config.h265Options);
+            proresConvertPass = std::make_unique<ProresConvertPass>(m_ctx);
         }
 
         fgPass.create(w, h, w, h, config.multiplier);
@@ -447,14 +453,6 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
 
         auto enqueuePixels = [&](std::vector<std::uint8_t> pixels, PixelEncoding pixelEncoding) {
             ++outputFrameIdx;
-            if (proresWriter) {
-                proresWriter->enqueueFrame(std::move(pixels));
-                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
-                m_dispatcher->progress().dlss_percent.store(
-                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
-                return;
-            }
-
             WriteJob writeJob;
             writeJob.format        = config.outputFormat;
             writeJob.outputPath    = std::filesystem::path(config.outputDir) /
@@ -510,6 +508,20 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL),
                     PixelEncoding::SceneLinear);
                 pool.release(sceneLinear);
+                return;
+            }
+
+            if (proresWriter) {
+                ++outputFrameIdx;
+                proresWriter->enqueuePackedYuv422Frame(
+                    proresConvertPass->convertAndReadback(
+                        srcDisplay,
+                        PixelEncoding::DisplayReady,
+                        dlssCfg.is_hdr,
+                        oldLayout));
+                m_dispatcher->progress().dlss_current_frame.store(outputFrameIdx);
+                m_dispatcher->progress().dlss_percent.store(
+                    static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames));
                 return;
             }
 

@@ -53,17 +53,24 @@ target_include_directories(${PROJECT_NAME}_plugin PRIVATE
 target_link_libraries(${PROJECT_NAME}_plugin PRIVATE flutter flutter_wrapper_plugin dlss_engine_lib)
 
 if(WIN32 AND DEFINED DLSS_SDK_ROOT)
-  set(_dlss_runtime_dir "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel")
+  set(_dlss_runtime_dev_dir "${DLSS_SDK_ROOT}/lib/Windows_x86_64/dev")
+  set(_dlss_runtime_rel_dir "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel")
   set(_dlss_runtime_dlls)
   foreach(_dlss_dll IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll)
-    if(EXISTS "${_dlss_runtime_dir}/${_dlss_dll}")
-      list(APPEND _dlss_runtime_dlls "${_dlss_runtime_dir}/${_dlss_dll}")
+    set(_dlss_runtime_dev_dll "${_dlss_runtime_dev_dir}/${_dlss_dll}")
+    set(_dlss_runtime_rel_dll "${_dlss_runtime_rel_dir}/${_dlss_dll}")
+    if(EXISTS "${_dlss_runtime_dev_dll}" AND EXISTS "${_dlss_runtime_rel_dll}")
+      set(_dlss_runtime_config_dll
+        "$<$<CONFIG:Debug>:${_dlss_runtime_dev_dll}>$<$<NOT:$<CONFIG:Debug>>:${_dlss_runtime_rel_dll}>")
+      list(APPEND _dlss_runtime_dlls "${_dlss_runtime_config_dll}")
       add_custom_command(TARGET ${PROJECT_NAME}_plugin POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_dlss_runtime_dir}/${_dlss_dll}"
+          "${_dlss_runtime_config_dll}"
           "$<TARGET_FILE_DIR:${PROJECT_NAME}_plugin>"
-        COMMENT "Copying DLSS runtime DLL for Flutter plugin: ${_dlss_dll}"
+        COMMENT "Copying DLSS runtime DLL for Flutter plugin (${_dlss_dll}; Debug=dev, non-Debug=rel)"
         VERBATIM)
+    else()
+      message(WARNING "DLSS runtime DLL missing (skipped copy): ${_dlss_dll}")
     endif()
   endforeach()
 endif()

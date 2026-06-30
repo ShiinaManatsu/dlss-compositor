@@ -39,14 +39,23 @@ void printHelp() {
         << "Usage:\n"
         << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
-        << "  --output-format <fmt>        exr | png_16 | prores_422hq (PNG is LDR only; ProRes supports LDR/HDR).\n"
+        << "  --output-format <fmt>        exr | png_16 | prores_422hq | h265_hevc (PNG is LDR only; video supports LDR/HDR).\n"
+        << "  --preset <auto|J|K|L|M>      DLSS SR render preset override (default auto).\n"
         << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
         << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
         << "  --png-quality <0-100>        PNG zlib compression percent (default 97).\n"
         << "  --exr-compression <mode>     none | zip | dwaa (default zip).\n"
         << "  --exr-compression-level <0-100>  EXR zip/DWAA compression level (default 97).\n"
         << "  --writer-threads <1-32>      Image sequence write concurrency (default 4).\n"
-        << "  --writer-buffer-multiplier <1-20>  Max queued frames = threads * multiplier (default 3).\n"
+        << "  --writer-buffer-multiplier <1-64>  Max queued frames = threads * multiplier (default 3).\n"
+        << "  --h265-cq <0-30>            H.265 NVENC constant quality; lower is better (default 18).\n"
+        << "  --h265-preset <p1..p7>      H.265 NVENC speed/quality preset (default p5).\n"
+        << "  --h265-multipass <mode>     disabled | qres | fullres (default qres).\n"
+        << "  --h265-spatial-aq <0|1>     Enable H.265 spatial adaptive quantization (default 1).\n"
+        << "  --h265-temporal-aq <0|1>    Enable H.265 temporal adaptive quantization (default 1).\n"
+        << "  --h265-vfr <0|1>            Reserved VFR intent flag; current writer timestamps remain CFR.\n"
+        << "  --frame-start <n>            First input frame number to process (inclusive).\n"
+        << "  --frame-end <n>              Last input frame number to process (inclusive).\n"
         << "  --fg <2x..6x>                Enable frame generation multiplier.\n"
         << "  --events stderr              Emit structured progress events on stderr.\n"
         << "  --self-check                 Check GPU + NGX availability.\n"
@@ -96,12 +105,23 @@ int main(int argc, char* argv[]) {
         options.outputDir = getArg(args, "--output-dir", getArg(args, "--output"));
         options.outputTemplate = getArg(args, "--output-template", getArg(args, "--template"));
         options.outputFormat = getArg(args, "--output-format", "exr");
+        options.presetOverride = getArg(args, "--preset", "auto");
         options.overwriteMode = getArg(args, "--overwrite-mode", "overwrite");
         options.pngQualityPercent = std::stoi(getArg(args, "--png-quality", "97"));
         options.exrCompression = getArg(args, "--exr-compression", "zip");
         options.exrCompressionLevelPercent = std::stoi(getArg(args, "--exr-compression-level", "97"));
         options.writerThreads = std::stoi(getArg(args, "--writer-threads", "4"));
         options.writerQueueMultiplier = std::stoi(getArg(args, "--writer-buffer-multiplier", "3"));
+        options.h265Options.cq = std::stoi(getArg(args, "--h265-cq", "18"));
+        options.h265Options.preset = getArg(args, "--h265-preset", "p5");
+        options.h265Options.multipass = getArg(args, "--h265-multipass", "qres");
+        options.h265Options.spatialAq = getArg(args, "--h265-spatial-aq", "1") != "0";
+        options.h265Options.temporalAq = getArg(args, "--h265-temporal-aq", "1") != "0";
+        options.h265Options.vfr = getArg(args, "--h265-vfr", "0") != "0";
+        const std::string frameStart = getArg(args, "--frame-start");
+        const std::string frameEnd = getArg(args, "--frame-end");
+        if (!frameStart.empty()) options.frameStart = std::stoi(frameStart);
+        if (!frameEnd.empty()) options.frameEnd = std::stoi(frameEnd);
         options.previewSharedMemoryName = getArg(args, "--preview-shm");
         options.emitEvents = getArg(args, "--events") == "stderr";
         options.fgEnabled = !fg.empty();

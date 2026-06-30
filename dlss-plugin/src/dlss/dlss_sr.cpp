@@ -48,7 +48,12 @@ DlssSrPass::~DlssSrPass() {
     destroy();
 }
 
-void DlssSrPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, QualityMode quality) {
+void DlssSrPass::create(uint32_t inW,
+                        uint32_t inH,
+                        uint32_t outW,
+                        uint32_t outH,
+                        QualityMode quality,
+                        DlssPreset presetOverride) {
     if (m_handle) destroy();
 
     // DLSS SR §3.5 - Feature creation parameters
@@ -70,6 +75,9 @@ void DlssSrPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH
         NVSDK_NGX_DLSS_Feature_Flags_MVLowRes      | // DLSS SR §3.6.2 - MV at render res
         NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;   // DLSS SR §3.10 - auto exposure
 
+    // DLSS SR §3.12 - Preset hints must be configured before creating the feature.
+    setPresetForQuality(m_ngxParams, quality, presetOverride);
+
     // DLSS SR §3.5 - Create the feature
     auto pool = m_ctx->createComputeCommandPool();
     VkCommandBuffer initCmd = m_ctx->beginOneTimeCommands(pool);
@@ -84,10 +92,13 @@ void DlssSrPass::create(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH
         throw std::runtime_error("NGX_VULKAN_CREATE_DLSS_EXT failed: " + std::to_string(result));
     }
 
-    // DLSS SR §3.12 - Set per-quality preset (DLAA/Q/B/UQ→K, P→M, UP→L)
-    setPresetForQuality(m_ngxParams, quality);
-
-    LOG_INFO("[DLSS SR] Created {}x{} -> {}x{} quality={}", inW, inH, outW, outH, static_cast<int>(quality));
+    LOG_INFO("[DLSS SR] Created {}x{} -> {}x{} quality={} preset={}",
+             inW,
+             inH,
+             outW,
+             outH,
+             static_cast<int>(quality),
+             static_cast<int>(presetOverride));
 }
 
 void DlssSrPass::evaluate(VkCommandBuffer cmd, const SrInputs& in) {
@@ -168,7 +179,7 @@ int DlssSrPass::toNgxQuality(QualityMode q) {
     // DLSS §3.8 - Quality mode mapping
     switch (q) {
         case QualityMode::DLAA:             return NVSDK_NGX_PerfQuality_Value_DLAA;
-        case QualityMode::UltraQuality:     return NVSDK_NGX_PerfQuality_Value_MaxQuality;
+        case QualityMode::UltraQuality:     return NVSDK_NGX_PerfQuality_Value_UltraQuality;
         case QualityMode::Quality:          return NVSDK_NGX_PerfQuality_Value_MaxQuality;
         case QualityMode::Balanced:         return NVSDK_NGX_PerfQuality_Value_Balanced;
         case QualityMode::Performance:      return NVSDK_NGX_PerfQuality_Value_MaxPerf;
@@ -177,21 +188,54 @@ int DlssSrPass::toNgxQuality(QualityMode q) {
     }
 }
 
-void DlssSrPass::setPresetForQuality(NVSDK_NGX_Parameter* params, QualityMode q) {
-    // DLSS §3.12 - Per-quality preset selection
-    // Recommended presets: DLAA/UltraQuality/Quality/Balanced → K; Performance → M; UltraPerformance → L
+void DlssSrPass::setPresetForQuality(NVSDK_NGX_Parameter* params, QualityMode q, DlssPreset presetOverride) {
+    // DLSS §3.12 - Per-quality preset selection.
+    // Auto mapping: DLAA/UltraQuality/Quality/Balanced -> K; Performance -> M; UltraPerformance -> L.
     NVSDK_NGX_DLSS_Hint_Render_Preset preset;
-    switch (q) {
-        case QualityMode::Performance:      preset = NVSDK_NGX_DLSS_Hint_Render_Preset_M; break;  // DLSS SR §3.12
-        case QualityMode::UltraPerformance: preset = NVSDK_NGX_DLSS_Hint_Render_Preset_L; break;  // DLSS SR §3.12
-        default:                            preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K; break;  // DLSS SR §3.12
+    switch (presetOverride) {
+        case DlssPreset::J:
+            preset = NVSDK_NGX_DLSS_Hint_Render_Preset_J;
+            break;
+        case DlssPreset::K:
+            preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+            break;
+        case DlssPreset::L:
+            preset = NVSDK_NGX_DLSS_Hint_Render_Preset_L;
+            break;
+        case DlssPreset::M:
+            preset = NVSDK_NGX_DLSS_Hint_Render_Preset_M;
+            break;
+        case DlssPreset::Auto:
+        default:
+            switch (q) {
+                case QualityMode::Performance:
+                    preset = NVSDK_NGX_DLSS_Hint_Render_Preset_M;
+                    break;
+                case QualityMode::UltraPerformance:
+                    preset = NVSDK_NGX_DLSS_Hint_Render_Preset_L;
+                    break;
+                default:
+                    preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+                    break;
+            }
+            break;
     }
 
-    // DLSS SR §3.12 - Apply preset hint via NGX parameters
+    // DLSS SR §3.12 - Apply preset hint for every SR quality key, matching NVIDIA's UE NGXRHI path.
+    // NGX ignores unrelated keys; setting all keys avoids accidentally only configuring DLAA.
+    const unsigned presetValue = static_cast<unsigned>(preset);
     NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
-        params,
-        NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,
-        static_cast<unsigned>(preset));
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, presetValue);
+    NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, presetValue);
+    NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, presetValue);
+    NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, presetValue);
+    NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, presetValue);
+    NVSDK_NGX_Parameter_SetUI( // DLSS §3.12
+        params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, presetValue);
 }
 
 } // namespace dlss

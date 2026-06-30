@@ -39,8 +39,9 @@ TEST_CASE("RpcDispatcher - getStatus returns correct video_encoders", "[unit][rp
 
     REQUIRE(result.contains("video_encoders"));
     auto& encoders = result["video_encoders"];
-    REQUIRE(encoders.size() == 1);
+    REQUIRE(encoders.size() == 2);
     REQUIRE(encoders[0].get<std::string>() == "prores_422hq");
+    REQUIRE(encoders[1].get<std::string>() == "h265_hevc");
 
     // Extension codecs must NOT be in the registered list.
     for (const auto& enc : encoders) {
@@ -92,6 +93,21 @@ TEST_CASE("RpcDispatcher - getStatus exposes ProRes for LDR and HDR", "[unit][rp
         if (f.get<std::string>() == "prores_422hq") hasHdrProRes = true;
     }
     REQUIRE(hasHdrProRes);
+}
+
+TEST_CASE("RpcDispatcher - getStatus exposes H265 HEVC for LDR and HDR", "[unit][rpc]") {
+    dlss::RpcDispatcher dispatcher;
+    auto result = dispatcher.dispatch("getStatus", {});
+    bool hasLdrH265 = false;
+    for (const auto& f : result["export_formats_ldr"]) {
+        if (f.get<std::string>() == "h265_hevc") hasLdrH265 = true;
+    }
+    REQUIRE(hasLdrH265);
+    bool hasHdrH265 = false;
+    for (const auto& f : result["export_formats_hdr"]) {
+        if (f.get<std::string>() == "h265_hevc") hasHdrH265 = true;
+    }
+    REQUIRE(hasHdrH265);
 }
 
 TEST_CASE("RpcDispatcher - getProgress lock-free + idle by default", "[unit][rpc]") {

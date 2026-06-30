@@ -72,6 +72,11 @@ class DLSS_OT_ConfigureAllPasses(Operator):
         if hasattr(scene, "cycles"):
             scene.cycles.use_denoising = True  # type: ignore[attr-defined]
 
+        # Blender's handler docs recommend locking the interface before render
+        # when handlers mutate data that the viewport/render result can read.
+        if props.enabled and hasattr(scene.render, "use_lock_interface"):
+            scene.render.use_lock_interface = True
+
         # 3. Set up compositor File Output nodes
         if self._setup_file_output_nodes(scene, props) is False:
             return {"CANCELLED"}

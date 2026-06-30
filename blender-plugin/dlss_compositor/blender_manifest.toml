@@ -11,7 +11,7 @@ license = ["SPDX:MIT"]
 platforms = ["windows-x64"]
 
 [permissions]
-files = "Write per-frame camera data and dlssconfig.json to output directory"
+files = "Write per-frame camera data, dlssconfig.dlssc, and legacy dlssconfig.json to output directory"
 
 [build]
 paths_exclude_pattern = [

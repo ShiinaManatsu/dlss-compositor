@@ -46,16 +46,16 @@ struct DlssConfig {
     std::map<std::string, CameraData> frames;
 };
 
-// OutputFormat enum: ExrLinear/Png16 image sequences and LDR/HDR ProRes422HQ MOV are implemented in v2.
-// The rest are enum placeholders for future extensions; DO NOT register to EncoderRegistry.
+// OutputFormat enum: ExrLinear/Png16 image sequences and sequence-level video muxers are implemented in v2.
+// The rest are enum placeholders for future extensions; DO NOT register video muxers to EncoderRegistry.
 enum class OutputFormat {
     ExrLinear,
     Png16,
     ProRes422HQ,
+    H265Mp4,
     // not implemented in v2 - future extension hooks:
     Jpeg,
     H264Mp4,
-    H265Mp4,
     Av1Mp4,
     Avif,
     ProRes4444XQ,
@@ -84,7 +84,7 @@ constexpr int JITTER_PHASES[] = {
 
 // Per-quality preset mapping (SR section 3.12)
 // DLAA/UltraQuality/Quality/Balanced -> K; Performance -> M; UltraPerformance -> L
-enum class NgxPreset { K = 'K', L = 'L', M = 'M' };
+enum class NgxPreset { J = 'J', K = 'K', L = 'L', M = 'M' };
 constexpr NgxPreset DEFAULT_PRESET[] = {
     NgxPreset::K, // DLAA
     NgxPreset::K, // UltraQuality

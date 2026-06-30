@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <exception>
 #include <filesystem>
@@ -44,6 +45,10 @@ OutputFormat parseOutputFormat(const std::string& value, bool isHdr) {
     if (value == "prores" || value == "prores_422hq") {
         (void)isHdr;
         return OutputFormat::ProRes422HQ;
+    }
+    if (value == "h265" || value == "hevc" || value == "h265_hevc" || value == "h265_mp4") {
+        (void)isHdr;
+        return OutputFormat::H265Mp4;
     }
     throw std::runtime_error("Unsupported output format: " + value);
 }
@@ -74,6 +79,20 @@ ExrCompressionMode parseExrCompression(const std::string& value) {
     throw std::runtime_error("Unsupported EXR compression mode: " + value);
 }
 
+DlssPreset parsePresetOverride(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (value.empty() || value == "auto") {
+        return DlssPreset::Auto;
+    }
+    if (value == "j") return DlssPreset::J;
+    if (value == "k") return DlssPreset::K;
+    if (value == "l") return DlssPreset::L;
+    if (value == "m") return DlssPreset::M;
+    throw std::runtime_error("Unsupported DLSS preset: " + value);
+}
+
 std::filesystem::path defaultOutputDir(const std::filesystem::path& configPath) {
     const auto parent = configPath.parent_path();
     return parent.empty() ? std::filesystem::path("output") : parent / "output";
@@ -86,6 +105,9 @@ std::string defaultTemplateFor(OutputFormat format) {
     if (format == OutputFormat::ProRes422HQ) {
         return "output.mov";
     }
+    if (format == OutputFormat::H265Mp4) {
+        return "output.mp4";
+    }
     return "frame_####.exr";
 }
 
@@ -95,6 +117,9 @@ std::string extensionFor(OutputFormat format) {
     }
     if (format == OutputFormat::ProRes422HQ) {
         return ".mov";
+    }
+    if (format == OutputFormat::H265Mp4) {
+        return ".mp4";
     }
     return ".exr";
 }
@@ -107,7 +132,7 @@ std::string withFormatExtension(std::string filenameTemplate, OutputFormat forma
     const auto dot = filenameTemplate.find_last_of('.');
     if (dot != std::string::npos) {
         const std::string currentExt = filenameTemplate.substr(dot);
-        if (currentExt == ".png" || currentExt == ".exr" || currentExt == ".mov") {
+        if (currentExt == ".png" || currentExt == ".exr" || currentExt == ".mov" || currentExt == ".mp4") {
             filenameTemplate.replace(dot, std::string::npos, ext);
             return filenameTemplate;
         }
@@ -120,8 +145,12 @@ bool needsSr(const DlssConfig& config) {
            config.render_resolution.height != config.output_resolution.height;
 }
 
-std::string videoOutputName(std::string filenameTemplate) {
-    filenameTemplate = withFormatExtension(std::move(filenameTemplate), OutputFormat::ProRes422HQ);
+bool isVideoFormat(OutputFormat format) {
+    return format == OutputFormat::ProRes422HQ || format == OutputFormat::H265Mp4;
+}
+
+std::string videoOutputName(std::string filenameTemplate, OutputFormat format) {
+    filenameTemplate = withFormatExtension(std::move(filenameTemplate), format);
     std::string out;
     for (std::size_t i = 0; i < filenameTemplate.size(); ++i) {
         if (filenameTemplate[i] == '#') {
@@ -134,8 +163,9 @@ std::string videoOutputName(std::string filenameTemplate) {
         out = std::regex_replace(out, std::regex("__"), "_");
     }
     const auto dot = out.find_last_of('.');
-    if (dot == 0 || out.empty() || out == ".mov") {
-        return "output.mov";
+    const std::string ext = extensionFor(format);
+    if (dot == 0 || out.empty() || out == ext) {
+        return defaultTemplateFor(format);
     }
     return out;
 }
@@ -145,6 +175,35 @@ int outputFrameCount(int inputFrames, bool fgEnabled, int fgMultiplier) {
         return inputFrames;
     }
     return fgMultiplier * inputFrames - (fgMultiplier - 1);
+}
+
+DlssConfig selectFrameRange(DlssConfig config, int frameStart, int frameEnd) {
+    if (frameStart < 0 && frameEnd < 0) {
+        return config;
+    }
+    if (frameStart >= 0 && frameEnd >= 0 && frameStart > frameEnd) {
+        throw std::runtime_error("Frame range start must be <= end");
+    }
+
+    std::map<std::string, CameraData> selected;
+    for (const auto& [key, camera] : config.frames) {
+        int frameNumber = 0;
+        try {
+            frameNumber = std::stoi(key);
+        } catch (...) {
+            LOG_WARN("[cli] Ignoring non-numeric frame key during range selection: {}", key);
+            continue;
+        }
+        if (frameStart >= 0 && frameNumber < frameStart) {
+            continue;
+        }
+        if (frameEnd >= 0 && frameNumber > frameEnd) {
+            continue;
+        }
+        selected.emplace(key, camera);
+    }
+    config.frames = std::move(selected);
+    return config;
 }
 
 void emitProgressEvent(int frame, int total) {
@@ -171,10 +230,15 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
         return 2;
     }
 
-    const DlssConfig& config = loaded.value();
+    const DlssConfig config = selectFrameRange(
+        loaded.value(),
+        options.frameStart,
+        options.frameEnd);
     const int inputFrames = static_cast<int>(config.frames.size());
     if (inputFrames <= 0) {
-        LOG_ERROR("[cli] dlssconfig has no frames");
+        LOG_ERROR("[cli] dlssconfig has no frames in requested range start={} end={}",
+                  options.frameStart,
+                  options.frameEnd);
         return 3;
     }
     if (options.fgEnabled && inputFrames < 2) {
@@ -193,8 +257,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
         const std::filesystem::path outputDir = options.outputDir.empty()
             ? defaultOutputDir(options.configPath)
             : options.outputDir;
-        const std::string filenameTemplate = format == OutputFormat::ProRes422HQ
-            ? videoOutputName(options.outputTemplate)
+        const std::string filenameTemplate = isVideoFormat(format)
+            ? videoOutputName(options.outputTemplate, format)
             : withFormatExtension(options.outputTemplate, format);
         PreviewPublisher preview(options.previewSharedMemoryName);
         auto previewCallback = [&preview, &options](const std::vector<std::uint8_t>& pixels,
@@ -215,15 +279,19 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
         const std::string outputDirString = outputDir.string();
         const std::string formatString = options.outputFormat.empty() ? std::string("exr") : options.outputFormat;
         const int writerThreads = std::clamp(options.writerThreads, 1, 32);
-        const int writerQueueMultiplier = std::clamp(options.writerQueueMultiplier, 1, 20);
+        const int writerQueueMultiplier = std::clamp(options.writerQueueMultiplier, 1, 64);
+        const DlssPreset presetOverride = parsePresetOverride(options.presetOverride);
 
-        LOG_INFO("[cli] Executing config: input_frames={} output_frames={} output_dir={} format={} writer_threads={} queue_multiplier={}",
+        LOG_INFO("[cli] Executing config: input_frames={} output_frames={} output_dir={} format={} writer_threads={} queue_multiplier={} frame_start={} frame_end={} preset={}",
                  inputFrames,
                  totalFrames,
                  outputDirString,
                  formatString,
                  writerThreads,
-                 writerQueueMultiplier);
+                 writerQueueMultiplier,
+                 options.frameStart,
+                 options.frameEnd,
+                 options.presetOverride);
 
         LOG_INFO("[cli] Using provided Vulkan/NGX runtime");
         RpcDispatcher dispatcher;
@@ -252,6 +320,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.writerThreads = writerThreads;
             pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
+            pipelineConfig.presetOverride = presetOverride;
+            pipelineConfig.h265Options = options.h265Options;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -273,6 +343,7 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.writerThreads = writerThreads;
             pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
+            pipelineConfig.h265Options = options.h265Options;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;
@@ -294,6 +365,8 @@ int executeConfig(const ConfigExecutionOptions& options, VulkanContext& vulkan, 
             pipelineConfig.encoderOptions = encoderOptions;
             pipelineConfig.writerThreads = writerThreads;
             pipelineConfig.writerQueueMultiplier = writerQueueMultiplier;
+            pipelineConfig.presetOverride = presetOverride;
+            pipelineConfig.h265Options = options.h265Options;
             pipelineConfig.previewCallback = previewCallback;
             pipelineConfig.previewRgba8Callback = options.previewRgba8Callback;
             pipelineConfig.wantsPreviewFrame = options.wantsPreviewFrame;

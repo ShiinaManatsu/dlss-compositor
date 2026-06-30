@@ -12,10 +12,14 @@
 #include <stdexcept>
 #include <string>
 
+#ifndef DLSS_SOURCE_DIR
+#define DLSS_SOURCE_DIR "."
+#endif
+
 namespace {
 
 std::string readTextFile(const std::filesystem::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(std::filesystem::path(DLSS_SOURCE_DIR) / path, std::ios::binary);
     REQUIRE(in.good());
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
@@ -70,7 +74,8 @@ TEST_CASE("SrFgPipeline - ProRes path writes real frames asynchronously at FG ou
     const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
 
     REQUIRE(source.find("dlssCfg.fps * config.fgMultiplier") != std::string::npos);
-    REQUIRE(source.find("proresWriter->enqueueFrame(std::move(pixels))") != std::string::npos);
+    REQUIRE(source.find("proresWriter->enqueuePackedYuv422Frame") != std::string::npos);
+    REQUIRE(source.find("proresConvertPass->convertAndReadback") != std::string::npos);
     REQUIRE(source.find("downloadImageA2B10ToRgba16f") != std::string::npos);
     REQUIRE(source.find("proresWriter->writeFrame(m_ctx->downloadImageRgba16f") == std::string::npos);
     REQUIRE(source.find("PixelEncoding::DisplayReady") != std::string::npos);

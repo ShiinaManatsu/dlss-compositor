@@ -32,7 +32,8 @@ class AppLog {
     if (_disabled || !_shouldLog) return;
     final file = _file ??= _resolveLogFile();
     final suffix = details == null ? '' : ' | $details';
-    final line = '[${DateTime.now().toIso8601String()}] [$stage] $message$suffix';
+    final line =
+        '[${DateTime.now().toIso8601String()}] [$stage] $message$suffix';
     try {
       file.writeAsStringSync('$line\n', mode: FileMode.append);
     } on FileSystemException {
@@ -48,6 +49,8 @@ class AppLog {
       'output_format': params['output_format'],
       'writer_threads': params['writer_threads'],
       'writer_buffer_multiplier': params['writer_buffer_multiplier'],
+      'frame_start': params['frame_start'],
+      'frame_end': params['frame_end'],
       'overwrite_mode': params['overwrite_mode'],
     };
   }
@@ -68,6 +71,7 @@ class AppLog {
   }
 
   static bool get _shouldLog =>
-      kDebugMode || _enabledByBuild || Platform.environment['DLSS_COMPOSITOR_GUI_LOG'] == '1';
-
+      kDebugMode ||
+      _enabledByBuild ||
+      Platform.environment['DLSS_COMPOSITOR_GUI_LOG'] == '1';
 }

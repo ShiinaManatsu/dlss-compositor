@@ -14,7 +14,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Open dlssconfig.json'), findsOneWidget);
+    expect(find.text('Open DLSS Config'), findsOneWidget);
     expect(find.text('DLSS Compositor $kAppVersion'), findsWidgets);
   });
 }

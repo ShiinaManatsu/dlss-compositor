@@ -18,6 +18,8 @@ void main() {
     expect(prefs.pngQuality, 97);
     expect(prefs.exrCompression, 'zip');
     expect(prefs.exrCompressionLevel, 97);
+    expect(prefs.blenderExecutablePath, '');
+    expect(prefs.registeredFileAssociationVersion, 0);
   });
 
   test('AppPreferences - set and persist values', () async {
@@ -28,12 +30,16 @@ void main() {
     prefs.setPngQuality(83);
     prefs.setExrCompression('dwaa');
     prefs.setExrCompressionLevel(91);
+    prefs.setBlenderExecutablePath('C:\\Blender\\blender.exe');
+    prefs.setRegisteredFileAssociationVersion(1);
     await Future.delayed(const Duration(milliseconds: 600));
     expect(prefs.fgMultiplier, 4);
     expect(prefs.fgEnabled, true);
     expect(prefs.pngQuality, 83);
     expect(prefs.exrCompression, 'dwaa');
     expect(prefs.exrCompressionLevel, 91);
+    expect(prefs.blenderExecutablePath, 'C:\\Blender\\blender.exe');
+    expect(prefs.registeredFileAssociationVersion, 1);
   });
 
   test('AppPreferences - reset to defaults', () async {
@@ -46,6 +52,8 @@ void main() {
     expect(prefs.pngQuality, 97);
     expect(prefs.exrCompression, 'zip');
     expect(prefs.exrCompressionLevel, 97);
+    expect(prefs.blenderExecutablePath, '');
+    expect(prefs.registeredFileAssociationVersion, 0);
   });
 
   test('AppPreferences - has persistable settings', () async {
@@ -63,5 +71,7 @@ void main() {
     expect(prefs.outputDirectory, isA<String>());
     expect(prefs.splitterPosition, isA<double>());
     expect(prefs.sessionTitle, isA<String>());
+    expect(prefs.blenderExecutablePath, isA<String>());
+    expect(prefs.registeredFileAssociationVersion, isA<int>());
   });
 }

@@ -11,7 +11,9 @@ import '../util/win_file_dialog.dart';
 import 'dlssconfig_picker.dart';
 
 enum OverwriteMode { skip, overwrite, autoVersion }
-enum OutputFormat { png16, exrLinear, proRes422Hq }
+
+enum OutputFormat { png16, exrLinear, proRes422Hq, h265Hevc }
+
 enum ExrCompression { none, zip, dwaa }
 
 extension OutputFormatExt on OutputFormat {
@@ -23,6 +25,8 @@ extension OutputFormatExt on OutputFormat {
         return strings.outputFormatExr;
       case OutputFormat.proRes422Hq:
         return strings.outputFormatProRes422Hq;
+      case OutputFormat.h265Hevc:
+        return strings.outputFormatH265Hevc;
     }
   }
 
@@ -34,6 +38,8 @@ extension OutputFormatExt on OutputFormat {
         return 'exr';
       case OutputFormat.proRes422Hq:
         return 'prores_422hq';
+      case OutputFormat.h265Hevc:
+        return 'h265_hevc';
     }
   }
 }
@@ -71,6 +77,8 @@ class TaskConfigPanel extends StatefulWidget {
 
 class _TaskConfigPanelState extends State<TaskConfigPanel> {
   final _templateController = TextEditingController();
+  final _frameStartController = TextEditingController();
+  final _frameEndController = TextEditingController();
   String? _lastConfigPathForDefaults;
   bool _prefsApplied = false;
 
@@ -78,6 +86,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   void initState() {
     super.initState();
     _templateController.addListener(_onTemplateChanged);
+    _frameStartController.addListener(_onFrameRangeChanged);
+    _frameEndController.addListener(_onFrameRangeChanged);
   }
 
   @override
@@ -93,6 +103,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   @override
   void dispose() {
     _templateController.dispose();
+    _frameStartController.dispose();
+    _frameEndController.dispose();
     super.dispose();
   }
 
@@ -110,9 +122,24 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     }
   }
 
+  void _onFrameRangeChanged() {
+    final state = Provider.of<AppState>(context, listen: false);
+    final start = _parseFrameField(_frameStartController.text);
+    final end = _parseFrameField(_frameEndController.text);
+    if (state.frameStart != start || state.frameEnd != end) {
+      state.setTaskConfig(frameStart: start, frameEnd: end);
+    }
+  }
+
+  int _parseFrameField(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return -1;
+    return int.tryParse(trimmed) ?? -1;
+  }
+
   String _stripKnownExtension(String template) {
     return template.trim().replaceFirst(
-      RegExp(r'\.(png|exr|mov)$', caseSensitive: false),
+      RegExp(r'\.(png|exr|mov|mp4)$', caseSensitive: false),
       '',
     );
   }
@@ -122,6 +149,26 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     if (template.isEmpty) return context.strings.filenameTemplateRequired;
     if (template.contains('/') || template.contains('\\')) {
       return context.strings.filenameTemplateNoSeparators;
+    }
+    return null;
+  }
+
+  String? _frameRangeError(AppState state) {
+    final startText = _frameStartController.text.trim();
+    final endText = _frameEndController.text.trim();
+    final start = _parseFrameField(startText);
+    final end = _parseFrameField(endText);
+    if (startText.isNotEmpty && start < 0) {
+      return context.strings.invalidFrameRangeMessage;
+    }
+    if (endText.isNotEmpty && end < 0) {
+      return context.strings.invalidFrameRangeMessage;
+    }
+    if (start >= 0 && end >= 0 && start > end) {
+      return context.strings.invalidFrameRangeMessage;
+    }
+    if (_inputFrameCountInRange(state) == 0) {
+      return context.strings.emptyFrameRangeMessage;
     }
     return null;
   }
@@ -138,6 +185,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           prefs.exrCompressionLevel != state.exrCompressionLevel ||
           prefs.writerThreads != state.writerThreads ||
           prefs.writerBufferMultiplier != state.writerBufferMultiplier ||
+          prefs.h265Cq != state.h265Cq ||
+          prefs.h265Preset != state.h265Preset ||
+          prefs.h265Multipass != state.h265Multipass ||
+          prefs.h265SpatialAq != state.h265SpatialAq ||
+          prefs.h265TemporalAq != state.h265TemporalAq ||
+          prefs.h265Vfr != state.h265Vfr ||
           prefs.outputDirectory != state.outputDir) {
         Future.microtask(() {
           if (!mounted) return;
@@ -151,6 +204,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             exrCompressionLevel: prefs.exrCompressionLevel,
             writerThreads: prefs.writerThreads,
             writerBufferMultiplier: prefs.writerBufferMultiplier,
+            h265Cq: prefs.h265Cq,
+            h265Preset: prefs.h265Preset,
+            h265Multipass: prefs.h265Multipass,
+            h265SpatialAq: prefs.h265SpatialAq,
+            h265TemporalAq: prefs.h265TemporalAq,
+            h265Vfr: prefs.h265Vfr,
             outputDir: prefs.outputDirectory,
           );
         });
@@ -162,6 +221,13 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final configPath = state.currentDlssConfigPath;
     if (configPath != null && configPath != _lastConfigPathForDefaults) {
       _lastConfigPathForDefaults = configPath;
+      Future.microtask(() {
+        if (mounted) {
+          _frameStartController.clear();
+          _frameEndController.clear();
+          state.setTaskConfig(frameStart: -1, frameEnd: -1);
+        }
+      });
       if (state.outputDir.isEmpty) {
         final normalized = configPath.replaceAll('\\', '/');
         final slash = normalized.lastIndexOf('/');
@@ -187,30 +253,60 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final trimmed = _stripKnownExtension(template).isEmpty
         ? 'frame_####'
         : _stripKnownExtension(template);
-    final base = format == 'prores_422hq'
+    final isVideo = format == 'prores_422hq' || format == 'h265_hevc';
+    final base = isVideo
         ? trimmed
-            .replaceAll('#', '')
-            .replaceAll(RegExp(r'\{frame(?::0?\d+d)?\}'), '')
-            .replaceAll(RegExp(r'_+'), '_')
-            .replaceFirst(RegExp(r'_$'), '')
+              .replaceAll('#', '')
+              .replaceAll(RegExp(r'\{frame(?::0?\d+d)?\}'), '')
+              .replaceAll(RegExp(r'_+'), '_')
+              .replaceFirst(RegExp(r'_$'), '')
         : trimmed;
     final expectedExt = format == 'png_16'
         ? '.png'
         : format == 'prores_422hq'
-            ? '.mov'
-            : '.exr';
+        ? '.mov'
+        : format == 'h265_hevc'
+        ? '.mp4'
+        : '.exr';
     return '${base.isEmpty ? 'output' : base}$expectedExt';
   }
 
   List<OutputFormat> _getAvailableFormats(bool isHdr) {
     if (isHdr) {
-      return [OutputFormat.exrLinear, OutputFormat.proRes422Hq];
+      return [
+        OutputFormat.exrLinear,
+        OutputFormat.proRes422Hq,
+        OutputFormat.h265Hevc,
+      ];
     }
     return [
       OutputFormat.png16,
       OutputFormat.exrLinear,
       OutputFormat.proRes422Hq,
+      OutputFormat.h265Hevc,
     ];
+  }
+
+  String _autoPresetForQualityMode(AppState state) {
+    final quality = '${state.currentDlssConfig?['quality_mode'] ?? ''}'
+        .toLowerCase()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+    switch (quality) {
+      case 'performance':
+        return 'M';
+      case 'ultra_performance':
+        return 'L';
+      default:
+        return 'K';
+    }
+  }
+
+  String _presetLabel(AppStrings strings, AppState state, String preset) {
+    if (preset == 'auto') {
+      return '${strings.autoPreset} (${_autoPresetForQualityMode(state)})';
+    }
+    return 'Preset $preset';
   }
 
   Future<void> _onStartPressed(BuildContext context) async {
@@ -218,7 +314,11 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     final prefs = Provider.of<AppPreferences>(context, listen: false);
     AppLog.phase('task', 'Start pressed');
     if (appState.currentDlssConfig == null) {
-      AppLog.phase('task', 'Start rejected: invalid config', appState.configError);
+      AppLog.phase(
+        'task',
+        'Start rejected: invalid config',
+        appState.configError,
+      );
       await showErrorDialog(
         context,
         title: context.strings.noValidConfigTitle,
@@ -250,7 +350,22 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       return;
     }
 
-    final taskParams = {
+    final frameRangeError = _frameRangeError(appState);
+    if (frameRangeError != null) {
+      AppLog.phase(
+        'task',
+        'Start rejected: invalid frame range',
+        frameRangeError,
+      );
+      await showErrorDialog(
+        context,
+        title: context.strings.invalidFrameRangeTitle,
+        message: frameRangeError,
+      );
+      return;
+    }
+
+    final taskParams = <String, dynamic>{
       'config': appState.currentDlssConfigPath,
       'preset': appState.preset,
       'fg_enabled':
@@ -264,6 +379,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       'exr_compression_level': appState.exrCompressionLevel,
       'writer_threads': _effectiveWriterThreads(appState),
       'writer_buffer_multiplier': appState.writerBufferMultiplier,
+      'h265_cq': appState.h265Cq,
+      'h265_preset': appState.h265Preset,
+      'h265_multipass': appState.h265Multipass,
+      'h265_spatial_aq': appState.h265SpatialAq,
+      'h265_temporal_aq': appState.h265TemporalAq,
+      'h265_vfr': appState.h265Vfr,
       'output_dir': outputDir,
       'template': _templateForFormat(appState.template, appState.outputFormat),
       'output_template': _templateForFormat(
@@ -273,6 +394,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
       'overwrite_mode': appState.overwriteMode,
       'frame_count': _expectedOutputFrameCount(appState),
     };
+    if (appState.frameStart >= 0) {
+      taskParams['frame_start'] = appState.frameStart;
+    }
+    if (appState.frameEnd >= 0) {
+      taskParams['frame_end'] = appState.frameEnd;
+    }
 
     AppLog.phase(
       'task',
@@ -318,6 +445,12 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     prefs.setExrCompressionLevel(appState.exrCompressionLevel);
     prefs.setWriterThreads(appState.writerThreads);
     prefs.setWriterBufferMultiplier(appState.writerBufferMultiplier);
+    prefs.setH265Cq(appState.h265Cq);
+    prefs.setH265Preset(appState.h265Preset);
+    prefs.setH265Multipass(appState.h265Multipass);
+    prefs.setH265SpatialAq(appState.h265SpatialAq);
+    prefs.setH265TemporalAq(appState.h265TemporalAq);
+    prefs.setH265Vfr(appState.h265Vfr);
     prefs.setOutputDirectory(outputDir);
 
     AppLog.phase('task', 'Sending setTask');
@@ -389,16 +522,39 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   }
 
   int _expectedOutputFrameCount(AppState appState) {
-    final frames = appState.currentDlssConfig?['frames'];
-    final inputFrames = frames is List
-        ? frames.length
-        : frames is Map
-            ? frames.length
-            : 0;
+    final inputFrames = _inputFrameCountInRange(appState);
     if (!appState.fgEnabled || inputFrames == 0) {
       return inputFrames;
     }
     return appState.fgMultiplier * inputFrames - (appState.fgMultiplier - 1);
+  }
+
+  int _inputFrameCountInRange(AppState appState) {
+    final frames = appState.currentDlssConfig?['frames'];
+    if (frames is List) {
+      final start = appState.frameStart >= 0 ? appState.frameStart : 0;
+      final end = appState.frameEnd >= 0
+          ? appState.frameEnd
+          : frames.length - 1;
+      if (frames.isEmpty || start > end || start >= frames.length || end < 0) {
+        return 0;
+      }
+      final clampedStart = start.clamp(0, frames.length - 1);
+      final clampedEnd = end.clamp(0, frames.length - 1);
+      return clampedEnd - clampedStart + 1;
+    }
+    if (frames is Map) {
+      var count = 0;
+      for (final key in frames.keys) {
+        final frame = int.tryParse('$key');
+        if (frame == null) continue;
+        if (appState.frameStart >= 0 && frame < appState.frameStart) continue;
+        if (appState.frameEnd >= 0 && frame > appState.frameEnd) continue;
+        count++;
+      }
+      return count;
+    }
+    return 0;
   }
 
   int _effectiveWriterThreads(AppState state) {
@@ -417,6 +573,35 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
     return (targetDiskMiBPerSecond / frameMiB).round().clamp(1, 8);
   }
 
+  ({int width, int height})? _outputResolution(AppState state) {
+    final resolution = state.currentDlssConfig?['output_resolution'];
+    final width = resolution is Map ? resolution['width'] as int? : null;
+    final height = resolution is Map ? resolution['height'] as int? : null;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return null;
+    }
+    return (width: width, height: height);
+  }
+
+  String _estimatedBufferMemory(AppState state, int maxQueuedFrames) {
+    final resolution = _outputResolution(state);
+    if (resolution == null || maxQueuedFrames <= 0) {
+      return 'unknown';
+    }
+    final isVideo =
+        state.outputFormat == 'prores_422hq' ||
+        state.outputFormat == 'h265_hevc';
+    final bytesPerPixel = isVideo ? 4 : 8;
+    final bytes =
+        resolution.width * resolution.height * bytesPerPixel * maxQueuedFrames;
+    final gib = bytes / (1024 * 1024 * 1024);
+    if (gib >= 1.0) {
+      return '${gib.toStringAsFixed(2)} GB';
+    }
+    final mib = bytes / (1024 * 1024);
+    return '${mib.toStringAsFixed(0)} MB';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
@@ -431,7 +616,9 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
         final isHdr = state.currentDlssConfig?['is_hdr'] as bool? ?? false;
         final availableFormats = _getAvailableFormats(isHdr);
 
-        if (!availableFormats.map((f) => f.value).contains(state.outputFormat)) {
+        if (!availableFormats
+            .map((f) => f.value)
+            .contains(state.outputFormat)) {
           Future.microtask(() {
             state.setTaskConfig(outputFormat: availableFormats.first.value);
           });
@@ -455,22 +642,22 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                   onPressed: state.taskState == TaskState.running
                       ? () => _onCancelPressed(context)
                       : state.currentDlssConfig != null &&
-                              state.taskState != TaskState.cancelling
-                          ? () => _onStartPressed(context)
-                          : null,
+                            state.taskState != TaskState.cancelling
+                      ? () => _onStartPressed(context)
+                      : null,
                   icon: Icon(
                     state.taskState == TaskState.running
                         ? Icons.stop
                         : state.taskState == TaskState.cancelling
-                            ? Icons.hourglass_empty
-                            : Icons.play_arrow,
+                        ? Icons.hourglass_empty
+                        : Icons.play_arrow,
                   ),
                   label: Text(
                     state.taskState == TaskState.running
                         ? context.strings.cancel
                         : state.taskState == TaskState.cancelling
-                            ? context.strings.cancellingUpper
-                            : context.strings.startProcessing,
+                        ? context.strings.cancellingUpper
+                        : context.strings.startProcessing,
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.5,
@@ -543,13 +730,24 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
   Widget _buildSettings(AppState state, List<OutputFormat> formats) {
     final strings = context.strings;
     final fgCanRun = state.fgAvailable && state.fgMaxMultiplier >= 2;
+    final isVideoOutput =
+        state.outputFormat == 'prores_422hq' ||
+        state.outputFormat == 'h265_hevc';
     final multipliers = [
-      for (var multiplier = 2; multiplier <= state.fgMaxMultiplier; multiplier++)
+      for (
+        var multiplier = 2;
+        multiplier <= state.fgMaxMultiplier;
+        multiplier++
+      )
         multiplier,
     ];
     final writerThreads = _effectiveWriterThreads(state);
     final bufferMultiplier = state.writerBufferMultiplier;
     final maxQueuedFrames = writerThreads * bufferMultiplier;
+    final estimatedBufferMemory = _estimatedBufferMemory(
+      state,
+      maxQueuedFrames,
+    );
 
     return Column(
       children: [
@@ -568,7 +766,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                   (p) => DropdownMenuItem(
                     value: p,
                     child: Text(
-                      p == 'auto' ? strings.autoPreset : 'Preset $p',
+                      _presetLabel(strings, state, p),
                       style: const TextStyle(fontSize: 13),
                     ),
                   ),
@@ -613,9 +811,8 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
                             style: const TextStyle(fontSize: 12),
                           ),
                           selected: state.fgMultiplier == multiplier,
-                          onSelected: (_) => state.setTaskConfig(
-                            fgMultiplier: multiplier,
-                          ),
+                          onSelected: (_) =>
+                              state.setTaskConfig(fgMultiplier: multiplier),
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
@@ -626,11 +823,65 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             ],
           ),
         ),
+        _buildFormRow(
+          strings.frameRange,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('frameRangeStartField'),
+                  controller: _frameStartController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    border: const OutlineInputBorder(),
+                    hintText: strings.frameRangeStartHint,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  strings.frameRangeTo,
+                  style: const TextStyle(color: Colors.white38),
+                ),
+              ),
+              Expanded(
+                child: TextField(
+                  key: const Key('frameRangeEndField'),
+                  controller: _frameEndController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    border: const OutlineInputBorder(),
+                    hintText: strings.frameRangeEndHint,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                strings.frameRangeSummary(_inputFrameCountInRange(state)),
+                style: const TextStyle(fontSize: 12, color: Colors.white38),
+              ),
+            ],
+          ),
+        ),
         const Divider(height: 24, color: Color(0xFF333333)),
         _buildFormRow(
           strings.format,
           DropdownButtonFormField<String>(
-            initialValue: formats.map((f) => f.value).contains(state.outputFormat)
+            initialValue:
+                formats.map((f) => f.value).contains(state.outputFormat)
                 ? state.outputFormat
                 : formats.first.value,
             isExpanded: true,
@@ -665,16 +916,19 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             strings.exrCompression,
             DropdownButtonFormField<String>(
               initialValue:
-                  ExrCompression.values.map((c) => c.value).contains(
-                        state.exrCompression,
-                      )
+                  ExrCompression.values
+                      .map((c) => c.value)
+                      .contains(state.exrCompression)
                   ? state.exrCompression
                   : ExrCompression.zip.value,
               isExpanded: true,
               isDense: true,
               decoration: const InputDecoration(
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 border: OutlineInputBorder(),
               ),
               items: ExrCompression.values
@@ -697,6 +951,116 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
               state.exrCompressionLevel,
               (v) => state.setTaskConfig(exrCompressionLevel: v),
             ),
+        ],
+        if (state.outputFormat == 'h265_hevc') ...[
+          _buildIntSlider(
+            strings.h265Quality,
+            state.h265Cq,
+            min: 0,
+            max: 30,
+            onChanged: (v) => state.setTaskConfig(h265Cq: v),
+          ),
+          _buildFormRow(
+            strings.h265Preset,
+            DropdownButtonFormField<String>(
+              initialValue: ['p3', 'p5', 'p7'].contains(state.h265Preset)
+                  ? state.h265Preset
+                  : 'p5',
+              isExpanded: true,
+              isDense: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: 'p3',
+                  child: Text(strings.h265PresetFast),
+                ),
+                DropdownMenuItem(
+                  value: 'p5',
+                  child: Text(strings.h265PresetBalanced),
+                ),
+                DropdownMenuItem(
+                  value: 'p7',
+                  child: Text(strings.h265PresetQuality),
+                ),
+              ],
+              onChanged: (v) => state.setTaskConfig(h265Preset: v),
+            ),
+          ),
+          _buildFormRow(
+            strings.h265Multipass,
+            DropdownButtonFormField<String>(
+              initialValue:
+                  ['disabled', 'qres', 'fullres'].contains(state.h265Multipass)
+                  ? state.h265Multipass
+                  : 'qres',
+              isExpanded: true,
+              isDense: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: 'disabled',
+                  child: Text(strings.h265MultipassOff),
+                ),
+                DropdownMenuItem(
+                  value: 'qres',
+                  child: Text(strings.h265MultipassQres),
+                ),
+                DropdownMenuItem(
+                  value: 'fullres',
+                  child: Text(strings.h265MultipassFullres),
+                ),
+              ],
+              onChanged: (v) => state.setTaskConfig(h265Multipass: v),
+            ),
+          ),
+          _buildFormRow(
+            'HEVC AQ',
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                FilterChip(
+                  label: Text(strings.h265SpatialAq),
+                  selected: state.h265SpatialAq,
+                  onSelected: (v) => state.setTaskConfig(h265SpatialAq: v),
+                  visualDensity: VisualDensity.compact,
+                ),
+                FilterChip(
+                  label: Text(strings.h265TemporalAq),
+                  selected: state.h265TemporalAq,
+                  onSelected: (v) => state.setTaskConfig(h265TemporalAq: v),
+                  visualDensity: VisualDensity.compact,
+                ),
+                FilterChip(
+                  label: Text(strings.h265Vfr),
+                  selected: state.h265Vfr,
+                  onSelected: (v) => state.setTaskConfig(h265Vfr: v),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 110, bottom: 6),
+            child: Text(
+              strings.h265VfrNote,
+              style: const TextStyle(fontSize: 11, color: Colors.white38),
+            ),
+          ),
         ],
         _buildFormRow(
           strings.outputDir,
@@ -746,6 +1110,7 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
             children: [
               Expanded(
                 child: TextField(
+                  key: const Key('filenameTemplateField'),
                   controller: _templateController,
                   style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
                   decoration: InputDecoration(
@@ -823,13 +1188,17 @@ class _TaskConfigPanelState extends State<TaskConfigPanel> {
           strings.bufferSize,
           bufferMultiplier,
           min: 1,
-          max: 10,
+          max: isVideoOutput ? 64 : 10,
           onChanged: (v) => state.setTaskConfig(writerBufferMultiplier: v),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 110),
           child: Text(
-            strings.writeBufferSummary(writerThreads, maxQueuedFrames),
+            strings.writeBufferSummary(
+              writerThreads,
+              maxQueuedFrames,
+              estimatedBufferMemory,
+            ),
             style: const TextStyle(fontSize: 11, color: Colors.white38),
           ),
         ),

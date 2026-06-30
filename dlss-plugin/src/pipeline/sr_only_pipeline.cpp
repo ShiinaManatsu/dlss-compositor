@@ -3,6 +3,7 @@
 #include "../core/log.h"
 #include "../core/lut_loader.h"
 #include "../gpu/passes/lut_tonemap_pass.h"
+#include "../gpu/passes/prores_convert_pass.h"
 #include "../gpu/passes/preview_pass.h"
 #include "../gpu/passes/tonemap_pass.h"
 #include "../io/prores_writer.h"
@@ -316,19 +317,21 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             LOG_INFO("[SR-only] No tonemap LUT configured; using built-in tonemap shader for display outputs");
         }
         const int writerThreads = std::clamp(config.writerThreads, 1, 32);
-        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 20);
+        const int writerQueueMultiplier = std::clamp(config.writerQueueMultiplier, 1, 64);
         const int writerQueueLow = writerThreads;
         const int writerQueueHigh = writerThreads * writerQueueMultiplier;
         AsyncFrameWriter writer(writerThreads, writerQueueHigh, writerQueueLow);
         std::unique_ptr<ProResProgressWriter> proresWriter;
+        std::unique_ptr<ProresConvertPass> proresConvertPass;
         const bool outputSceneLinear = config.outputFormat == OutputFormat::ExrLinear;
 
         srPass.create(dlssCfg.render_resolution.width,
                       dlssCfg.render_resolution.height,
                       dlssCfg.output_resolution.width,
                       dlssCfg.output_resolution.height,
-                      dlssCfg.quality);
-        if (config.outputFormat == OutputFormat::ProRes422HQ) {
+                      dlssCfg.quality,
+                      config.presetOverride);
+        if (config.outputFormat == OutputFormat::ProRes422HQ || config.outputFormat == OutputFormat::H265Mp4) {
             proresWriter = std::make_unique<ProResProgressWriter>(
                 std::filesystem::path(config.outputDir) / config.filenameTemplate,
                 dlssCfg.output_resolution.width,
@@ -339,12 +342,16 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 inferHdrMasteringNits(dlssCfg.view_transform),
                 writerQueueHigh,
                 writerQueueLow,
+                writerThreads,
                 totalFrames,
                 [this](int current, int total) {
                     m_dispatcher->progress().current_frame.store(current);
                     m_dispatcher->progress().percent.store(
                         total > 0 ? static_cast<float>(current) / static_cast<float>(total) : 0.0f);
-                });
+                },
+                config.outputFormat == OutputFormat::H265Mp4 ? VideoCodec::H265Hevc : VideoCodec::ProRes422HQ,
+                config.h265Options);
+            proresConvertPass = std::make_unique<ProresConvertPass>(m_ctx);
         }
 
         FramePrefetcher prefetcher(buildFramePaths(dlssCfg, inferInputDir(config)), kPrefetchDepth);
@@ -476,18 +483,23 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 }
             }
 
-            auto pixels = outputSceneLinear
-                ? m_ctx->downloadImageRgba16f(colorOutput->image,
-                                              dlssCfg.output_resolution.width,
-                                              dlssCfg.output_resolution.height,
-                                              VK_IMAGE_LAYOUT_GENERAL)
-                : m_ctx->downloadImageA2B10ToRgba16f(displayOutput->image,
-                                                     dlssCfg.output_resolution.width,
-                                                     dlssCfg.output_resolution.height,
-                                                     VK_IMAGE_LAYOUT_GENERAL);
             if (proresWriter) {
-                proresWriter->writeFrame(pixels);
+                auto packed = proresConvertPass->convertAndReadback(
+                    displayOutput,
+                    PixelEncoding::DisplayReady,
+                    dlssCfg.is_hdr,
+                    VK_IMAGE_LAYOUT_GENERAL);
+                proresWriter->enqueuePackedYuv422Frame(std::move(packed));
             } else {
+                auto pixels = outputSceneLinear
+                    ? m_ctx->downloadImageRgba16f(colorOutput->image,
+                                                  dlssCfg.output_resolution.width,
+                                                  dlssCfg.output_resolution.height,
+                                                  VK_IMAGE_LAYOUT_GENERAL)
+                    : m_ctx->downloadImageA2B10ToRgba16f(displayOutput->image,
+                                                         dlssCfg.output_resolution.width,
+                                                         dlssCfg.output_resolution.height,
+                                                         VK_IMAGE_LAYOUT_GENERAL);
                 WriteJob writeJob;
                 writeJob.format        = config.outputFormat;
                 writeJob.outputPath    = std::filesystem::path(config.outputDir) /

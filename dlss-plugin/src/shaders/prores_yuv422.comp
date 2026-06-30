@@ -1,0 +1,80 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D srcImage;
+
+layout(std430, binding = 1) buffer OutputBuffer {
+    uint words[];
+} outBuffer;
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint hdr;
+    uint sceneLinear;
+} pc;
+
+float srgbEncode(float linear)
+{
+    float c = clamp(linear, 0.0, 1.0);
+    if (c <= 0.0031308) {
+        return c * 12.92;
+    }
+    return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+uint clamp10(float value)
+{
+    return uint(clamp(round(value), 64.0, 960.0));
+}
+
+vec3 encodePixel(vec3 value)
+{
+    if (pc.hdr != 0u) {
+        return clamp(value, 0.0, 1.0);
+    }
+    if (pc.sceneLinear != 0u) {
+        return vec3(
+            srgbEncode(value.r),
+            srgbEncode(value.g),
+            srgbEncode(value.b));
+    }
+    return clamp(value, 0.0, 1.0);
+}
+
+void main()
+{
+    uint chromaX = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    uint chromaWidth = (pc.width + 1u) / 2u;
+    if (chromaX >= chromaWidth || y >= pc.height) {
+        return;
+    }
+
+    uint x0 = chromaX * 2u;
+    uint x1 = min(x0 + 1u, pc.width - 1u);
+    vec3 a = encodePixel(texelFetch(srcImage, ivec2(int(x0), int(y)), 0).rgb);
+    vec3 b = encodePixel(texelFetch(srcImage, ivec2(int(x1), int(y)), 0).rgb);
+
+    float kr = pc.hdr != 0u ? 0.2627 : 0.2126;
+    float kb = pc.hdr != 0u ? 0.0593 : 0.0722;
+    float kg = 1.0 - kr - kb;
+
+    float y0f = kr * a.r + kg * a.g + kb * a.b;
+    float y1f = kr * b.r + kg * b.g + kb * b.b;
+    float cb0 = (a.b - y0f) / (2.0 * (1.0 - kb));
+    float cb1 = (b.b - y1f) / (2.0 * (1.0 - kb));
+    float cr0 = (a.r - y0f) / (2.0 * (1.0 - kr));
+    float cr1 = (b.r - y1f) / (2.0 * (1.0 - kr));
+
+    uint y0 = clamp10(64.0 + y0f * 876.0);
+    uint y1 = clamp10(64.0 + y1f * 876.0);
+    uint u = clamp10(512.0 + ((cb0 + cb1) * 0.5) * 896.0);
+    uint v = clamp10(512.0 + ((cr0 + cr1) * 0.5) * 896.0);
+
+    uint wordIndex = y * chromaWidth + chromaX;
+    uint uvBase = chromaWidth * pc.height;
+    outBuffer.words[wordIndex] = (y1 << 16) | y0;
+    outBuffer.words[uvBase + wordIndex] = (v << 16) | u;
+}

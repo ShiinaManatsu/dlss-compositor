@@ -49,7 +49,8 @@ TEST_CASE("EncoderRegistry - only v2 formats registered", "[unit]")
     // v2 implements ONLY these image-sequence formats.
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::ExrLinear));
     REQUIRE(reg.hasEncoder(dlss::OutputFormat::Png16));
-    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ)); // sequence-level ProResWriter, not per-frame registry
+    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::ProRes422HQ)); // sequence-level video writer, not per-frame registry
+    REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::H265Mp4));
 
     // Extension placeholders must NOT be registered.
     REQUIRE_FALSE(reg.hasEncoder(dlss::OutputFormat::Jpeg));
@@ -138,6 +139,50 @@ TEST_CASE("ProResWriter - writes HDR ProRes 422 HQ", "[unit][prores]")
     std::filesystem::remove(output, ec);
 }
 
+TEST_CASE("ProResWriter - writes H265 HEVC MP4", "[unit][video]")
+{
+    const auto output = std::filesystem::temp_directory_path() / "test_h265_hevc.mp4";
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+
+    constexpr int width = 256;
+    constexpr int height = 256;
+    std::vector<std::uint8_t> frame;
+    frame.reserve(width * height * 4 * 2);
+    auto appendHalf = [&](std::uint16_t value) {
+        frame.push_back(static_cast<std::uint8_t>(value & 0xff));
+        frame.push_back(static_cast<std::uint8_t>((value >> 8) & 0xff));
+    };
+    for (int i = 0; i < width * height; ++i) {
+        appendHalf(0x3800); // R = 0.5
+        appendHalf(0x3800); // G = 0.5
+        appendHalf(0x3800); // B = 0.5
+        appendHalf(0x3c00); // A = 1.0
+    }
+
+    REQUIRE_NOTHROW([&] {
+        dlss::ProResWriter writer(
+            output,
+            width,
+            height,
+            24,
+            false,
+            dlss::PixelEncoding::DisplayReady,
+            1000.0f,
+            1,
+            0,
+            1,
+            dlss::VideoCodec::H265Hevc);
+        writer.writeFrame(frame);
+        writer.close();
+    }());
+
+    REQUIRE(std::filesystem::exists(output));
+    REQUIRE(std::filesystem::file_size(output) > 0);
+
+    std::filesystem::remove(output, ec);
+}
+
 TEST_CASE("ProResWriter - infers HDR mastering nits from Blender view transform", "[unit][prores]")
 {
     REQUIRE(dlss::inferHdrMasteringNits("ACES 2.0 - HDR 1000 nits") == 1000.0f);
@@ -176,6 +221,7 @@ TEST_CASE("ProResProgressWriter - reports final frame as complete", "[unit][pror
         1000.0f,
         3,
         1,
+        2,
         1,
         [&](int current, int total) {
             reportedCurrent = current;

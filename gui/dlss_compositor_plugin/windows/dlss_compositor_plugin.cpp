@@ -482,12 +482,21 @@ dlss::ConfigExecutionOptions DlssCompositorPlugin::BuildExecutionOptions() const
   options.outputTemplate = ReadStringArgument(
       args, "output_template", ReadStringArgument(args, "template"));
   options.outputFormat = ReadStringArgument(args, "output_format", "exr");
+  options.presetOverride = ReadStringArgument(args, "preset", "auto");
   options.overwriteMode = ReadStringArgument(args, "overwrite_mode", "overwrite");
   options.pngQualityPercent = ReadIntArgument(args, "png_quality", 97);
   options.exrCompression = ReadStringArgument(args, "exr_compression", "zip");
   options.exrCompressionLevelPercent = ReadIntArgument(args, "exr_compression_level", 97);
   options.writerThreads = ReadIntArgument(args, "writer_threads", 4);
   options.writerQueueMultiplier = ReadIntArgument(args, "writer_buffer_multiplier", 3);
+  options.h265Options.cq = ReadIntArgument(args, "h265_cq", 18);
+  options.h265Options.preset = ReadStringArgument(args, "h265_preset", "p5");
+  options.h265Options.multipass = ReadStringArgument(args, "h265_multipass", "qres");
+  options.h265Options.spatialAq = ReadBoolArgument(args, "h265_spatial_aq", true);
+  options.h265Options.temporalAq = ReadBoolArgument(args, "h265_temporal_aq", true);
+  options.h265Options.vfr = ReadBoolArgument(args, "h265_vfr", false);
+  options.frameStart = ReadIntArgument(args, "frame_start", -1);
+  options.frameEnd = ReadIntArgument(args, "frame_end", -1);
   options.fgEnabled = ReadBoolArgument(args, "fg_enabled", false);
   options.fgMultiplier = ReadIntArgument(args, "fg_multiplier", 2);
   options.emitEvents = false;
@@ -546,14 +555,17 @@ void DlssCompositorPlugin::HandleMethodCall(
       status[flutter::EncodableValue("runtime_error")] =
           flutter::EncodableValue(runtime_error_);
       status[flutter::EncodableValue("video_encoders")] = flutter::EncodableValue(
-          flutter::EncodableList{flutter::EncodableValue(std::string("prores_422hq"))});
+          flutter::EncodableList{flutter::EncodableValue(std::string("prores_422hq")),
+                                 flutter::EncodableValue(std::string("h265_hevc"))});
       status[flutter::EncodableValue("export_formats_ldr")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("png_16")),
                                  flutter::EncodableValue(std::string("exr")),
-                                 flutter::EncodableValue(std::string("prores_422hq"))});
+                                 flutter::EncodableValue(std::string("prores_422hq")),
+                                 flutter::EncodableValue(std::string("h265_hevc"))});
       status[flutter::EncodableValue("export_formats_hdr")] = flutter::EncodableValue(
           flutter::EncodableList{flutter::EncodableValue(std::string("exr")),
-                                 flutter::EncodableValue(std::string("prores_422hq"))});
+                                 flutter::EncodableValue(std::string("prores_422hq")),
+                                 flutter::EncodableValue(std::string("h265_hevc"))});
       result->Success(flutter::EncodableValue(status));
 
     } else if (method == "getProgress") {

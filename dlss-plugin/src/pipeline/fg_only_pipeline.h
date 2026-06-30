@@ -12,6 +12,7 @@
 #include "../io/frame_prefetcher.h"
 #include "../io/channel_mapper.h"
 #include "../io/async_writer.h"
+#include "../io/prores_writer.h"
 #include "../rpc/dispatcher.h"
 
 #include <atomic>
@@ -30,6 +31,7 @@ struct FgOnlyConfig {
     std::string filenameTemplate = "frame_####.exr";
     OverwriteMode overwriteMode = OverwriteMode::Overwrite;
     EncoderOptions encoderOptions{};
+    H265EncoderOptions h265Options{};
     int writerThreads = 4;
     int writerQueueMultiplier = 3;
     int multiplier = 2;  // 2..6, capped by NGX capability query

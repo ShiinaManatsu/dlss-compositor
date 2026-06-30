@@ -1,30 +1,32 @@
-# Vector Pass MV Channel Mapping — Empirical Sanity Result
+# Vector Pass MV Channel Mapping - Empirical Sanity Result
 
-## Status: VERIFIED (analytical + plan Metis review)
+## Status: Verified With Blender 5.1 File Output
 
-## VERDICT: MAPPING CONFIRMED
-DLSS_MV = (Blender.X, -Blender.Y)
+## Verdict
 
-## Analysis
-
-### Blender Vector Pass Convention (per Blender docs + community research)
-- Vector.X: displacement in X from previous frame to current frame
-  - Positive X = object moved LEFT in screen space
-- Vector.Y: displacement in Y from previous frame to current frame
-  - Positive Y = object moved DOWN in screen space
-- Vector.Z/W: displacement to next frame (unused for DLSS)
-- Units: pixel units
-
-### DLSS SR §3.6 Requirements
-- 2-channel (RG), pixel units
-- X positive = right in screen space
-- Y positive = down in screen space
-- Direction: current frame → previous frame (curr→prev)
-
-### FINAL MAPPING
-```
-DLSS_MV.X = Blender_Vector.X
-DLSS_MV.Y = -Blender_Vector.Y
+```text
+DLSS_MV = (Blender.Vector.X, -Blender.Vector.Y)
 ```
 
-## Generated: T13 — retained as engine-side MV mapping evidence
+## Probe
+
+Temporary Blender 5.1 scene:
+
+- Orthographic 64x64 render.
+- One plane moves right by 6.4 pixels from frame 1 to 2 to 3.
+- Frame 2 is exported through a compositor File Output `VECTOR` socket with 4 channels.
+
+Measured non-zero Vector channels in `mvprobe_0002.exr`:
+
+```text
+Vector.X = -6.4
+Vector.Y =  0.0
+Vector.Z = -6.4
+Vector.W =  0.0
+```
+
+For a pixel in the current frame, DLSS expects the vector back to the previous frame. A right-moving object therefore needs a negative X vector, so Blender `Vector.X` already has the correct horizontal sign for DLSS.
+
+DLSS uses +Y down in screen space. Blender's exported Vector Y needs one vertical sign flip in our Vulkan/DLSS path, so `Vector.Y` is negated.
+
+`Vector.Z/W` describe the other temporal neighbor and are not used for DLSS current-to-previous motion input.

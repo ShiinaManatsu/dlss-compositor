@@ -11,6 +11,7 @@ class AppState extends ChangeNotifier {
   String? currentDlssConfigPath;
   Map<String, dynamic>? currentDlssConfig;
   String? configError;
+  String? selectedBlendPath;
 
   // Status from getStatus RPC
   bool engineReady = false;
@@ -42,6 +43,14 @@ class AppState extends ChangeNotifier {
   int exrCompressionLevel = 97;
   int writerThreads = 0;
   int writerBufferMultiplier = 3;
+  int h265Cq = 18;
+  String h265Preset = 'p5';
+  String h265Multipass = 'qres';
+  bool h265SpatialAq = true;
+  bool h265TemporalAq = true;
+  bool h265Vfr = false;
+  int frameStart = -1;
+  int frameEnd = -1;
   String outputDir = '';
   String template = 'frame_####';
 
@@ -84,6 +93,12 @@ class AppState extends ChangeNotifier {
     currentDlssConfigPath = path;
     currentDlssConfig = config;
     configError = error;
+    notifyListeners();
+  }
+
+  void setBlendFile(String path) {
+    AppLog.phase('render', 'setBlendFile', AppLog.summarizePath(path));
+    selectedBlendPath = path;
     notifyListeners();
   }
 
@@ -131,6 +146,14 @@ class AppState extends ChangeNotifier {
     int? exrCompressionLevel,
     int? writerThreads,
     int? writerBufferMultiplier,
+    int? h265Cq,
+    String? h265Preset,
+    String? h265Multipass,
+    bool? h265SpatialAq,
+    bool? h265TemporalAq,
+    bool? h265Vfr,
+    int? frameStart,
+    int? frameEnd,
     String? outputDir,
     String? template,
   }) {
@@ -141,9 +164,21 @@ class AppState extends ChangeNotifier {
     if (overwriteMode != null) this.overwriteMode = overwriteMode;
     if (pngQuality != null) this.pngQuality = pngQuality.clamp(0, 100);
     if (exrCompression != null) this.exrCompression = exrCompression;
-    if (exrCompressionLevel != null) this.exrCompressionLevel = exrCompressionLevel.clamp(0, 100);
+    if (exrCompressionLevel != null) {
+      this.exrCompressionLevel = exrCompressionLevel.clamp(0, 100);
+    }
     if (writerThreads != null) this.writerThreads = writerThreads.clamp(0, 32);
-    if (writerBufferMultiplier != null) this.writerBufferMultiplier = writerBufferMultiplier.clamp(1, 20);
+    if (writerBufferMultiplier != null) {
+      this.writerBufferMultiplier = writerBufferMultiplier.clamp(1, 64);
+    }
+    if (h265Cq != null) this.h265Cq = h265Cq.clamp(0, 30);
+    if (h265Preset != null) this.h265Preset = h265Preset;
+    if (h265Multipass != null) this.h265Multipass = h265Multipass;
+    if (h265SpatialAq != null) this.h265SpatialAq = h265SpatialAq;
+    if (h265TemporalAq != null) this.h265TemporalAq = h265TemporalAq;
+    if (h265Vfr != null) this.h265Vfr = h265Vfr;
+    if (frameStart != null) this.frameStart = frameStart < 0 ? -1 : frameStart;
+    if (frameEnd != null) this.frameEnd = frameEnd < 0 ? -1 : frameEnd;
     if (outputDir != null) this.outputDir = outputDir;
     if (template != null) this.template = template;
     notifyListeners();

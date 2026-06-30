@@ -19,7 +19,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Open dlssconfig.json'), findsOneWidget);
+    expect(find.text('Open DLSS Config'), findsOneWidget);
     expect(find.byIcon(Icons.folder_open), findsOneWidget);
   });
 
@@ -67,7 +67,7 @@ void main() {
 
     expect(find.text('C:\\path\\to\\valid.json'), findsOneWidget);
     expect(find.text('Valid'), findsOneWidget);
-    expect(find.text('Out: 3840×2160'), findsOneWidget);
+    expect(find.text('Out: 3840x2160'), findsOneWidget);
     expect(find.text('Performance'), findsOneWidget);
     expect(find.text('HDR'), findsOneWidget);
     expect(find.text('60 fps'), findsOneWidget);

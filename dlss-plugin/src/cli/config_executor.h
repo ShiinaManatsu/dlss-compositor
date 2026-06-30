@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "../io/prores_writer.h"
+
 namespace dlss {
 
 class VulkanContext;
@@ -22,6 +24,10 @@ struct ConfigExecutionOptions {
     int exrCompressionLevelPercent = 97;
     int writerThreads = 4;
     int writerQueueMultiplier = 3;
+    int frameStart = -1;
+    int frameEnd = -1;
+    std::string presetOverride = "auto";
+    H265EncoderOptions h265Options{};
     bool fgEnabled = false;
     int fgMultiplier = 2;
     bool emitEvents = false;

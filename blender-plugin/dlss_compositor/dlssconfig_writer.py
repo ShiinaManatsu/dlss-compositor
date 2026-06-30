@@ -1,4 +1,4 @@
-"""DLSS Compositor dlssconfig.json writer — Blender side."""
+"""DLSS Compositor config writer — Blender side."""
 from __future__ import annotations
 
 import json
@@ -119,6 +119,12 @@ def merge_per_frame_jsons(output_dir: str, frame_numbers: list[int] | None = Non
 
     for frame_num in rendered_numbers:
         cam_file = frames_dir / f"{frame_num:04d}.cam.json"
+        if not cam_file.exists():
+            log.warning(
+                "merge_per_frame_jsons: missing camera JSON %s; discarding frame %04d and later",
+                cam_file, frame_num,
+            )
+            break
         with open(cam_file, encoding="utf-8") as f:
             frame_data: dict[str, Any] = json.load(f)
 
@@ -152,10 +158,18 @@ def write_dlssconfig(
     top_level: dict[str, Any],
     frames: dict[str, Any],
 ) -> None:
-    """Combine top-level + per-frame data and atomically write dlssconfig.json."""
+    """Combine top-level + per-frame data and atomically write .dlssc + legacy JSON."""
     config = dict(top_level)
     config["frames"] = frames
 
-    out_path = Path(output_dir) / "dlssconfig.json"
-    write_atomic(str(out_path), config)
-    log.info("write_dlssconfig: wrote %s (%d frames)", out_path, len(frames))
+    output_path = Path(output_dir)
+    json_path = output_path / "dlssconfig.json"
+    dlssc_path = output_path / "dlssconfig.dlssc"
+    write_atomic(str(json_path), config)
+    write_atomic(str(dlssc_path), config)
+    log.info(
+        "write_dlssconfig: wrote %s and %s (%d frames)",
+        json_path,
+        dlssc_path,
+        len(frames),
+    )

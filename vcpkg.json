@@ -17,6 +17,9 @@
       "name": "glslang",
       "features": ["tools"]
     },
-    "ffmpeg"
+    {
+      "name": "ffmpeg",
+      "features": ["nvcodec"]
+    }
   ]
 }

@@ -4,6 +4,25 @@
 #include "../src/gpu/vulkan_context.h"
 #include "../src/gpu/texture_pool.h"
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+
+namespace {
+
+#ifndef DLSS_SOURCE_DIR
+#define DLSS_SOURCE_DIR "."
+#endif
+
+std::string readTextFile(const std::filesystem::path& path) {
+    std::ifstream in(std::filesystem::path(DLSS_SOURCE_DIR) / path, std::ios::binary);
+    REQUIRE(in.good());
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+} // namespace
+
 TEST_CASE("DlssSrPass - InMVScaleX/Y = 1.0 (never rescaled)", "[unit]") {
     // This test verifies the constant is correct by checking DLSS SR §3.6.3 requirement
     // MVs from T23 are pixel-unit — scale = 1.0 exactly
@@ -11,6 +30,18 @@ TEST_CASE("DlssSrPass - InMVScaleX/Y = 1.0 (never rescaled)", "[unit]") {
     constexpr float expectedMVScale = 1.0f;
     REQUIRE(expectedMVScale == 1.0f);
     SUCCEED("InMVScale = 1.0f verified (see dlss_sr.cpp line with DLSS SR §3.6.3)");
+}
+
+TEST_CASE("DlssSrPass - UltraQuality maps to NGX UltraQuality", "[unit]") {
+    const std::string source = readTextFile("dlss-plugin/src/dlss/dlss_sr.cpp");
+    const auto ultraQualityCase = source.find("case QualityMode::UltraQuality:");
+    REQUIRE(ultraQualityCase != std::string::npos);
+    const auto nextCase = source.find("case QualityMode::Quality:", ultraQualityCase);
+    REQUIRE(nextCase != std::string::npos);
+    const auto ultraQualityBlock = source.substr(ultraQualityCase, nextCase - ultraQualityCase);
+
+    REQUIRE(ultraQualityBlock.find("NVSDK_NGX_PerfQuality_Value_UltraQuality") != std::string::npos);
+    REQUIRE(ultraQualityBlock.find("NVSDK_NGX_PerfQuality_Value_MaxQuality") == std::string::npos);
 }
 
 TEST_CASE("DlssSrPass - create and evaluate 5 frames", "[gpu]") {

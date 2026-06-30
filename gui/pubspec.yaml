@@ -43,6 +43,7 @@ dependencies:
     path: dlss_compositor_plugin
   fluent_ui: ^4.15.1
   window_manager: ^0.5.1
+  desktop_drop: ^0.6.0
 
 dev_dependencies:
   flutter_test:

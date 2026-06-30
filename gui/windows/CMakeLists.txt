@@ -127,6 +127,39 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# Flutter's generated install step uses CMake's timestamp-based file install.
+# When switching between production and dev DLSS DLLs, an older SDK dev DLL can
+# be skipped as "up-to-date" even if the existing runner DLL is the rel build.
+# Finish the bundle with a content-aware copy so F5/Debug reliably uses dev DLLs,
+# while Profile/Release keep production DLLs.
+if(WIN32 AND DEFINED DLSS_SDK_ROOT)
+  set(_dlss_runtime_dev_dir "${DLSS_SDK_ROOT}/lib/Windows_x86_64/dev")
+  set(_dlss_runtime_rel_dir "${DLSS_SDK_ROOT}/lib/Windows_x86_64/rel")
+  foreach(_dlss_dll IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll)
+    set(_dlss_runtime_dev_dll "${_dlss_runtime_dev_dir}/${_dlss_dll}")
+    set(_dlss_runtime_rel_dll "${_dlss_runtime_rel_dir}/${_dlss_dll}")
+    if(EXISTS "${_dlss_runtime_dev_dll}" AND EXISTS "${_dlss_runtime_rel_dll}")
+      install(CODE "
+        set(_dlss_bundle_dir \"${PROJECT_BINARY_DIR}/runner/\${CMAKE_INSTALL_CONFIG_NAME}\")
+        if(CMAKE_INSTALL_CONFIG_NAME MATCHES \"^([Dd][Ee][Bb][Uu][Gg])$\")
+          execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+            \"${_dlss_runtime_dev_dll}\"
+            \"\${_dlss_bundle_dir}/${_dlss_dll}\"
+            RESULT_VARIABLE _dlss_copy_result)
+        else()
+          execute_process(COMMAND \"${CMAKE_COMMAND}\" -E copy_if_different
+            \"${_dlss_runtime_rel_dll}\"
+            \"\${_dlss_bundle_dir}/${_dlss_dll}\"
+            RESULT_VARIABLE _dlss_copy_result)
+        endif()
+        if(NOT _dlss_copy_result EQUAL 0)
+          message(FATAL_ERROR \"Failed to copy DLSS runtime DLL: ${_dlss_dll}\")
+        endif()
+      " COMPONENT Runtime)
+    endif()
+  endforeach()
+endif()
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

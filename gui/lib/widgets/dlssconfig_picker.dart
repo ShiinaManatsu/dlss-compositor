@@ -1,16 +1,14 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/app_strings.dart';
 import '../state/app_state.dart';
 import '../util/app_log.dart';
+import '../util/dlss_config_file.dart';
 import '../util/error_dialog.dart';
 import '../util/win_file_dialog.dart';
 
-/// dlssconfig.json file picker with schema validation and summary display.
+/// DLSS config file picker with schema validation and summary display.
 class DlssConfigPicker extends StatelessWidget {
   const DlssConfigPicker({super.key});
 
@@ -18,8 +16,8 @@ class DlssConfigPicker extends StatelessWidget {
     final strings = context.strings;
     AppLog.phase('config', 'Opening dlssconfig picker');
     final path = selectFile(
-      filterDescription: 'DLSS Config',
-      filterPattern: '*.json',
+      filterDescription: kDlssConfigFileDescription,
+      filterPattern: kDlssConfigFileFilter,
       title: strings.openDlssConfigDialogTitle,
     );
     if (path == null || !context.mounted) {
@@ -32,34 +30,27 @@ class DlssConfigPicker extends StatelessWidget {
     final appState = Provider.of<AppState>(context, listen: false);
 
     try {
-      final content = await File(path).readAsString();
-      final config = json.decode(content) as Map<String, dynamic>;
-
-      String? error;
-      if (config['version'] != 1) {
-        error = strings.invalidVersion(config['version']);
-      } else if (!config.containsKey('output_resolution')) {
-        error = strings.missingRequiredField('output_resolution');
-      } else if (!config.containsKey('fps')) {
-        error = strings.missingRequiredField('fps');
-      }
-
+      final result = await loadDlssConfigFile(
+        path,
+        invalidVersion: strings.invalidVersion,
+        missingRequiredField: strings.missingRequiredField,
+      );
       AppLog.phase('config', 'dlssconfig parsed', {
-        'valid': error == null,
-        'error': error,
+        'valid': result.isValid,
+        'error': result.error,
       });
-      appState.setDlssConfig(path, error == null ? config : null, error);
-      if (error != null && context.mounted) {
+      appState.setDlssConfig(path, result.config, result.error);
+      if (result.error != null && context.mounted) {
         await showErrorDialog(
           context,
           title: strings.invalidConfigTitle,
-          message: error,
+          message: result.error!,
           details: path,
         );
       }
     } catch (e) {
       AppLog.phase('config', 'dlssconfig parse failed', e);
-      appState.setDlssConfig(path, null, 'Failed to parse dlssconfig.json');
+      appState.setDlssConfig(path, null, strings.failedOpenConfigMessage);
       if (context.mounted) {
         await showErrorDialog(
           context,

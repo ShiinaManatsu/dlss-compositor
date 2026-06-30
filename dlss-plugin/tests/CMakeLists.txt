@@ -23,6 +23,7 @@ add_executable(dlss_engine_tests
     test_inverse_tonemap.cpp
     test_mv_conversion_sanity.cpp
     test_async_writer.cpp
+    test_prores_writer.cpp
     test_rpc_dispatcher.cpp
     test_fg_only_pipeline.cpp
     test_sr_fg_integration.cpp
@@ -32,7 +33,9 @@ target_link_libraries(dlss_engine_tests PRIVATE
     dlss_warnings
     volk::volk
     Catch2::Catch2WithMain)
-target_compile_definitions(dlss_engine_tests PRIVATE VK_NO_PROTOTYPES)
+target_compile_definitions(dlss_engine_tests PRIVATE
+    VK_NO_PROTOTYPES
+    DLSS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 if(WIN32)
     target_link_libraries(dlss_engine_tests PRIVATE version.lib)
 endif()
