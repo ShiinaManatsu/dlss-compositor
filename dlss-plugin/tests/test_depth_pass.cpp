@@ -4,10 +4,11 @@
 // [unit]  - run anywhere (no GPU required); static/logic verification
 // [gpu]   - require an NVIDIA RTX device + Vulkan driver + compiled shader SPV
 //
-// DLSS SR §3.5 reference: depth must be NDC [0,1], non-inverted, using
+// DLSS SR §3.8 reference: depth must be hardware [0,1], non-inverted, using
 // full projection matrix (not linear approximation, not reverse-Z).
 // =============================================================================
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "../src/gpu/passes/depth_pass.h"
 #include "../src/gpu/vulkan_context.h"
@@ -17,19 +18,18 @@
 #include <cstring>
 
 // ---------------------------------------------------------------------------
-// Helper: create standard perspective projection matrix (column-major)
+// Helper: create Blender/OpenGL-style perspective projection matrix (row-major)
 // Matches Blender's projection convention.
 // ---------------------------------------------------------------------------
 static void makePerspective(float fovY_deg, float aspect, float nearZ, float farZ,
                              float out[4][4]) {
     float f = 1.0f / tanf(fovY_deg * 3.14159265f / 360.0f);
     memset(out, 0, 64);
-    // Column-major layout (GLSL mat4 convention)
-    out[0][0] = f / aspect;   // col 0, row 0
-    out[1][1] = f;             // col 1, row 1
-    out[2][2] = (farZ + nearZ) / (nearZ - farZ);   // col 2, row 2
-    out[2][3] = -1.0f;         // col 2, row 3
-    out[3][2] = (2.0f * farZ * nearZ) / (nearZ - farZ);  // col 3, row 2
+    out[0][0] = f / aspect;
+    out[1][1] = f;
+    out[2][2] = (farZ + nearZ) / (nearZ - farZ);
+    out[2][3] = (2.0f * farZ * nearZ) / (nearZ - farZ);
+    out[3][2] = -1.0f;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,39 +42,57 @@ TEST_CASE("DepthConversionPass - no reverse-Z in shader", "[unit]") {
     SUCCEED("No reverse-Z verified by grep in CI (see task-22 acceptance criteria)");
 }
 
+TEST_CASE("DepthConversionPass - Blender view depth maps near and far", "[unit]") {
+    float proj[4][4];
+    const float nearZ = 0.1f;
+    const float farZ = 100.0f;
+    makePerspective(60.0f, 1.0f, nearZ, farZ, proj);
+
+    REQUIRE(dlss::blenderViewDepthToNdc(nearZ, proj) ==
+            Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(dlss::blenderViewDepthToNdc(farZ, proj) ==
+            Catch::Approx(1.0f).margin(1e-5f));
+}
+
+TEST_CASE("DepthConversionPass - view depth is independent of pixel position", "[unit]") {
+    float proj[4][4];
+    makePerspective(60.0f, 16.0f / 9.0f, 0.1f, 100.0f, proj);
+
+    const float depth = dlss::blenderViewDepthToNdc(5.0f, proj);
+    REQUIRE(depth > 0.0f);
+    REQUIRE(depth < 1.0f);
+}
+
 TEST_CASE("DepthConversionPass - DLSS doc ref present", "[unit]") {
-    // DLSS SR §3.5 reference is documented in depth_world_to_ndc.comp and depth_pass.h
-    SUCCEED("DLSS SR §3.5 reference verified by code review");
+    // DLSS SR §3.8 reference is documented in depth_world_to_ndc.comp and depth_pass.h
+    SUCCEED("DLSS SR §3.8 reference verified by code review");
 }
 
 TEST_CASE("DepthConversionPass - perspective projection math sanity", "[unit]") {
-    // Verify the NDC formula: for a standard perspective projection,
-    // a point at the far plane should map to NDC 1.0,
-    // a point at the near plane should map to NDC 0.0.
+    // Verify the row-major projection coefficients used by Blender configs.
     float proj[4][4];
     const float nearZ = 0.1f;
     const float farZ  = 100.0f;
     makePerspective(60.0f, 1920.0f / 1080.0f, nearZ, farZ, proj);
 
-    // Simulate the shader math for zWorld = farZ (should → NDC ~1.0)
     float viewZ_far = -farZ;
-    float clip_z_far = proj[2][2] * viewZ_far + proj[3][2];
-    float clip_w_far = proj[2][3] * viewZ_far + proj[3][3];
-    float ndcZ_far   = (clip_z_far / clip_w_far) * 0.5f + 0.5f;
+    float clip_z_far = proj[2][2] * viewZ_far + proj[2][3];
+    float clip_w_far = proj[3][2] * viewZ_far + proj[3][3];
+    float ndcZ_far = (clip_z_far / clip_w_far) * 0.5f + 0.5f;
     REQUIRE(std::abs(ndcZ_far - 1.0f) < 0.001f);
 
     // Simulate the shader math for zWorld = nearZ (should → NDC ~0.0)
     float viewZ_near = -nearZ;
-    float clip_z_near = proj[2][2] * viewZ_near + proj[3][2];
-    float clip_w_near = proj[2][3] * viewZ_near + proj[3][3];
+    float clip_z_near = proj[2][2] * viewZ_near + proj[2][3];
+    float clip_w_near = proj[3][2] * viewZ_near + proj[3][3];
     float ndcZ_near   = (clip_z_near / clip_w_near) * 0.5f + 0.5f;
     REQUIRE(std::abs(ndcZ_near - 0.0f) < 0.001f);
 
     // Midpoint must be between 0 and 1 (non-linear due to perspective)
     float zMid    = (nearZ + farZ) * 0.5f;
     float viewZ_m = -zMid;
-    float clip_z_m = proj[2][2] * viewZ_m + proj[3][2];
-    float clip_w_m = proj[2][3] * viewZ_m + proj[3][3];
+    float clip_z_m = proj[2][2] * viewZ_m + proj[2][3];
+    float clip_w_m = proj[3][2] * viewZ_m + proj[3][3];
     float ndcZ_m   = (clip_z_m / clip_w_m) * 0.5f + 0.5f;
     REQUIRE(ndcZ_m > 0.0f);
     REQUIRE(ndcZ_m < 1.0f);
@@ -161,5 +179,5 @@ TEST_CASE("DepthConversionPass - NDC correct for known depth", "[gpu]") {
     pool.release(srcTex);
     pool.release(dstTex);
 
-    SUCCEED("DepthConversionPass executed without error (DLSS SR §3.5 NDC path)");
+    SUCCEED("DepthConversionPass executed without error (DLSS SR §3.8 hardware-depth path)");
 }

@@ -10,12 +10,16 @@
 
 namespace dlss {
 
-/// Converts world-linear depth (Blender Z pass) to NDC [0,1] depth for DLSS SR.
-/// Per DLSS SR §3.5: DLSS expects NDC depth, non-inverted (Blender uses standard Z, not reverse-Z).
+/// Reference CPU implementation of the Blender positive view-depth to hardware
+/// depth conversion used by depth_world_to_ndc.comp.
+float blenderViewDepthToNdc(float viewDepth,
+                            const float projection[4][4]);
+
+/// Converts Blender's positive camera/view-space Z pass to hardware depth [0,1].
+/// Per DLSS SR §3.8: DLSS expects hardware/NDC depth, non-inverted.
 ///
-/// Blender camera looks down -Z axis in view space. The Z pass contains positive
-/// world-space distances. This shader applies the camera projection matrix to produce
-/// the NDC [0,1] depth that DLSS SR requires as input.
+/// Blender camera looks down -Z in view space, while its Z pass stores the
+/// corresponding positive physical depth in scene units.
 class DepthConversionPass {
 public:
     explicit DepthConversionPass(VulkanContext* ctx);
@@ -27,13 +31,13 @@ public:
 
     /// Record depth conversion dispatch into command buffer.
     /// @param cmd          Active compute command buffer to record into.
-    /// @param srcWorldLinear  Source texture in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
+    /// @param srcCameraDistance  Source texture in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
     /// @param dstNdc       Destination storage image in VK_IMAGE_LAYOUT_GENERAL.
-    /// @param projection   Column-major 4x4 projection matrix from dlssconfig per-frame data.
+    /// @param projection   Row-major Blender 4x4 projection matrix from dlssconfig.
     /// @param nearClip     Camera near clip plane (from dlssconfig).
     /// @param farClip      Camera far clip plane (from dlssconfig).
     void execute(VkCommandBuffer       cmd,
-                 PooledTextureHandle   srcWorldLinear,
+                 PooledTextureHandle   srcCameraDistance,
                  PooledTextureHandle   dstNdc,
                  const float           projection[4][4],
                  float                 nearClip,

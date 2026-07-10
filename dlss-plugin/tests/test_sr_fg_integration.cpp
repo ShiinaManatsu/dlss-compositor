@@ -107,6 +107,14 @@ TEST_CASE("SrFgPipeline - frame time delta from fps", "[unit][pipeline]") {
     SUCCEED("frameTimeMs = 1000.0f / fps — verified by code");
 }
 
+TEST_CASE("SrFgPipeline - converts Blender nominal jitter for SR and FG", "[unit][pipeline]") {
+    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    REQUIRE(source.find("srIn.jitterX             = cam ? -cam->jitter.x") != std::string::npos);
+    REQUIRE(source.find("srIn.jitterY             = cam ?  cam->jitter.y") != std::string::npos);
+    REQUIRE(source.find("fgIn.jitterClipX = cam ? -2.0f * cam->jitter.x") != std::string::npos);
+    REQUIRE(source.find("fgIn.jitterClipY = cam ? -2.0f * cam->jitter.y") != std::string::npos);
+}
+
 TEST_CASE("SrFgPipeline - output frame count formula", "[unit][pipeline]") {
     int N = 5;
     REQUIRE(2 * N - 1 == 9);   // 2x: 9 frames

@@ -12,7 +12,7 @@ struct MappedBuffers {
     /// Size: width × height × 4 × 2 bytes
     std::vector<uint16_t> sceneColor;
 
-    /// R32_SFLOAT — Blender world-linear depth (NOT NDC; T22 converts to NDC on GPU)
+    /// R32_SFLOAT — Blender positive camera/view-space depth in scene units
     /// Size: width × height × 4 bytes (single float per pixel)
     std::vector<float> depth;
 

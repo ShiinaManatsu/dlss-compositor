@@ -39,6 +39,17 @@ void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher*
     if (!dispatcher) throw std::invalid_argument("SrFgPipeline: RpcDispatcher must not be null");
 }
 
+void requireMappedDimensions(const MappedBuffers& mapped,
+                             uint32_t expectedW,
+                             uint32_t expectedH) {
+    if (mapped.width != expectedW || mapped.height != expectedH) {
+        throw std::runtime_error(
+            "SrFgPipeline: EXR dimensions " + std::to_string(mapped.width) + "x" +
+            std::to_string(mapped.height) + " do not match dlssconfig render_resolution " +
+            std::to_string(expectedW) + "x" + std::to_string(expectedH));
+    }
+}
+
 std::filesystem::path inferInputDir(const SrFgConfig& config) {
     if (!config.inputDir.empty()) {
         return std::filesystem::path(config.inputDir);
@@ -770,6 +781,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 continue;
             }
             const MappedBuffers& mapped = mapResult.value();
+            requireMappedDimensions(mapped, rW, rH);
 
             auto sceneColorRender = pool.acquire(sceneColorRenderDesc);
             auto sceneColorOutput = pool.acquire(sceneColorOutputDesc);
@@ -820,12 +832,19 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             srIn.sceneColorOutputRes = sceneColorOutput->view;
             srIn.depthNdc            = depthNdc->view;  // SAME handle used by FG Stage 5.
             srIn.motionVecDlss       = mvDlss->view;   // SAME handle used by FG Stage 5.
+            srIn.sceneColorRenderImage = sceneColorRender->image;
+            srIn.sceneColorOutputImage = sceneColorOutput->image;
+            srIn.depthImage            = depthNdc->image;
+            srIn.motionVecImage        = mvDlss->image;
             srIn.renderW             = rW;
             srIn.renderH             = rH;
             srIn.outputW             = oW;
             srIn.outputH             = oH;
-            srIn.jitterX             = cam ? cam->jitter.x : 0.0f;
-            srIn.jitterY             = cam ? cam->jitter.y : 0.0f;
+            // Blender Camera.shift produces a screen-space offset of (-X,+Y)
+            // for the nominal jitter stored in dlssconfig. DLSS expects the
+            // actual render-pixel offset applied to the input image.
+            srIn.jitterX             = cam ? -cam->jitter.x : 0.0f;
+            srIn.jitterY             = cam ?  cam->jitter.y : 0.0f;
             srIn.reset               = reset;
             srIn.frameTimeDeltaMs    = frameTimeMs;
             srPass.evaluate(cmd, srIn);
@@ -870,6 +889,11 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             fgIn.reset            = reset;
             fgIn.multiplier       = config.fgMultiplier;
             fillFgCameraInputs(fgIn, cam, prevCam);
+            // DLSS FG expects clip-space jitter while its camera matrices are
+            // explicitly unjittered. Convert the actual Blender screen offset
+            // (-jitter.x,+jitter.y) to clip space: (+X right,+Y up).
+            fgIn.jitterClipX = cam ? -2.0f * cam->jitter.x / static_cast<float>(rW) : 0.0f;
+            fgIn.jitterClipY = cam ? -2.0f * cam->jitter.y / static_cast<float>(rH) : 0.0f;
 
             fgPass.evaluate(cmd, fgIn);
             if (config.outputFormat == OutputFormat::ExrLinear) {

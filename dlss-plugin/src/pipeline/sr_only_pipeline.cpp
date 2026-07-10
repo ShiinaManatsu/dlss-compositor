@@ -14,7 +14,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstddef>
-#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
@@ -102,49 +101,15 @@ void identity(float (&m)[4][4]) {
     }
 }
 
-uint16_t f32ToF16(float v) {
-    uint32_t bits = 0;
-    std::memcpy(&bits, &v, sizeof(bits));
-    const uint32_t sign = (bits >> 31) & 0x1u;
-    const uint32_t exponent = (bits >> 23) & 0xFFu;
-    const uint32_t mantissa = bits & 0x7FFFFFu;
-    if (exponent == 255) return static_cast<uint16_t>((sign << 15) | 0x7C00u | (mantissa ? 0x200u : 0u));
-    if (exponent == 0) return static_cast<uint16_t>(sign << 15);
-    const int e = static_cast<int>(exponent) - 127 + 15;
-    if (e >= 31) return static_cast<uint16_t>((sign << 15) | 0x7C00u);
-    if (e <= 0) {
-        if (e < -10) return static_cast<uint16_t>(sign << 15);
-        const uint32_t m = (mantissa | 0x800000u) >> (1 - e);
-        return static_cast<uint16_t>((sign << 15) | (m >> 13));
+void requireMappedDimensions(const MappedBuffers& mapped,
+                             uint32_t expectedW,
+                             uint32_t expectedH) {
+    if (mapped.width != expectedW || mapped.height != expectedH) {
+        throw std::runtime_error(
+            "SrOnlyPipeline: EXR dimensions " + std::to_string(mapped.width) + "x" +
+            std::to_string(mapped.height) + " do not match dlssconfig render_resolution " +
+            std::to_string(expectedW) + "x" + std::to_string(expectedH));
     }
-    return static_cast<uint16_t>((sign << 15) | (static_cast<uint32_t>(e) << 10) | (mantissa >> 13));
-}
-
-std::vector<float> makeNdcDepth(const DecodedFrame& frame, const float projection[4][4]) {
-    std::vector<float> out(frame.depth.size(), 0.0f);
-    for (std::size_t i = 0; i < frame.depth.size(); ++i) {
-        const float viewZ = -frame.depth[i];
-        const float clipZ = projection[2][2] * viewZ + projection[3][2];
-        const float clipW = projection[2][3] * viewZ + projection[3][3];
-        float ndc = 0.0f;
-        if (std::abs(clipW) > 1e-6f) {
-            ndc = (clipZ / clipW) * 0.5f + 0.5f;
-        }
-        out[i] = std::clamp(ndc, 0.0f, 1.0f);
-    }
-    return out;
-}
-
-std::vector<uint16_t> makeDlssMv(const DecodedFrame& frame) {
-    const std::size_t pixels = static_cast<std::size_t>(frame.width) * frame.height;
-    std::vector<uint16_t> out(pixels * 2, 0);
-    for (std::size_t i = 0; i < pixels; ++i) {
-        const float x = frame.vector.size() >= pixels * 4 ? frame.vector[i * 4] : 0.0f;
-        const float y = frame.vector.size() >= pixels * 4 ? -frame.vector[i * 4 + 1] : 0.0f;
-        out[i * 2] = f32ToF16(x);
-        out[i * 2 + 1] = f32ToF16(y);
-    }
-    return out;
 }
 
 void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher* dispatcher) {
@@ -297,6 +262,8 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
     try {
         TexturePool pool(m_ctx);
         DlssSrPass srPass(m_ngx, m_ctx, &pool);
+        DepthConversionPass depthPass(m_ctx);
+        MvConversionPass mvPass(m_ctx);
         PreviewPass previewPass(m_ctx);
         TonemapMode tonemapMode = dlssCfg.is_hdr ? TonemapMode::HDR : TonemapMode::LDR;
         TonemapPass tonemapPass(m_ctx);
@@ -382,7 +349,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
             VK_FORMAT_R32_SFLOAT,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
         TextureDesc mvBlenderDesc{
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
@@ -392,7 +359,7 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             dlssCfg.render_resolution.width,
             dlssCfg.render_resolution.height,
             VK_FORMAT_R16G16_SFLOAT,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT};
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
 
         const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps);
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
@@ -414,6 +381,9 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
                 continue;
             }
             const MappedBuffers& mapped = mapResult.value();
+            requireMappedDimensions(mapped,
+                                    dlssCfg.render_resolution.width,
+                                    dlssCfg.render_resolution.height);
 
             auto colorRender = pool.acquire(colorRenderDesc);
             auto colorOutput = pool.acquire(colorOutputDesc);
@@ -434,16 +404,21 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             const float* prevMatrix = prevCam ? &prevCam->matrix_world[0][0] : nullptr;
             const float* currMatrix = cam ? &cam->matrix_world[0][0] : nullptr;
 
-            const auto ndcDepth = makeNdcDepth(decodedFrame, projection);
-            const auto dlssMv = makeDlssMv(decodedFrame);
-
             UploadBatch batch(m_ctx);
             batch.addUpload(colorRender, mapped.sceneColor.data(), mapped.sceneColor.size() * sizeof(std::uint16_t));
-            batch.addUpload(depthNdc, ndcDepth.data(), ndcDepth.size() * sizeof(float));
-            batch.addUpload(mvDlss, dlssMv.data(), dlssMv.size() * sizeof(std::uint16_t));
+            batch.addUpload(depthWorld, mapped.depth.data(), mapped.depth.size() * sizeof(float));
+            batch.addUpload(mvBlender, mapped.motionVector.data(), mapped.motionVector.size() * sizeof(std::uint16_t));
             batch.submit();
 
             VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
+            transitionStorageImageForWrite(cmd, depthNdc);
+            depthPass.execute(cmd,
+                              depthWorld,
+                              depthNdc,
+                              projection,
+                              cam ? cam->near_clip : 0.1f,
+                              cam ? cam->far_clip : 100.0f);
+            mvPass.execute(cmd, mvBlender, mvDlss);
             transitionForSrEvaluate(cmd, colorOutput, depthNdc, mvDlss);
 
             SrInputs srIn{};
@@ -451,12 +426,19 @@ void SrOnlyPipeline::run(const SrOnlyConfig& config) {
             srIn.sceneColorOutputRes = colorOutput->view;
             srIn.depthNdc            = depthNdc->view;
             srIn.motionVecDlss       = mvDlss->view;
+            srIn.sceneColorRenderImage = colorRender->image;
+            srIn.sceneColorOutputImage = colorOutput->image;
+            srIn.depthImage            = depthNdc->image;
+            srIn.motionVecImage        = mvDlss->image;
             srIn.renderW             = dlssCfg.render_resolution.width;
             srIn.renderH             = dlssCfg.render_resolution.height;
             srIn.outputW             = dlssCfg.output_resolution.width;
             srIn.outputH             = dlssCfg.output_resolution.height;
-            srIn.jitterX             = cam ? cam->jitter.x : 0.0f;
-            srIn.jitterY             = cam ? cam->jitter.y : 0.0f;
+            // Blender Camera.shift produces a screen-space offset of (-X,+Y)
+            // for the nominal jitter stored in dlssconfig. DLSS expects the
+            // actual render-pixel offset applied to the input image.
+            srIn.jitterX             = cam ? -cam->jitter.x : 0.0f;
+            srIn.jitterY             = cam ?  cam->jitter.y : 0.0f;
             srIn.reset               = shouldReset(frameIdx, decodedFrame, prevMatrix, currMatrix);
             srIn.frameTimeDeltaMs    = frameTimeMs;
 

@@ -55,7 +55,8 @@ foreach(_dll_name nvngx_dlss.dll nvngx_dlssg.dll)
 endforeach()
 
 include(Catch)
-catch_discover_tests(dlss_engine_tests)
+catch_discover_tests(dlss_engine_tests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 add_executable(dlss_cli_tests
     test_cli_config_executor.cpp)
@@ -67,4 +68,5 @@ target_link_libraries(dlss_cli_tests PRIVATE
 if(WIN32)
     target_link_libraries(dlss_cli_tests PRIVATE version.lib)
 endif()
-catch_discover_tests(dlss_cli_tests)
+catch_discover_tests(dlss_cli_tests
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

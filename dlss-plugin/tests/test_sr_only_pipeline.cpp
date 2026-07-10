@@ -32,6 +32,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
+#ifndef DLSS_SOURCE_DIR
+#define DLSS_SOURCE_DIR "."
+#endif
+
 class TempDir {
 public:
     TempDir() {
@@ -139,7 +143,8 @@ dlss::SrOnlyConfig makeConfig(const fs::path& inputDir, const fs::path& outputDi
 }
 
 std::string readTextFile(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(fs::path(DLSS_SOURCE_DIR) / path, std::ios::binary);
+    REQUIRE(in.good());
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
@@ -164,6 +169,17 @@ TEST_CASE("SrOnlyPipeline - pipeline loop uses TexturePool acquire instead of vk
     REQUIRE(loopBody.find("pool.acquire") != std::string::npos);
     REQUIRE(loopBody.find("pool.release") != std::string::npos);
     REQUIRE(loopBody.find("vkCreateImage") == std::string::npos);
+}
+
+TEST_CASE("SrOnlyPipeline - converts Blender guides and uses DLSS pixel-space jitter", "[unit][pipeline]") {
+    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_only_pipeline.cpp");
+    REQUIRE(source.find("DepthConversionPass depthPass") != std::string::npos);
+    REQUIRE(source.find("MvConversionPass mvPass") != std::string::npos);
+    REQUIRE(source.find("depthPass.execute") != std::string::npos);
+    REQUIRE(source.find("mvPass.execute") != std::string::npos);
+    REQUIRE(source.find("srIn.jitterX             = cam ? -cam->jitter.x") != std::string::npos);
+    REQUIRE(source.find("srIn.jitterY             = cam ?  cam->jitter.y") != std::string::npos);
+    REQUIRE(source.find("makeNdcDepth") == std::string::npos);
 }
 
 TEST_CASE("SrOnlyPipeline - constructor rejects missing runtime dependencies", "[unit][pipeline]") {

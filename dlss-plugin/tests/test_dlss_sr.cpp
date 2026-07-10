@@ -44,6 +44,17 @@ TEST_CASE("DlssSrPass - UltraQuality maps to NGX UltraQuality", "[unit]") {
     REQUIRE(ultraQualityBlock.find("NVSDK_NGX_PerfQuality_Value_MaxQuality") == std::string::npos);
 }
 
+TEST_CASE("DlssSrPass - queries optimal settings and supplies backing VkImages", "[unit]") {
+    const std::string source = readTextFile("dlss-plugin/src/dlss/dlss_sr.cpp");
+    REQUIRE(source.find("queryDlssOptimalSettings") != std::string::npos);
+    REQUIRE(source.find("createParams.Feature.InWidth  = optimal.optimalWidth") != std::string::npos);
+    REQUIRE(source.find("in.sceneColorRenderImage") != std::string::npos);
+    REQUIRE(source.find("in.sceneColorOutputImage") != std::string::npos);
+    REQUIRE(source.find("in.depthImage") != std::string::npos);
+    REQUIRE(source.find("in.motionVecImage") != std::string::npos);
+    REQUIRE(source.find("VK_NULL_HANDLE,\n        range") == std::string::npos);
+}
+
 TEST_CASE("DlssSrPass - create and evaluate 5 frames", "[gpu]") {
     dlss::VulkanContext ctx;
     dlss::TexturePool pool(&ctx);
@@ -83,8 +94,14 @@ TEST_CASE("DlssSrPass - create and evaluate 5 frames", "[gpu]") {
         inputs.sceneColorOutputRes = colorOutput->view;
         inputs.depthNdc = depth->view;
         inputs.motionVecDlss = mv->view;
+        inputs.sceneColorRenderImage = colorRender->image;
+        inputs.sceneColorOutputImage = colorOutput->image;
+        inputs.depthImage = depth->image;
+        inputs.motionVecImage = mv->image;
         inputs.renderW = 1920;
         inputs.renderH = 1080;
+        inputs.outputW = 3840;
+        inputs.outputH = 2160;
         inputs.jitterX = 0.25f * (i % 4 - 1.5f) / 2.0f;  // simple jitter pattern
         inputs.jitterY = 0.25f * (i % 4 - 1.5f) / 2.0f;
         inputs.reset = (i == 0);  // Reset only on first frame

@@ -1,12 +1,13 @@
 #version 450
-// DLSS SR §3.5 / FG §6 - depth is supplied non-inverted: near=0, far=1.
-// Blender Cycles Z pass is physical camera depth in scene units: near objects
-// approach 0, far objects approach camera far. Use the per-frame camera near/far
-// from dlssconfig to normalize this Blender depth into DLSS' expected range.
+// DLSS SR §3.8 / FG §6 - depth is supplied non-inverted: near=0, far=1.
+// Blender Cycles Z is positive camera/view-space depth in scene units, not
+// hardware depth. Negate it for Blender's -Z-forward camera, then apply the
+// projection matrix. Do not divide by the pixel ray length: real Blender
+// exports keep a planar surface's Z constant across a scanline.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// Input: world-linear depth from Blender
+// Input: positive camera/view-space depth from Blender's Z pass
 layout(set = 0, binding = 0) uniform sampler2D srcDepth;
 
 // Output: NDC depth [0, 1] for DLSS SR
@@ -26,10 +27,17 @@ void main() {
     if (coord.x >= size.x || coord.y >= size.y) return;
 
     vec2 uv = (vec2(coord) + 0.5) / vec2(size);
-    float zWorld = texture(srcDepth, uv).r;
+    float viewDepth = texture(srcDepth, uv).r;
+    float viewZ = -viewDepth;
 
-    float denom = max(pc.far - pc.near, 1e-6);
-    float ndcZ = clamp((zWorld - pc.near) / denom, 0.0, 1.0);
+    float clipZ = pc.projection[2][2] * viewZ + pc.projection[2][3];
+    float clipW = pc.projection[3][2] * viewZ + pc.projection[3][3];
+    float ndcZ = 1.0;
+    if (viewDepth > 0.0 && abs(clipW) > 1e-6) {
+        // Blender's projection is OpenGL-style [-1, 1]; Vulkan/DLSS expects
+        // hardware depth with near=0 and far=1.
+        ndcZ = clamp((clipZ / clipW) * 0.5 + 0.5, 0.0, 1.0);
+    }
 
     imageStore(dstDepth, coord, vec4(ndcZ, 0.0, 0.0, 1.0));
 }

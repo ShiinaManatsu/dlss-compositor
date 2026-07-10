@@ -247,8 +247,10 @@ void DlssFgPass::evaluate(VkCommandBuffer cmd, const FgInputs& in) {
         // the display-ready backbuffer. See DLSS FG §6 L548-L556 and defs_dlssg.h.
         optParams.mvecScale[0] = 1.0f / static_cast<float>(depthMotionWidth);
         optParams.mvecScale[1] = 1.0f / static_cast<float>(depthMotionHeight);
-        optParams.jitterOffset[0] = 0.0f;
-        optParams.jitterOffset[1] = 0.0f;
+        // DLSS FG §6 / nvsdk_ngx_defs_dlssg.h: matrices are unjittered and
+        // the current clip-space jitter is supplied separately.
+        optParams.jitterOffset[0] = in.jitterClipX;
+        optParams.jitterOffset[1] = in.jitterClipY;
         optParams.cameraPinholeOffset[0] = 0.0f;
         optParams.cameraPinholeOffset[1] = 0.0f;
         optParams.mvecsSubrectSize = {depthMotionWidth, depthMotionHeight};

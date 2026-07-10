@@ -1,7 +1,7 @@
 // =============================================================================
-// DepthConversionPass — world-linear → NDC [0,1] depth conversion.
+// DepthConversionPass — Blender positive view depth → hardware depth [0,1].
 //
-// DLSS SR §3.5 requires depth in NDC [0,1] range, non-inverted.
+// DLSS SR §3.8 requires hardware depth in [0,1], non-inverted.
 // Blender Cycles Z pass provides positive world-space distances (NOT NDC).
 // This pass applies the camera projection matrix to produce correct NDC depth.
 //
@@ -17,6 +17,8 @@
 #include "depth_pass.h"
 #include <spdlog/spdlog.h>
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -27,10 +29,21 @@
 #include <volk.h>
 
 namespace dlss {
+float blenderViewDepthToNdc(float viewDepth,
+                            const float projection[4][4]) {
+    if (viewDepth <= 0.0f) return 1.0f;
+
+    const float viewZ = -viewDepth;
+    const float clipZ = projection[2][2] * viewZ + projection[2][3];
+    const float clipW = projection[3][2] * viewZ + projection[3][3];
+    if (std::abs(clipW) <= 1e-6f) return 1.0f;
+    return std::clamp((clipZ / clipW) * 0.5f + 0.5f, 0.0f, 1.0f);
+}
+
 // Push constant layout (must match depth_world_to_ndc.comp)
 // ---------------------------------------------------------------------------
 struct DepthPushConstants {
-    float projection[4][4];  // column-major 4x4 projection matrix
+    float projection[4][4];  // row-major Blender projection bytes; shader accounts for GLSL layout
     float nearClip;
     float farClip;
 };
@@ -74,7 +87,7 @@ DepthConversionPass::DepthConversionPass(VulkanContext* ctx)
 {
     createDescriptorSetLayout();
     createPipeline();
-    spdlog::info("DepthConversionPass: initialized (DLSS SR §3.5 world-linear→NDC)");
+    spdlog::info("DepthConversionPass: initialized (DLSS SR §3.8 view-depth→hardware-depth)");
 }
 
 DepthConversionPass::~DepthConversionPass() {
@@ -211,11 +224,11 @@ void DepthConversionPass::createPipeline() {
 // execute
 //   Records depth conversion dispatch into `cmd`.
 //   Image layout pre-conditions (caller must transition before calling):
-//     srcWorldLinear: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+//     srcCameraDistance: VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 //     dstNdc:         VK_IMAGE_LAYOUT_GENERAL
 // ---------------------------------------------------------------------------
 void DepthConversionPass::execute(VkCommandBuffer     cmd,
-                                   PooledTextureHandle srcWorldLinear,
+                                   PooledTextureHandle srcCameraDistance,
                                    PooledTextureHandle dstNdc,
                                    const float         projection[4][4],
                                    float               nearClip,
@@ -230,7 +243,7 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
     // Write descriptor bindings
     VkDescriptorImageInfo srcInfo{};
     srcInfo.sampler     = m_sampler;
-    srcInfo.imageView   = srcWorldLinear->view;
+    srcInfo.imageView   = srcCameraDistance->view;
     srcInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkDescriptorImageInfo dstInfo{};
@@ -255,7 +268,7 @@ void DepthConversionPass::execute(VkCommandBuffer     cmd,
 
     vkUpdateDescriptorSets(dev, 2, writes, 0, nullptr);
 
-    // Build push constants (DLSS SR §3.5 — projection matrix path)
+    // Build push constants (DLSS SR §3.8 — hardware depth path)
     DepthPushConstants pc{};
     memcpy(pc.projection, projection, sizeof(pc.projection));
     pc.nearClip = nearClip;

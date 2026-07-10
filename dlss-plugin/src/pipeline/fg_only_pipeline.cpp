@@ -30,6 +30,17 @@ void requirePipelinePointers(VulkanContext* ctx, NgxContext* ngx, RpcDispatcher*
     if (!dispatcher) throw std::invalid_argument("FgOnlyPipeline: RpcDispatcher must not be null");
 }
 
+void requireMappedDimensions(const MappedBuffers& mapped,
+                             uint32_t expectedW,
+                             uint32_t expectedH) {
+    if (mapped.width != expectedW || mapped.height != expectedH) {
+        throw std::runtime_error(
+            "FgOnlyPipeline: EXR dimensions " + std::to_string(mapped.width) + "x" +
+            std::to_string(mapped.height) + " do not match output_resolution " +
+            std::to_string(expectedW) + "x" + std::to_string(expectedH));
+    }
+}
+
 std::filesystem::path inferInputDir(const FgOnlyConfig& config) {
     if (!config.inputDir.empty()) {
         return std::filesystem::path(config.inputDir);
@@ -545,6 +556,7 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                 continue;
             }
             const MappedBuffers& mapped = mapResult.value();
+            requireMappedDimensions(mapped, w, h);
 
             auto colorTex   = pool.acquire(colorDesc);
             auto depthWorld = pool.acquire(depthWorldDesc);
@@ -615,6 +627,9 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
             fgIn.reset            = (frameIdx == 0);
             fgIn.multiplier       = config.multiplier;
             fillFgCameraInputs(fgIn, cam, prevCam);
+            // DLSS FG §6: clip-space jitter, separate from unjittered matrices.
+            fgIn.jitterClipX = cam ? -2.0f * cam->jitter.x / static_cast<float>(w) : 0.0f;
+            fgIn.jitterClipY = cam ? -2.0f * cam->jitter.y / static_cast<float>(h) : 0.0f;
 
             // Stage 5: multi-frame FG eval writes multiplier-1 interpolated frames.
             fgPass.evaluate(cmd, fgIn);

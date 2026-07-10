@@ -6,6 +6,7 @@
 // All NGX API calls MUST have // DLSS §X.X comments per plan Must Have requirement.
 #include <nvsdk_ngx_vk.h>
 #include <nvsdk_ngx_defs_dlssg.h>
+#include <nvsdk_ngx_helpers.h>
 #include <nvsdk_ngx_helpers_vk.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -145,6 +146,33 @@ NgxDllVersions NgxContext::queryDllVersions() const {
         getDllVersion(kSrDll),
         getDllVersion(kFgDll),
     };
+}
+
+DlssOptimalSettings NgxContext::queryDlssOptimalSettings(std::uint32_t outputWidth,
+                                                         std::uint32_t outputHeight,
+                                                         int perfQuality) const {
+    DlssOptimalSettings settings{};
+    float deprecatedSharpness = 0.0f;
+    // DLSS SR §5.2.8 - query the exact creation resolution and the inclusive
+    // dynamic-resolution range for this output size and quality mode.
+    const NVSDK_NGX_Result result = NGX_DLSS_GET_OPTIMAL_SETTINGS(
+        m_ngxParams,
+        outputWidth,
+        outputHeight,
+        static_cast<NVSDK_NGX_PerfQuality_Value>(perfQuality),
+        &settings.optimalWidth,
+        &settings.optimalHeight,
+        &settings.maxWidth,
+        &settings.maxHeight,
+        &settings.minWidth,
+        &settings.minHeight,
+        &deprecatedSharpness);
+    if (NVSDK_NGX_FAILED(result)) { // DLSS SR §5.2.8
+        throw std::runtime_error(
+            "NGX_DLSS_GET_OPTIMAL_SETTINGS failed: " + std::to_string(result));
+    }
+    settings.supported = settings.optimalWidth > 0 && settings.optimalHeight > 0;
+    return settings;
 }
 
 } // namespace dlss

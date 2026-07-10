@@ -59,6 +59,8 @@ TEST_CASE("DlssFgPass - normalizes pixel motion vectors for FG", "[unit]") {
     REQUIRE(source.find("1.0f / static_cast<float>(depthMotionHeight)") != std::string::npos);
     REQUIRE(source.find("mvecsSubrectSize = {depthMotionWidth, depthMotionHeight}") != std::string::npos);
     REQUIRE(source.find("backbufferSubrectSize = {in.width, in.height}") != std::string::npos);
+    REQUIRE(source.find("optParams.jitterOffset[0] = in.jitterClipX") != std::string::npos);
+    REQUIRE(source.find("optParams.jitterOffset[1] = in.jitterClipY") != std::string::npos);
 }
 
 TEST_CASE("DlssFgPass - create/destroy FG feature", "[gpu]") {

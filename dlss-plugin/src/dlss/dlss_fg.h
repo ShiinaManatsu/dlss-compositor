@@ -37,6 +37,8 @@ struct FgInputs {
     float clipToCameraView[4][4];
     float clipToPrevClip[4][4];
     float prevClipToClip[4][4];
+    float jitterClipX = 0.0f; // FG §6 — clip-space jitter; matrices remain unjittered
+    float jitterClipY = 0.0f;
 
     float camNear;
     float camFar;

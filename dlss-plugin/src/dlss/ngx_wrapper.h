@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <cstdint>
 
 #include <vulkan/vulkan.h>
 
@@ -14,6 +15,16 @@ namespace dlss {
 struct NgxDllVersions {
     std::string sr;   // nvngx_dlss.dll version string
     std::string fg;   // nvngx_dlssg.dll version string
+};
+
+struct DlssOptimalSettings {
+    bool supported = false;
+    std::uint32_t optimalWidth = 0;
+    std::uint32_t optimalHeight = 0;
+    std::uint32_t minWidth = 0;
+    std::uint32_t minHeight = 0;
+    std::uint32_t maxWidth = 0;
+    std::uint32_t maxHeight = 0;
 };
 
 /// Wraps NVIDIA NGX SDK initialization, capability query, and shutdown.
@@ -33,6 +44,10 @@ public:
     bool isSrAvailable() const { return m_srAvailable; }
     bool isFgAvailable() const { return m_fgAvailable; }
     int getFgMaxMultiplier() const { return m_fgMaxMultiplier; }
+
+    DlssOptimalSettings queryDlssOptimalSettings(std::uint32_t outputWidth,
+                                                 std::uint32_t outputHeight,
+                                                 int perfQuality) const;
 
     // DLL version info (queried at runtime from loaded DLLs)
     NgxDllVersions getDllVersions() const { return m_dllVersions; }

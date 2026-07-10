@@ -17,7 +17,12 @@ namespace dlss {
 
 namespace {
 
-NVSDK_NGX_Resource_VK makeDlssResource(VkImageView imageView, uint32_t width, uint32_t height, VkFormat format, bool readWrite) {
+NVSDK_NGX_Resource_VK makeDlssResource(VkImageView imageView,
+                                       VkImage image,
+                                       uint32_t width,
+                                       uint32_t height,
+                                       VkFormat format,
+                                       bool readWrite) {
     VkImageSubresourceRange range{};
     range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     range.baseMipLevel = 0;
@@ -25,9 +30,10 @@ NVSDK_NGX_Resource_VK makeDlssResource(VkImageView imageView, uint32_t width, ui
     range.baseArrayLayer = 0;
     range.layerCount = 1;
 
+    // DLSS SR §3.4 - NGX Vulkan resources require both the view and its image.
     return NVSDK_NGX_Create_ImageView_Resource_VK(
         imageView,
-        VK_NULL_HANDLE,
+        image,
         range,
         format,
         width,
@@ -56,16 +62,33 @@ void DlssSrPass::create(uint32_t inW,
                         DlssPreset presetOverride) {
     if (m_handle) destroy();
 
+    const int ngxQuality = toNgxQuality(quality);
+    const DlssOptimalSettings optimal =
+        m_ngx->queryDlssOptimalSettings(outW, outH, ngxQuality);
+    if (!optimal.supported) {
+        throw std::runtime_error("DLSS quality mode is not supported for target resolution");
+    }
+    if (inW < optimal.minWidth || inW > optimal.maxWidth ||
+        inH < optimal.minHeight || inH > optimal.maxHeight) {
+        throw std::runtime_error(
+            "DLSS render resolution " + std::to_string(inW) + "x" + std::to_string(inH) +
+            " is outside NGX supported range " +
+            std::to_string(optimal.minWidth) + "x" + std::to_string(optimal.minHeight) +
+            ".." + std::to_string(optimal.maxWidth) + "x" +
+            std::to_string(optimal.maxHeight));
+    }
+
     // DLSS SR §3.5 - Feature creation parameters
     NVSDK_NGX_DLSS_Create_Params createParams = {};
-    // DLSS SR §3.5 - Input render resolution (before upscaling)
-    createParams.Feature.InWidth  = inW;
-    createParams.Feature.InHeight = inH;
+    // DLSS SR §5.2.8 - creation must use the exact Optimal Settings result.
+    // The actual fixed input is supplied through InRenderSubrectDimensions.
+    createParams.Feature.InWidth  = optimal.optimalWidth;
+    createParams.Feature.InHeight = optimal.optimalHeight;
     // DLSS SR §3.5 - Output/target resolution (after upscaling)
     createParams.Feature.InTargetWidth  = outW;
     createParams.Feature.InTargetHeight = outH;
     // DLSS SR §3.8 - Quality/performance mode
-    createParams.Feature.InPerfQualityValue = static_cast<NVSDK_NGX_PerfQuality_Value>(toNgxQuality(quality));
+    createParams.Feature.InPerfQualityValue = static_cast<NVSDK_NGX_PerfQuality_Value>(ngxQuality);
     // DLSS SR §3.6.2 - MVLowRes: MV provided at render resolution (not output res)
     // DLSS SR §3.10 - AutoExposure: let DLSS compute exposure automatically
     // NOTE: IsHDR=1 because inputs are scene-linear HDR (R16G16B16A16_SFLOAT)
@@ -92,9 +115,15 @@ void DlssSrPass::create(uint32_t inW,
         throw std::runtime_error("NGX_VULKAN_CREATE_DLSS_EXT failed: " + std::to_string(result));
     }
 
-    LOG_INFO("[DLSS SR] Created {}x{} -> {}x{} quality={} preset={}",
+    LOG_INFO("[DLSS SR] Created optimal={}x{} actual={}x{} supported={}x{}..{}x{} -> {}x{} quality={} preset={}",
+             optimal.optimalWidth,
+             optimal.optimalHeight,
              inW,
              inH,
+             optimal.minWidth,
+             optimal.minHeight,
+             optimal.maxWidth,
+             optimal.maxHeight,
              outW,
              outH,
              static_cast<int>(quality),
@@ -105,16 +134,30 @@ void DlssSrPass::evaluate(VkCommandBuffer cmd, const SrInputs& in) {
     if (!m_handle) {
         throw std::runtime_error("DlssSrPass::evaluate called before create()");
     }
+    if (in.sceneColorRenderRes == VK_NULL_HANDLE ||
+        in.sceneColorOutputRes == VK_NULL_HANDLE ||
+        in.depthNdc == VK_NULL_HANDLE ||
+        in.motionVecDlss == VK_NULL_HANDLE ||
+        in.sceneColorRenderImage == VK_NULL_HANDLE ||
+        in.sceneColorOutputImage == VK_NULL_HANDLE ||
+        in.depthImage == VK_NULL_HANDLE ||
+        in.motionVecImage == VK_NULL_HANDLE) {
+        throw std::runtime_error("DlssSrPass::evaluate received an incomplete Vulkan resource");
+    }
 
     NVSDK_NGX_VK_DLSS_Eval_Params evalParams = {};
     auto colorResource = makeDlssResource(
-        in.sceneColorRenderRes, in.renderW, in.renderH, VK_FORMAT_R16G16B16A16_SFLOAT, false);
+        in.sceneColorRenderRes, in.sceneColorRenderImage,
+        in.renderW, in.renderH, VK_FORMAT_R16G16B16A16_SFLOAT, false);
     auto outputResource = makeDlssResource(
-        in.sceneColorOutputRes, in.outputW, in.outputH, VK_FORMAT_R16G16B16A16_SFLOAT, true);
+        in.sceneColorOutputRes, in.sceneColorOutputImage,
+        in.outputW, in.outputH, VK_FORMAT_R16G16B16A16_SFLOAT, true);
     auto depthResource = makeDlssResource(
-        in.depthNdc, in.renderW, in.renderH, VK_FORMAT_R32_SFLOAT, false);
+        in.depthNdc, in.depthImage,
+        in.renderW, in.renderH, VK_FORMAT_R32_SFLOAT, false);
     auto motionVectorResource = makeDlssResource(
-        in.motionVecDlss, in.renderW, in.renderH, VK_FORMAT_R16G16_SFLOAT, false);
+        in.motionVecDlss, in.motionVecImage,
+        in.renderW, in.renderH, VK_FORMAT_R16G16_SFLOAT, false);
 
     // DLSS §3.6 - Input color resource (scene-linear, at render resolution)
     evalParams.Feature.pInColor = &colorResource;

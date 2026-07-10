@@ -16,12 +16,16 @@ struct SrInputs {
     VkImageView sceneColorOutputRes;   // Output image (at target resolution)
     VkImageView depthNdc;              // NDC depth [0,1] at render resolution
     VkImageView motionVecDlss;         // 2ch DLSS MV at render resolution
+    VkImage sceneColorRenderImage;
+    VkImage sceneColorOutputImage;
+    VkImage depthImage;
+    VkImage motionVecImage;
     uint32_t renderW;
     uint32_t renderH;
     uint32_t outputW;
     uint32_t outputH;
     float jitterX;                     // DLSS SR §3.7 — pixel space [-0.5, +0.5]
-    float jitterY;
+    float jitterY;                     // DLSS top-left coordinates (+Y down)
     bool reset;                        // DLSS SR §3.13 — first frame / gap / camera cut
     float frameTimeDeltaMs;            // DLSS SR §3.14 — 1000.0f / fps (NEVER hardcode)
 };
