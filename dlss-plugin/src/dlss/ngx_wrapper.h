@@ -15,6 +15,7 @@ namespace dlss {
 struct NgxDllVersions {
     std::string sr;   // nvngx_dlss.dll version string
     std::string fg;   // nvngx_dlssg.dll version string
+    std::string rr;   // nvngx_dlssd.dll version string
 };
 
 struct DlssOptimalSettings {
@@ -43,7 +44,8 @@ public:
     // Capability queries
     bool isSrAvailable() const { return m_srAvailable; }
     bool isFgAvailable() const { return m_fgAvailable; }
-    int getFgMaxMultiplier() const { return m_fgMaxMultiplier; }
+    bool isRrAvailable() const { return m_rrAvailable; }  // nvsdk_ngx_defs_dlssd.h SuperSamplingDenoising.Available
+    int  getFgMaxMultiplier() const { return m_fgMaxMultiplier; }
 
     DlssOptimalSettings queryDlssOptimalSettings(std::uint32_t outputWidth,
                                                  std::uint32_t outputHeight,
@@ -63,7 +65,8 @@ private:
     NVSDK_NGX_Parameter* m_ngxParams = nullptr;
     bool m_srAvailable = false;
     bool m_fgAvailable = false;
-    int m_fgMaxMultiplier = 0;
+    bool m_rrAvailable = false;
+    int  m_fgMaxMultiplier = 0;
     NgxDllVersions m_dllVersions;
 };
 

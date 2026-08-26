@@ -185,6 +185,7 @@ add_library(dlss_engine_lib STATIC
     dlss-plugin/src/core/log.cpp
     dlss-plugin/src/core/stub.cpp
     dlss-plugin/src/dlss/dlss_fg.cpp
+    dlss-plugin/src/dlss/dlss_rr.cpp
     dlss-plugin/src/dlss/dlss_sr.cpp
     dlss-plugin/src/dlss/ngx_wrapper.cpp
     dlss-plugin/src/gpu/vulkan_context.cpp
@@ -198,7 +199,9 @@ add_library(dlss_engine_lib STATIC
     dlss-plugin/src/gpu/passes/tonemap_pass.cpp
     dlss-plugin/src/gpu/passes/inverse_tonemap_pass.cpp
     dlss-plugin/src/io/frame_prefetcher.cpp
+    dlss-plugin/src/io/rr_frame_prefetcher.cpp
     dlss-plugin/src/io/channel_mapper.cpp
+    dlss-plugin/src/io/rr_channel_mapper.cpp
     dlss-plugin/src/io/async_writer.cpp
     dlss-plugin/src/io/prores_writer.cpp
     dlss-plugin/src/pipeline/fg_camera.cpp
@@ -258,7 +261,7 @@ endif()
 # Copy DLSS runtime DLLs next to the exe so it can launch out-of-box.
 # Debug uses the SDK dev DLLs for DLSS troubleshooting overlays; release builds
 # always package the production DLLs from rel/.
-foreach(_dll_name IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll)
+foreach(_dll_name IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll nvngx_dlssd.dll)
     set(_dev_dll "${DLSS_DLL_DEV_DIR}/${_dll_name}")
     set(_rel_dll "${DLSS_DLL_REL_DIR}/${_dll_name}")
     if(EXISTS "${_dev_dll}" AND EXISTS "${_rel_dll}")

@@ -5,6 +5,8 @@
 // DLSS NGX headers — Vulkan path.
 // All NGX API calls MUST have // DLSS §X.X comments per plan Must Have requirement.
 #include <nvsdk_ngx_vk.h>
+#include <nvsdk_ngx_defs.h>
+#include <nvsdk_ngx_defs_dlssd.h>
 #include <nvsdk_ngx_defs_dlssg.h>
 #include <nvsdk_ngx_helpers.h>
 #include <nvsdk_ngx_helpers_vk.h>
@@ -51,6 +53,7 @@ std::string getDllVersion(const wchar_t* dllName) {
 
 const wchar_t kSrDll[] = L"nvngx_dlss.dll";
 const wchar_t kFgDll[] = L"nvngx_dlssg.dll";
+const wchar_t kRrDll[] = L"nvngx_dlssd.dll";
 
 } // anonymous namespace
 
@@ -87,12 +90,15 @@ NgxContext::NgxContext(VkInstance instance, VkPhysicalDevice physicalDevice, VkD
     queryCapabilities();
     m_dllVersions = queryDllVersions();
 
-    LOG_INFO("[NGX] DLSS SR: {} | FG: {} max={}x | nvngx_dlss.dll v{} | nvngx_dlssg.dll v{}",
+    LOG_INFO("[NGX] SR: {} | FG: {} max={}x | RR: {} | "
+             "nvngx_dlss.dll v{} | nvngx_dlssg.dll v{} | nvngx_dlssd.dll v{}",
         m_srAvailable ? "AVAILABLE" : "UNAVAILABLE",
         m_fgAvailable ? "AVAILABLE" : "UNAVAILABLE",
         m_fgMaxMultiplier,
+        m_rrAvailable ? "AVAILABLE" : "UNAVAILABLE",
         m_dllVersions.sr,
-        m_dllVersions.fg);
+        m_dllVersions.fg,
+        m_dllVersions.rr);
 }
 
 NgxContext::~NgxContext() {
@@ -139,12 +145,21 @@ void NgxContext::queryCapabilities() {
     } else {
         m_fgMaxMultiplier = 0;
     }
+
+    int rrAvail = 0;
+    // nvsdk_ngx_defs_dlssd.h — SuperSamplingDenoising.Available (not SuperSampling.Available)
+    r = NVSDK_NGX_Parameter_GetI(
+        m_ngxParams,
+        NVSDK_NGX_Parameter_SuperSamplingDenoising_Available, // DLSS-RR §capability
+        &rrAvail);
+    m_rrAvailable = (r == NVSDK_NGX_Result_Success) && (rrAvail != 0);
 }
 
 NgxDllVersions NgxContext::queryDllVersions() const {
     return {
         getDllVersion(kSrDll),
         getDllVersion(kFgDll),
+        getDllVersion(kRrDll),
     };
 }
 
