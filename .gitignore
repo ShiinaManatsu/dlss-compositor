@@ -48,6 +48,12 @@ gui/out/
 gui/test-results/
 gui/playwright-report/
 
+# App (Electron, v3)
+app/node_modules/
+app/dist/
+app/dist-electron/
+app/out/
+
 # GUI runtime settings (project-relative; .example.json is committed)
 gui/dlss-compositor.json
 
@@ -77,3 +83,32 @@ build_t31*.log
 build/release/
 gui-windows.zip
 blender-plugin-v*.zip
+
+# ── DLSS runtime DLLs ──────────────────────────────────────────────────
+# Fetched by tools/dlss_updater.py from dlss-swapper; not stored in repo.
+# Version pins live in tools/dlss_versions.json (committed).
+resources/nvngx_dlss.dll
+resources/nvngx_dlssd.dll
+resources/nvngx_dlssg.dll
+resources/*.dll
+
+# ── RAM disk / ImDisk temp files ───────────────────────────────────────
+# The RAM disk (default R:\) is ephemeral; nothing from it belongs in git.
+# Pipeline writes EXR frames, dlssconfig.json, and LUT files to the RAM
+# disk during a session. Only test-frames/*.json metadata is committed.
+# If you ever map the RAM disk to a path inside the repo (don't), these
+# patterns will catch the leftovers.
+ramdisk/
+ramtmp/
+*.exr
+# Allow the small dry-run metadata JSON committed for test reproducibility
+!test-frames/*.json
+!test-frames/README.md
+
+# ── Test frame large files ─────────────────────────────────────────────
+# Actual rendered EXR frames used for DLSS pipeline tests are stored on
+# the RAM disk (R:\) during development and are NOT committed.
+# Only the dry-run inject_ready JSON and README live in test-frames/.
+test-frames/*.exr
+test-frames/*.png
+test-frames/*.mov
