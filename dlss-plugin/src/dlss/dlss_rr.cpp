@@ -159,9 +159,10 @@ void DlssRrPass::create(uint32_t   renderW,
     auto cmdPool = m_ctx->createComputeCommandPool();
     VkCommandBuffer initCmd = m_ctx->beginOneTimeCommands(cmdPool);
 
-    // nvsdk_ngx_helpers_dlssd_vk.h — NGX_VULKAN_CREATE_DLSSD_EXT creates Feature_RayReconstruction (id 13).
-    r = NGX_VULKAN_CREATE_DLSSD_EXT( // DLSS-RR §create
-        initCmd, 1, 1, &m_handle, m_ngxParams, &cp);
+    // nvsdk_ngx_helpers_dlssd_vk.h — NGX_VULKAN_CREATE_DLSSD_EXT1 creates Feature_RayReconstruction (id 13).
+    // EXT1 adds InDevice as first param vs EXT; use EXT1 for all new code.
+    r = NGX_VULKAN_CREATE_DLSSD_EXT1( // DLSS-RR §create
+        m_ctx->device(), initCmd, 1, 1, &m_handle, m_ngxParams, &cp);
 
     m_ctx->endOneTimeCommands(cmdPool, initCmd, m_ctx->computeQueue());
     vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
@@ -245,7 +246,7 @@ void DlssRrPass::evaluate(VkCommandBuffer cmd, const RrInputs& in) {
     ep.pInRoughness      = haveRoughness ? &rRoughness : nullptr; // DLSS-RR §inputs — null when Packed
 
     // Specular motion vectors (pInMotionVectorsReflection) — Blender 5.3+ Denoising Specular Motion
-    ep.pInMotionVectorsReflection = haveSpecMotion ? &rSpecMotion : nullptr; // DLSS-RR §inputs
+    ep.pInMotionVectorsReflections = haveSpecMotion ? &rSpecMotion : nullptr; // DLSS-RR §inputs — plural 's' per SDK header
 
     // Jitter: pixel space, same sign as SR (from dlssconfig, computed by jitter.py)
     ep.InJitterOffsetX = in.jitterX;        // DLSS §3.7 — pixel space [-0.5, +0.5]

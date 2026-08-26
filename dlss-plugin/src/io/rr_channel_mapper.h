@@ -24,7 +24,7 @@
 //   roughnessR32      R32_SFLOAT           — empty when packRoughnessInNormalW
 //   specularMotionRg  R16G16_SFLOAT        — (Blender.X, -Blender.Y); empty if not present
 
-#include "../io/frame_prefetcher.h"
+#include "rr_frame_prefetcher.h"
 
 #include <cstdint>
 #include <string>

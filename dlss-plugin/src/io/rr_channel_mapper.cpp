@@ -106,23 +106,23 @@ RrMappedBuffers RrChannelMapper::map(const RrDecodedFrame& frame, bool packRough
         out.specularMotionRg.resize(pixels * 2);
     }
 
-    const float* __restrict__ colSrc    = frame.colorRgba.data();
-    const float* __restrict__ depSrc    = frame.depthLinear.data();
-    const float* __restrict__ mvSrc     = frame.motionXy.data();
-    const float* __restrict__ diffSrc   = frame.diffuseAlbedoRgba.data();
-    const float* __restrict__ specSrc   = frame.specAlbedoRgba.data();
-    const float* __restrict__ normSrc   = frame.normalsXyz.data();
-    const float* __restrict__ roughSrc  = frame.roughness.data();
-    const float* __restrict__ smvSrc    = out.hasSpecularMotion ? frame.specularMotionXy.data() : nullptr;
+    const float* colSrc    = frame.colorRgba.data();
+    const float* depSrc    = frame.depthLinear.data();
+    const float* mvSrc     = frame.motionXy.data();
+    const float* diffSrc   = frame.diffuseAlbedoRgba.data();
+    const float* specSrc   = frame.specAlbedoRgba.data();
+    const float* normSrc   = frame.normalsXyz.data();
+    const float* roughSrc  = frame.roughness.data();
+    const float* smvSrc    = out.hasSpecularMotion ? frame.specularMotionXy.data() : nullptr;
 
-    uint16_t* __restrict__ colDst    = out.colorRgba.data();
-    float*    __restrict__ depDst    = out.depthLinear.data();
-    uint16_t* __restrict__ mvDst     = out.motionRg.data();
-    uint16_t* __restrict__ diffDst   = out.diffuseAlbedoRgba.data();
-    uint16_t* __restrict__ specDst   = out.specularAlbedoRgba.data();
-    uint16_t* __restrict__ normDst   = out.normalsRgba.data();
-    float*    __restrict__ roughDst  = packRoughnessInNormalW ? nullptr : out.roughnessR32.data();
-    uint16_t* __restrict__ smvDst    = out.hasSpecularMotion ? out.specularMotionRg.data() : nullptr;
+    uint16_t* colDst    = out.colorRgba.data();
+    float*    depDst    = out.depthLinear.data();
+    uint16_t* mvDst     = out.motionRg.data();
+    uint16_t* diffDst   = out.diffuseAlbedoRgba.data();
+    uint16_t* specDst   = out.specularAlbedoRgba.data();
+    uint16_t* normDst   = out.normalsRgba.data();
+    float*    roughDst  = packRoughnessInNormalW ? nullptr : out.roughnessR32.data();
+    uint16_t* smvDst    = out.hasSpecularMotion ? out.specularMotionRg.data() : nullptr;
 
     for (std::size_t i = 0; i < pixels; ++i) {
         // Color: scene-linear HDR; alpha = 1.0
