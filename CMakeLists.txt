@@ -202,10 +202,12 @@ add_library(dlss_engine_lib STATIC
     dlss-plugin/src/io/rr_frame_prefetcher.cpp
     dlss-plugin/src/io/channel_mapper.cpp
     dlss-plugin/src/io/rr_channel_mapper.cpp
+    dlss-plugin/src/io/file_watcher.cpp
     dlss-plugin/src/io/async_writer.cpp
     dlss-plugin/src/io/prores_writer.cpp
     dlss-plugin/src/pipeline/fg_camera.cpp
     dlss-plugin/src/pipeline/fg_only_pipeline.cpp
+    dlss-plugin/src/pipeline/pipeline.cpp
     dlss-plugin/src/pipeline/sr_fg_pipeline.cpp
     dlss-plugin/src/pipeline/sr_only_pipeline.cpp
     dlss-plugin/src/rpc/dispatcher.cpp
