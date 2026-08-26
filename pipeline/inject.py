@@ -614,13 +614,14 @@ def main() -> int:
         emit("error", message=percent_error)
         return 1
 
-    # Session-only: animation still writes scene.render.filepath in addition to
-    # File Output. Point it at the RAM disk so nothing lands on the working disk.
-    # Member blends often have use_overwrite off; leftover preview_* would skip
-    # the whole animation ("No frames rendered, skipped to not overwrite").
+    # Session-only: disable the scene-level animation output entirely.
+    # Blender writes scene.render.filepath (e.g. preview_####.jpg) in addition
+    # to File Output nodes; on a RAM disk this wastes precious space.
+    # Redirect to NUL (Windows null device) so the main render loop produces
+    # nothing and only the File Output node writes the EXR files we actually want.
     render.use_sequencer = False
     render.use_overwrite = True
-    render.filepath = str(output_dir / "preview_")
+    render.filepath = "//NUL"  # Windows null device; forward-slash form avoids escape warnings
 
     frame_start = int(scene.frame_start)
     frame_end = int(scene.frame_end)

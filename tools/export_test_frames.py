@@ -1,4 +1,4 @@
-"""Export test frames for DLSS pipeline integration tests.
+r"""Export test frames for DLSS pipeline integration tests.
 
 Usage:
     # Dry-run: capture inject_ready JSON only (no render, no Blender GPU)
