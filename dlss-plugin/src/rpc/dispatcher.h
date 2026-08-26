@@ -5,18 +5,33 @@
 // Used by both MethodChannel (native plugin, transport_native.cpp) and
 // JSON-RPC stdio (fallback CLI, transport_stdio.cpp).
 //
+// Pipeline ownership:
+//   Call bindGpu(ctx, ngx) once after Vulkan/NGX are initialised.
+//   start_job → builds PipelineConfig, runs Pipeline::run on m_worker thread.
+//   progress   → lock-free atomic reads.
+//   stop        → Pipeline::stop() + worker join-request.
+//   preview_frame → last JPEG bytes (base64-encoded in response).
+//
 // Lock-free progress contract: getProgress() must complete in < 10ms.
 // =============================================================================
 #pragma once
 
+#include "../pipeline/pipeline.h"
+
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 namespace dlss {
+
+class VulkanContext;
+class NgxContext;
 
 /// Lock-free progress struct for getProgress (must be < 10ms per read).
 /// alignas(64) keeps the struct on its own cache line to prevent false sharing
@@ -44,16 +59,19 @@ struct alignas(64) RenderProgress {
 /// Transport-agnostic RPC dispatcher.
 ///
 /// Lifetime: one instance per process; both MethodChannel + stdio transports
-/// share it. All handlers are reentrant and lock-free with respect to
-/// progress; setTask/startTask use a single std::atomic<bool> to gate
-/// re-entry.
+/// share it.  Call bindGpu() after Vulkan/NGX boot.  All handlers are
+/// reentrant and lock-free with respect to progress; start_job uses a single
+/// std::atomic<bool> to gate re-entry.
 class RpcDispatcher {
 public:
     RpcDispatcher();
-    ~RpcDispatcher() = default;
+    ~RpcDispatcher();
 
     RpcDispatcher(const RpcDispatcher&) = delete;
     RpcDispatcher& operator=(const RpcDispatcher&) = delete;
+
+    /// Provide GPU resources.  Must be called before start_job is accepted.
+    void bindGpu(VulkanContext* ctx, NgxContext* ngx);
 
     /// Handle an incoming RPC request. Returns JSON response.
     /// Never throws — errors are encoded into the response.
@@ -68,24 +86,58 @@ public:
     void setEventCallback(EventCallback cb) { m_eventCb = std::move(cb); }
 
 private:
-    // Handler implementations (one per dlss/* method).
+    // ── Handler implementations ──────────────────────────────────────────────
+    // Legacy two-step API (kept for MethodChannel compat)
     nlohmann::json handleSetTask(const nlohmann::json& p);
     nlohmann::json handleCheckReady(const nlohmann::json& p);
     nlohmann::json handleCheckOutputCollisions(const nlohmann::json& p);
     nlohmann::json handleStartTask(const nlohmann::json& p);
+    // One-shot API used by run.py / Electron
+    nlohmann::json handleStartJob(const nlohmann::json& p);
+    nlohmann::json handleStop(const nlohmann::json& p);
+    nlohmann::json handleProgress(const nlohmann::json& p);
+    nlohmann::json handlePreviewFrame(const nlohmann::json& p);
+    // Status / debug
     nlohmann::json handleGetStatus(const nlohmann::json& p);
     nlohmann::json handleGetTaskState(const nlohmann::json& p);
     nlohmann::json handleGetProgress(const nlohmann::json& p);
     nlohmann::json handleGetPreviewFrame(const nlohmann::json& p);
     nlohmann::json handleSetDebugMode(const nlohmann::json& p);
 
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    /// Build PipelineConfig from a start_job / startTask JSON params object.
+    /// Throws std::runtime_error on bad params.
+    PipelineConfig buildPipelineConfig(const nlohmann::json& p);
+
+    /// Launch Pipeline::run on the worker thread.  Returns task_id.
+    /// Throws if a job is already running or GPU not bound.
+    std::string launchPipeline(PipelineConfig cfg);
+
+    // ── State ─────────────────────────────────────────────────────────────────
     RenderProgress m_progress;
     EventCallback  m_eventCb;
 
-    // Stored task config (from setTask).
+    VulkanContext* m_ctx = nullptr;
+    NgxContext*    m_ngx = nullptr;
+
+    // Worker thread running Pipeline::run.
+    std::unique_ptr<Pipeline>   m_pipeline;
+    std::thread                 m_worker;
+    std::atomic<bool>           m_jobRunning{false};
+
+    // Last preview JPEG delivered by the pipeline callback (may be empty).
+    std::mutex              m_previewMu;
+    std::vector<uint8_t>    m_previewJpeg;
+    std::atomic<uint32_t>   m_previewW{0};
+    std::atomic<uint32_t>   m_previewH{0};
+
+    // Stored task config (from legacy setTask call).
     nlohmann::json    m_taskConfig;
     std::string       m_currentTaskId;
     std::atomic<bool> m_taskRunning{false};
 };
+
+/// Declaration only — definition in transport_stdio.cpp.
+void runJsonRpcStdio(RpcDispatcher& dispatcher);
 
 } // namespace dlss

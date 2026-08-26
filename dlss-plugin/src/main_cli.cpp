@@ -4,14 +4,15 @@
 // Modes:
 //   --version       Print version and exit.
 //   --help          Print usage and exit.
-//   --self-check    Verify GPU + NGX availability (T36+ integration).
-//   --config <p>    Process a dlssconfig.json (T36+ integration).
-//
-// Replaces the legacy main_smoke.cpp. The smoke entry remains in git history
-// for reference but is no longer compiled.
+//   --self-check    Verify GPU + NGX availability.
+//   --config <p>    Process a dlssconfig.json (batch / config-file mode).
+//   --rpc-stdio     Start the JSON-RPC 2.0 stdio server (run.py / Electron).
 // =============================================================================
 #include "core/log.h"
 #include "cli/config_executor.h"
+#include "gpu/vulkan_context.h"
+#include "dlss/ngx_wrapper.h"
+#include "rpc/dispatcher.h"
 
 #include <algorithm>
 #include <iostream>
@@ -37,9 +38,10 @@ void printHelp() {
     std::cerr
         << "dlss-compositor-cli v1.0.0\n"
         << "Usage:\n"
-        << "  --config <dlssconfig.json>   Process a config file (Wave 6).\n"
+        << "  --rpc-stdio                  Start JSON-RPC 2.0 server on stdin/stdout.\n"
+        << "  --config <dlssconfig.json>   Process a config file (batch mode).\n"
         << "  --output-dir <path>          Output directory for --config.\n"
-        << "  --output-format <fmt>        exr | png_16 | prores_422hq | h265_hevc (PNG is LDR only; video supports LDR/HDR).\n"
+        << "  --output-format <fmt>        exr | png_16 | prores_422hq | h265_hevc.\n"
         << "  --preset <auto|J|K|L|M>      DLSS SR render preset override (default auto).\n"
         << "  --output-template <tmpl>     Filename template, e.g. frame_####.exr.\n"
         << "  --overwrite-mode <mode>      overwrite | skip | autoVersion.\n"
@@ -47,16 +49,16 @@ void printHelp() {
         << "  --exr-compression <mode>     none | zip | dwaa (default zip).\n"
         << "  --exr-compression-level <0-100>  EXR zip/DWAA compression level (default 97).\n"
         << "  --writer-threads <1-32>      Image sequence write concurrency (default 4).\n"
-        << "  --writer-buffer-multiplier <1-64>  Max queued frames = threads * multiplier (default 3).\n"
-        << "  --h265-cq <0-30>            H.265 NVENC constant quality; lower is better (default 18).\n"
+        << "  --writer-buffer-multiplier <1-64>  Max queued frames (default 3).\n"
+        << "  --h265-cq <0-30>            H.265 NVENC constant quality (default 18).\n"
         << "  --h265-preset <p1..p7>      H.265 NVENC speed/quality preset (default p5).\n"
         << "  --h265-multipass <mode>     disabled | qres | fullres (default qres).\n"
-        << "  --h265-spatial-aq <0|1>     Enable H.265 spatial adaptive quantization (default 1).\n"
-        << "  --h265-temporal-aq <0|1>    Enable H.265 temporal adaptive quantization (default 1).\n"
-        << "  --h265-vfr <0|1>            Reserved VFR intent flag; current writer timestamps remain CFR.\n"
-        << "  --frame-start <n>            First input frame number to process (inclusive).\n"
-        << "  --frame-end <n>              Last input frame number to process (inclusive).\n"
-        << "  --fg <2x..6x>                Enable frame generation multiplier.\n"
+        << "  --h265-spatial-aq <0|1>     H.265 spatial adaptive quantization (default 1).\n"
+        << "  --h265-temporal-aq <0|1>    H.265 temporal adaptive quantization (default 1).\n"
+        << "  --h265-vfr <0|1>            Reserved VFR intent flag.\n"
+        << "  --frame-start <n>            First input frame (inclusive).\n"
+        << "  --frame-end <n>              Last input frame (inclusive).\n"
+        << "  --fg <2x..6x>                Frame generation multiplier.\n"
         << "  --events stderr              Emit structured progress events on stderr.\n"
         << "  --self-check                 Check GPU + NGX availability.\n"
         << "  --version                    Print version.\n"
@@ -84,17 +86,54 @@ int main(int argc, char* argv[]) {
         return args.empty() ? 1 : 0;
     }
 
+    // ── --self-check ────────────────────────────────────────────────────────
     if (hasArg(args, "--self-check")) {
         LOG_INFO("[startup] CLI mode=self-check");
         LOG_INFO("[self-check] DLSS Compositor 1.0.0 self-check");
-        // TODO(T36+): boot Vulkan + NGX and report device, driver, NGX feature
-        // availability. Today we only verify the logger pipeline is alive.
-        LOG_INFO("[self-check] GPU: pending integration");
-        LOG_INFO("[self-check] NGX SR: pending integration");
-        LOG_INFO("[self-check] NGX FG: pending integration");
+        try {
+            dlss::VulkanContext vk;
+            LOG_INFO("[self-check] Vulkan OK device={:p}", static_cast<void*>(vk.device()));
+            dlss::NgxContext ngx(vk.instance(), vk.physicalDevice(), vk.device());
+            const auto vers = ngx.getDllVersions();
+            LOG_INFO("[self-check] NGX SR={} FG={} RR={}", ngx.isSrAvailable(), ngx.isFgAvailable(), ngx.isRrAvailable());
+            LOG_INFO("[self-check] DLL versions SR={} FG={} RR={}", vers.sr, vers.fg, vers.rr);
+            return 0;
+        } catch (const std::exception& e) {
+            LOG_ERROR("[self-check] failed: {}", std::string(e.what()));
+            return 1;
+        }
+    }
+
+    // ── --rpc-stdio ─────────────────────────────────────────────────────────
+    if (hasArg(args, "--rpc-stdio")) {
+        LOG_INFO("[startup] CLI mode=rpc-stdio");
+
+        dlss::RpcDispatcher dispatcher;
+
+        // Boot Vulkan + NGX.  These objects must outlive the dispatcher and
+        // the JSON-RPC loop.  On failure, the server still starts but
+        // start_job / getStatus will report the error.
+        std::unique_ptr<dlss::VulkanContext> vk;
+        std::unique_ptr<dlss::NgxContext>    ngx;
+        try {
+            vk  = std::make_unique<dlss::VulkanContext>();
+            ngx = std::make_unique<dlss::NgxContext>(vk->instance(),
+                                                     vk->physicalDevice(),
+                                                     vk->device());
+            dispatcher.bindGpu(vk.get(), ngx.get());
+            LOG_INFO("[rpc-stdio] GPU ready SR={} FG={} RR={}",
+                     ngx->isSrAvailable(), ngx->isFgAvailable(), ngx->isRrAvailable());
+        } catch (const std::exception& e) {
+            LOG_ERROR("[rpc-stdio] GPU init failed (will serve RPC in degraded mode): {}",
+                      std::string(e.what()));
+            // Continue — clients can still call getStatus to learn the error.
+        }
+
+        dlss::runJsonRpcStdio(dispatcher);
         return 0;
     }
 
+    // ── --config ────────────────────────────────────────────────────────────
     const std::string configPath = getArg(args, "--config");
     if (!configPath.empty()) {
         LOG_INFO("[startup] CLI mode=config");
@@ -119,9 +158,9 @@ int main(int argc, char* argv[]) {
         options.h265Options.temporalAq = getArg(args, "--h265-temporal-aq", "1") != "0";
         options.h265Options.vfr = getArg(args, "--h265-vfr", "0") != "0";
         const std::string frameStart = getArg(args, "--frame-start");
-        const std::string frameEnd = getArg(args, "--frame-end");
+        const std::string frameEnd   = getArg(args, "--frame-end");
         if (!frameStart.empty()) options.frameStart = std::stoi(frameStart);
-        if (!frameEnd.empty()) options.frameEnd = std::stoi(frameEnd);
+        if (!frameEnd.empty())   options.frameEnd   = std::stoi(frameEnd);
         options.previewSharedMemoryName = getArg(args, "--preview-shm");
         options.emitEvents = getArg(args, "--events") == "stderr";
         options.fgEnabled = !fg.empty();

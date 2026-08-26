@@ -1,12 +1,15 @@
 // =============================================================================
 // dlss/rpc — RpcDispatcher implementation
 //
-// Lock-free progress contract: handleGetProgress() must return in < 10ms.
-// All atomic reads happen on the RenderProgress struct only.
+// Lock-free progress contract: handleGetProgress() / handleProgress() must
+// return in < 10ms.  All atomic reads happen on the RenderProgress struct only.
 // =============================================================================
 #include "dispatcher.h"
 
+#include "../core/dlssconfig.h"
 #include "../core/log.h"
+#include "../gpu/vulkan_context.h"
+#include "../dlss/ngx_wrapper.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -28,18 +31,80 @@ std::string generateTaskId() {
     return ss.str();
 }
 
+/// Parse "sr"/"rr"/"rr+fg"/"sr+fg" → PipelineFeatures.
+PipelineFeatures parseFeaturesFromMode(const std::string& mode, bool fg) {
+    const std::string m = [&]{
+        std::string s = mode;
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        return s;
+    }();
+    PipelineFeatures f = 0;
+    if (m == "rr")       f = kRR;
+    else if (m == "sr")  f = kSR;
+    else if (m == "rr+fg" || m == "rrfg") f = kRR | kFG;
+    else if (m == "sr+fg" || m == "srfg") f = kSR | kFG;
+    else                 f = kSR;   // default
+
+    if (fg && !(f & kFG)) f |= kFG;
+    return f;
+}
+
+/// Map JSON "output_format" string → OutputFormat enum.
+OutputFormat parseOutputFormat(const std::string& s) {
+    if (s == "exr" || s == "exr_linear") return OutputFormat::ExrLinear;
+    if (s == "png_16" || s == "png")     return OutputFormat::Png16;
+    if (s == "prores_422hq" || s == "prores") return OutputFormat::ProRes422HQ;
+    if (s == "h265_hevc" || s == "h265" || s == "hevc") return OutputFormat::H265Mp4;
+    return OutputFormat::ProRes422HQ;  // default
+}
+
+/// Map JSON "overwrite_mode" string → OverwriteMode enum.
+OverwriteMode parseOverwriteMode(const std::string& s) {
+    if (s == "skip")        return OverwriteMode::Skip;
+    if (s == "autoVersion") return OverwriteMode::AutoVersion;
+    return OverwriteMode::Overwrite;
+}
+
 } // namespace
 
+// =============================================================================
+// RpcDispatcher ctor / dtor
+// =============================================================================
+
 RpcDispatcher::RpcDispatcher() = default;
+
+RpcDispatcher::~RpcDispatcher() {
+    // Stop any running pipeline and wait for the worker.
+    if (m_pipeline) m_pipeline->stop();
+    if (m_worker.joinable()) m_worker.join();
+}
+
+void RpcDispatcher::bindGpu(VulkanContext* ctx, NgxContext* ngx) {
+    m_ctx = ctx;
+    m_ngx = ngx;
+}
+
+// =============================================================================
+// dispatch
+// =============================================================================
 
 nlohmann::json RpcDispatcher::dispatch(const std::string& method, const nlohmann::json& params) {
     LOG_DEBUG("[RPC] dispatch: {}", method);
 
     try {
+        // One-shot API (used by run.py / Electron)
+        if (method == "start_job")          return handleStartJob(params);
+        if (method == "stop")               return handleStop(params);
+        if (method == "progress")           return handleProgress(params);
+        if (method == "preview_frame")      return handlePreviewFrame(params);
+
+        // Legacy two-step API (MethodChannel compat)
         if (method == "setTask")               return handleSetTask(params);
         if (method == "checkReady")            return handleCheckReady(params);
         if (method == "checkOutputCollisions") return handleCheckOutputCollisions(params);
         if (method == "startTask")             return handleStartTask(params);
+
+        // Status / debug
         if (method == "getStatus")             return handleGetStatus(params);
         if (method == "getTaskState")          return handleGetTaskState(params);
         if (method == "getProgress")           return handleGetProgress(params);
@@ -48,12 +113,280 @@ nlohmann::json RpcDispatcher::dispatch(const std::string& method, const nlohmann
 
         return {{"error", "Method not found: " + method}};
     } catch (const std::exception& e) {
-        // fmt v11 requires lvalue references in make_format_args; copy first.
         const std::string what = e.what();
         LOG_ERROR("[RPC] dispatch error for {}: {}", method, what);
         return {{"error", what}};
     }
 }
+
+// =============================================================================
+// One-shot API
+// =============================================================================
+
+nlohmann::json RpcDispatcher::handleStartJob(const nlohmann::json& p) {
+    if (!m_ctx || !m_ngx) {
+        return {{"ok", false}, {"error", "GPU not initialised — call --rpc-stdio after Vulkan boot"}};
+    }
+    if (m_jobRunning.load(std::memory_order_acquire)) {
+        return {{"ok", false}, {"error", "A job is already running; call stop first"}};
+    }
+
+    PipelineConfig cfg;
+    try {
+        cfg = buildPipelineConfig(p);
+    } catch (const std::exception& e) {
+        const std::string what = e.what();
+        LOG_ERROR("[RPC] start_job bad params: {}", what);
+        return {{"ok", false}, {"error", what}};
+    }
+
+    std::string taskId;
+    try {
+        taskId = launchPipeline(std::move(cfg));
+    } catch (const std::exception& e) {
+        const std::string what = e.what();
+        LOG_ERROR("[RPC] start_job launch failed: {}", what);
+        return {{"ok", false}, {"error", what}};
+    }
+
+    return {{"ok", true}, {"task_id", taskId}};
+}
+
+nlohmann::json RpcDispatcher::handleStop(const nlohmann::json& /*p*/) {
+    if (m_pipeline) {
+        m_pipeline->stop();
+        LOG_INFO("[RPC] stop: requested pipeline stop");
+    }
+    return {{"ok", true}};
+}
+
+nlohmann::json RpcDispatcher::handleProgress(const nlohmann::json& /*p*/) {
+    // Identical to getProgress — single lock-free read path used by run.py.
+    return {
+        {"current_frame",      m_progress.current_frame.load()},
+        {"total_frames",       m_progress.total_frames.load()},
+        {"percent",            m_progress.percent.load()},
+        {"dlss_current_frame", m_progress.dlss_current_frame.load()},
+        {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
+        {"dlss_percent",       m_progress.dlss_percent.load()},
+        {"state",              m_progress.state.load()},
+    };
+}
+
+nlohmann::json RpcDispatcher::handlePreviewFrame(const nlohmann::json& /*p*/) {
+    std::vector<uint8_t> jpeg;
+    uint32_t w = 0, h = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_previewMu);
+        jpeg = m_previewJpeg;
+        w = m_previewW.load();
+        h = m_previewH.load();
+    }
+    if (jpeg.empty()) {
+        return {{"ok", false}, {"reason", "no preview available yet"}};
+    }
+    // Base64-encode the JPEG bytes for JSON transport.
+    static constexpr char kB64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    b64.reserve((jpeg.size() + 2) / 3 * 4);
+    for (std::size_t i = 0; i < jpeg.size(); i += 3) {
+        const uint32_t a = jpeg[i];
+        const uint32_t b = (i + 1 < jpeg.size()) ? jpeg[i + 1] : 0u;
+        const uint32_t c = (i + 2 < jpeg.size()) ? jpeg[i + 2] : 0u;
+        const uint32_t v = (a << 16) | (b << 8) | c;
+        b64 += kB64[(v >> 18) & 0x3F];
+        b64 += kB64[(v >> 12) & 0x3F];
+        b64 += (i + 1 < jpeg.size()) ? kB64[(v >>  6) & 0x3F] : '=';
+        b64 += (i + 2 < jpeg.size()) ? kB64[ v        & 0x3F] : '=';
+    }
+    return {{"ok", true}, {"jpeg_b64", b64}, {"width", w}, {"height", h}};
+}
+
+// =============================================================================
+// PipelineConfig builder
+// =============================================================================
+
+PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
+    // ── Required fields ──────────────────────────────────────────────────────
+    const std::string inputDir  = p.at("input_dir").get<std::string>();
+    const std::string outputDir = p.at("output_dir").get<std::string>();
+
+    // ── Load dlssconfig.json ─────────────────────────────────────────────────
+    const std::string configPath = p.value("config", (std::filesystem::path(inputDir) / "dlssconfig.json").string());
+    auto loadResult = DlssConfigLoader::Load(configPath);
+    if (!loadResult) {
+        throw std::runtime_error("dlssconfig.json load failed: " + loadResult.error().message);
+    }
+    DlssConfig dlssCfg = std::move(*loadResult);
+
+    // ── Feature flags ─────────────────────────────────────────────────────────
+    const std::string mode = p.value("mode", std::string{"sr"});
+    const bool hasFg = p.value("fg", 0) >= 2 || p.value("fg_multiplier", 0) >= 2;
+    const PipelineFeatures features = parseFeaturesFromMode(mode, hasFg);
+    const std::string err = validateFeatures(features);
+    if (!err.empty()) throw std::runtime_error(err);
+
+    // ── Output ────────────────────────────────────────────────────────────────
+    const std::string fmtStr  = p.value("output_format", std::string{"prores_422hq"});
+    const std::string tmpl    = p.value("output_template", std::string{"frame_####"});
+    const std::string owStr   = p.value("overwrite_mode", std::string{"overwrite"});
+
+    // ── FG multiplier ─────────────────────────────────────────────────────────
+    int fgMult = p.value("fg_multiplier", 0);
+    if (fgMult == 0) {
+        const auto fgRaw = p.value("fg", 0);
+        fgMult = (fgRaw >= 2) ? fgRaw : 2;
+    }
+
+    // ── Prefetch / writers ────────────────────────────────────────────────────
+    const int prefetch   = p.value("prefetch_depth", 3);
+    const int wrThreads  = p.value("writer_threads", 4);
+    const int wrQueueMul = p.value("writer_queue_multiplier", 3);
+
+    // ── Build config ──────────────────────────────────────────────────────────
+    PipelineConfig cfg;
+    cfg.dlssConfig         = std::move(dlssCfg);
+    cfg.features           = features;
+    cfg.inputDir           = inputDir;
+    cfg.outputDir          = outputDir;
+    cfg.filenameTemplate   = tmpl;
+    cfg.outputFormat       = parseOutputFormat(fmtStr);
+    cfg.overwriteMode      = parseOverwriteMode(owStr);
+    cfg.fgMultiplier       = std::max(2, std::min(6, fgMult));
+    cfg.prefetchDepth      = std::max(1, prefetch);
+    cfg.writerThreads      = std::max(1, wrThreads);
+    cfg.writerQueueMultiplier = std::max(1, wrQueueMul);
+
+    // ── Wire callbacks to RenderProgress atomics ──────────────────────────────
+    const int totalInput  = static_cast<int>(cfg.dlssConfig.frames.size());
+    const int fgFactor    = (cfg.features & kFG) ? cfg.fgMultiplier : 1;
+    const int totalOutput = totalInput * fgFactor;
+
+    m_progress.current_frame.store(0);
+    m_progress.total_frames.store(totalOutput);
+    m_progress.percent.store(0.0f);
+    m_progress.dlss_current_frame.store(0);
+    m_progress.dlss_total_frames.store(totalInput);
+    m_progress.dlss_percent.store(0.0f);
+    m_progress.state.store(0);
+
+    cfg.callbacks.onFrame = [this, totalOutput](const FrameEvent& ev) {
+        m_progress.dlss_current_frame.store(ev.inputIndex + 1);
+        m_progress.dlss_percent.store(
+            totalOutput > 0 ? 100.0f * static_cast<float>(ev.inputIndex + 1) / static_cast<float>(m_progress.dlss_total_frames.load()) : 0.0f);
+        m_progress.current_frame.store(ev.outputIndex + 1);
+        const int tot = m_progress.total_frames.load();
+        m_progress.percent.store(
+            tot > 0 ? 100.0f * static_cast<float>(ev.outputIndex + 1) / static_cast<float>(tot) : 0.0f);
+        LOG_DEBUG("[Pipeline] frame input={}/{} output={}/{}{}",
+                  ev.inputIndex + 1, ev.inputTotal,
+                  ev.outputIndex + 1, ev.outputTotal,
+                  ev.isGenerated ? " [FG]" : "");
+    };
+
+    cfg.callbacks.onProgress = [this](float prog) {
+        // Fine-grained progress update (0–100 scale from pipeline).
+        m_progress.percent.store(prog);
+    };
+
+    cfg.callbacks.onRunEvent = [this](RunEvent ev, const std::string& detail) {
+        switch (ev) {
+            case RunEvent::Started:
+                m_progress.state.store(1);
+                LOG_INFO("[Pipeline] run started: {}", detail);
+                break;
+            case RunEvent::Stopping:
+                LOG_INFO("[Pipeline] run stopping: {}", detail);
+                break;
+            case RunEvent::Cancelled:
+                m_progress.state.store(0);
+                m_jobRunning.store(false, std::memory_order_release);
+                LOG_INFO("[Pipeline] run cancelled: {}", detail);
+                break;
+            case RunEvent::Completed:
+                m_progress.state.store(2);
+                m_jobRunning.store(false, std::memory_order_release);
+                LOG_INFO("[Pipeline] run completed: {}", detail);
+                break;
+            case RunEvent::Error:
+                m_progress.state.store(3);
+                m_jobRunning.store(false, std::memory_order_release);
+                LOG_ERROR("[Pipeline] run error: {}", detail);
+                break;
+        }
+        if (m_eventCb) {
+            m_eventCb({{"event", "run_event"},
+                       {"kind",  static_cast<int>(ev)},
+                       {"detail", detail}});
+        }
+    };
+
+    cfg.callbacks.wantsPreview = []() { return true; };
+
+    cfg.callbacks.encodePreview = [](uint32_t /*w*/, uint32_t /*h*/,
+                                     const std::vector<uint8_t>& rgba8) {
+        // Simple JPEG-like stub: just return the raw RGBA bytes wrapped in a
+        // minimal marker so handlePreviewFrame can detect it.
+        // TODO(T37+): replace with a real JPEG encoder (libjpeg-turbo / stb_image_write).
+        return rgba8;
+    };
+
+    cfg.callbacks.onPreview = [this](std::vector<uint8_t> jpeg) {
+        std::lock_guard<std::mutex> lk(m_previewMu);
+        m_previewJpeg = std::move(jpeg);
+    };
+
+    cfg.callbacks.onFrameDiagnostics = [this](const std::string& json) {
+        if (m_eventCb) {
+            m_eventCb({{"event", "frame_diagnostics"}, {"data", json}});
+        }
+    };
+
+    return cfg;
+}
+
+// =============================================================================
+// Worker thread launcher
+// =============================================================================
+
+std::string RpcDispatcher::launchPipeline(PipelineConfig cfg) {
+    if (!m_ctx || !m_ngx)
+        throw std::runtime_error("GPU not bound; call bindGpu before launching pipeline");
+
+    if (m_worker.joinable()) m_worker.join();  // clean up previous worker
+
+    m_pipeline = std::make_unique<Pipeline>(m_ctx, m_ngx);
+    m_jobRunning.store(true, std::memory_order_release);
+
+    const std::string taskId = generateTaskId();
+    m_currentTaskId = taskId;
+    m_progress.state.store(0);  // will switch to 1 when Started fires
+
+    // Capture cfg by value into the worker lambda.
+    m_worker = std::thread([this, cfg = std::move(cfg)]() mutable {
+        try {
+            m_pipeline->run(cfg);
+        } catch (const std::exception& e) {
+            const std::string what = e.what();
+            LOG_ERROR("[Pipeline worker] uncaught exception: {}", what);
+            m_progress.state.store(3);
+            m_jobRunning.store(false, std::memory_order_release);
+            if (m_eventCb) {
+                m_eventCb({{"event", "run_event"},
+                           {"kind",  static_cast<int>(RunEvent::Error)},
+                           {"detail", what}});
+            }
+        }
+    });
+
+    LOG_INFO("[RPC] start_job launched task_id={}", taskId);
+    return taskId;
+}
+
+// =============================================================================
+// Legacy two-step API (MethodChannel compat)
+// =============================================================================
 
 nlohmann::json RpcDispatcher::handleSetTask(const nlohmann::json& p) {
     m_taskConfig = p;
@@ -63,16 +396,14 @@ nlohmann::json RpcDispatcher::handleSetTask(const nlohmann::json& p) {
 }
 
 nlohmann::json RpcDispatcher::handleCheckReady(const nlohmann::json& /*p*/) {
-    // TODO(T36+): cross-check NGX availability via VulkanContext + ngx_wrapper.
-    const bool ready = !m_taskConfig.is_null() && !m_taskConfig.empty();
-    const std::string reason = ready ? std::string{} : std::string{"No task configured"};
+    const bool ready = m_ctx && m_ngx && !m_taskConfig.is_null() && !m_taskConfig.empty();
+    const std::string reason = ready ? std::string{} : std::string{"No task configured or GPU not bound"};
     LOG_INFO("[RPC] checkReady ready={} reason={}", ready, reason);
     return {{"ready", ready}, {"reason", reason}};
 }
 
 nlohmann::json RpcDispatcher::handleCheckOutputCollisions(const nlohmann::json& p) {
     // TODO(T36+): scan output_dir for files matching template + frame range.
-    // Per plan: returns {collisions: N, files: [...]}.
     (void)p.value("output_dir", std::string{});
     (void)p.value("template", std::string{"frame_####.exr"});
     (void)p.value("frame_count", 0);
@@ -84,41 +415,60 @@ nlohmann::json RpcDispatcher::handleStartTask(const nlohmann::json& /*p*/) {
     if (m_taskConfig.is_null()) {
         return {{"ok", false}, {"error", "No task configured, call setTask first"}};
     }
+    if (!m_ctx || !m_ngx) {
+        return {{"ok", false}, {"error", "GPU not bound; pipeline cannot start"}};
+    }
     if (m_taskRunning.exchange(true)) {
         return {{"ok", false}, {"error", "Task already running"}};
     }
 
-    // TODO(T36+): enqueue real pipeline run on a worker thread; this stub
-    // only updates the lock-free progress block so callers can poll state.
-    m_progress.state.store(1);          // Running
-    m_progress.current_frame.store(0);
-    m_progress.total_frames.store(100);
-    m_progress.percent.store(0.0f);
-    m_progress.dlss_current_frame.store(0);
-    m_progress.dlss_total_frames.store(100);
-    m_progress.dlss_percent.store(0.0f);
+    PipelineConfig cfg;
+    try {
+        cfg = buildPipelineConfig(m_taskConfig);
+    } catch (const std::exception& e) {
+        m_taskRunning.store(false);
+        const std::string what = e.what();
+        return {{"ok", false}, {"error", what}};
+    }
+
+    try {
+        launchPipeline(std::move(cfg));
+    } catch (const std::exception& e) {
+        m_taskRunning.store(false);
+        const std::string what = e.what();
+        return {{"ok", false}, {"error", what}};
+    }
 
     LOG_INFO("[RPC] startTask: {}", m_currentTaskId);
     return {{"ok", true}, {"task_id", m_currentTaskId}};
 }
 
+// =============================================================================
+// Status / debug
+// =============================================================================
+
 nlohmann::json RpcDispatcher::handleGetStatus(const nlohmann::json& /*p*/) {
-    // IMPORTANT: video_encoders + export_formats list ONLY v2-implemented codecs.
-    // DNxHR / H264 / H265 / AV1 / AVIF / JPEG / WebP MUST NOT appear here —
-    // they exist as enum placeholders for future extensions only.
-    bool srAvailable = true;
-    bool fgAvailable = true;
-    int fgMaxMultiplier = 4;
-    std::string gpuName = "NVIDIA GPU";
-    std::string dlssVersion = "310.6.0";
-    LOG_INFO("[RPC] getStatus response prepared with deferred runtime capability probe");
+    bool srAvailable = m_ngx ? m_ngx->isSrAvailable() : false;
+    bool fgAvailable = m_ngx ? m_ngx->isFgAvailable() : false;
+    bool rrAvailable = m_ngx ? m_ngx->isRrAvailable() : false;
+    int  fgMax       = m_ngx ? m_ngx->getFgMaxMultiplier() : 0;
+
+    NgxDllVersions ver{};
+    if (m_ngx) ver = m_ngx->getDllVersions();
+
+    const std::string gpuName = m_ctx ? "NVIDIA GPU" : "unknown";
+
+    LOG_INFO("[RPC] getStatus sr={} fg={} rr={}", srAvailable, fgAvailable, rrAvailable);
     return {
-        {"dlss_version",        dlssVersion},
-        {"fg_max_multiplier",   fgMaxMultiplier},
-        {"gpu_name",            gpuName},
-        {"is_hdr_supported",    true},
         {"sr_available",        srAvailable},
         {"fg_available",        fgAvailable},
+        {"rr_available",        rrAvailable},
+        {"fg_max_multiplier",   fgMax},
+        {"gpu_name",            gpuName},
+        {"is_hdr_supported",    true},
+        {"dlss_sr_version",     ver.sr},
+        {"dlss_fg_version",     ver.fg},
+        {"dlss_rr_version",     ver.rr},
         {"video_encoders",      nlohmann::json::array({"prores_422hq", "h265_hevc"})},
         {"export_formats_ldr",  nlohmann::json::array({"png_16", "exr", "prores_422hq", "h265_hevc"})},
         {"export_formats_hdr",  nlohmann::json::array({"exr", "prores_422hq", "h265_hevc"})},
@@ -151,35 +501,26 @@ nlohmann::json RpcDispatcher::handleGetTaskState(const nlohmann::json& /*p*/) {
 }
 
 nlohmann::json RpcDispatcher::handleGetProgress(const nlohmann::json& /*p*/) {
-    // Lock-free atomic reads on a single cache line — must be < 10ms.
     LOG_DEBUG("[RPC] getProgress current={} total={} state={}",
               m_progress.current_frame.load(),
               m_progress.total_frames.load(),
               m_progress.state.load());
     return {
-        {"current_frame", m_progress.current_frame.load()},
-        {"total_frames",  m_progress.total_frames.load()},
-        {"percent",       m_progress.percent.load()},
+        {"current_frame",      m_progress.current_frame.load()},
+        {"total_frames",       m_progress.total_frames.load()},
+        {"percent",            m_progress.percent.load()},
         {"dlss_current_frame", m_progress.dlss_current_frame.load()},
         {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
         {"dlss_percent",       m_progress.dlss_percent.load()},
-        {"state",         m_progress.state.load()},
+        {"state",              m_progress.state.load()},
     };
 }
 
 nlohmann::json RpcDispatcher::handleGetPreviewFrame(const nlohmann::json& /*p*/) {
-    // Preview frame pixels are delivered via FFI shared memory (T30 plugin);
-    // this RPC response carries only the metadata pointer + dimensions.
-    return {
-        {"ptr",    0},
-        {"size",   0},
-        {"width",  0},
-        {"height", 0},
-    };
+    return handlePreviewFrame({});
 }
 
 nlohmann::json RpcDispatcher::handleSetDebugMode(const nlohmann::json& /*p*/) {
-    // Per plan: debug overlay is experimental and not implemented in v2.
     LOG_DEBUG("[RPC] setDebugMode: not implemented");
     return {{"ok", false}, {"reason", "not implemented"}};
 }
