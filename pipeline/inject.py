@@ -533,7 +533,6 @@ def write_dlssconfig(
     )
     path = output_dir / "dlssconfig.json"
     write_atomic_json(path, config)
-    write_atomic_json(output_dir / "dlssconfig.dlssc", config)
     return path
 
 

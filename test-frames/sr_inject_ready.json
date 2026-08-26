@@ -1,0 +1,138 @@
+{
+  "event": "inject_ready",
+  "file_output": "File Output",
+  "directory": "R:\\sr-test\\",
+  "existing_file_outputs": [],
+  "muted_file_outputs": [],
+  "vector": {
+    "name": "Vector",
+    "socket_type": "VECTOR",
+    "vector_socket_dimensions": 4
+  },
+  "linked_sockets": [
+    "Image",
+    "Depth",
+    "Vector"
+  ],
+  "mode": "sr",
+  "config": "R:\\sr-test\\dlssconfig.json",
+  "view_transform": "ACES 2.0",
+  "display_device": "sRGB",
+  "look": "ACES 2.0 - Reference Gamut Compression",
+  "file_output_view": "Raw",
+  "use_denoising": true,
+  "denoising_store_passes": true,
+  "engine": "CYCLES",
+  "fps": 30,
+  "is_dirty": true,
+  "will_save_blend": false,
+  "overrides_written": [
+    "frame_start",
+    "frame_end"
+  ],
+  "overrides_untouched": [
+    "resolution_percentage",
+    "use_adaptive_sampling",
+    "adaptive_threshold",
+    "samples",
+    "adaptive_min_samples",
+    "time_limit",
+    "use_denoising",
+    "denoiser"
+  ],
+  "overrides_forced": [],
+  "overrides_ignored": [],
+  "cycles_compute": {
+    "scene_device": "GPU",
+    "compute_device_type": "OPTIX",
+    "devices": [
+      {
+        "name": "NVIDIA GeForce RTX 3080 Ti",
+        "type": "OPTIX",
+        "use": true
+      },
+      {
+        "name": "AMD Ryzen 9 9950X 16-Core Processor",
+        "type": "CPU",
+        "use": false
+      },
+      {
+        "name": "NVIDIA GeForce RTX 3080 Ti",
+        "type": "CUDA",
+        "use": true
+      },
+      {
+        "name": "NVIDIA GeForce RTX 5070 Ti",
+        "type": "CUDA",
+        "use": true
+      },
+      {
+        "name": "NVIDIA GeForce RTX 5070 Ti",
+        "type": "OPTIX",
+        "use": true
+      }
+    ]
+  },
+  "scene_before": {
+    "render": {
+      "resolution_x": 3840,
+      "resolution_y": 2160,
+      "resolution_percentage": 100,
+      "frame_start": 50,
+      "frame_end": 4090,
+      "fps": 30.0,
+      "engine": "CYCLES"
+    },
+    "cycles": {
+      "use_adaptive_sampling": true,
+      "adaptive_threshold": 0.05,
+      "samples": 16,
+      "adaptive_min_samples": 0,
+      "time_limit": 0.0,
+      "use_denoising": true,
+      "denoiser": "OPENIMAGEDENOISE",
+      "denoiser_label": "OIDN",
+      "preview_denoiser": "OPTIX",
+      "preview_denoiser_label": "OptiX",
+      "denoising_store_passes": true,
+      "device": "GPU",
+      "sampling_pattern": "AUTOMATIC"
+    }
+  },
+  "scene_after": {
+    "render": {
+      "resolution_x": 3840,
+      "resolution_y": 2160,
+      "resolution_percentage": 100,
+      "frame_start": 300,
+      "frame_end": 350,
+      "fps": 30.0,
+      "engine": "CYCLES"
+    },
+    "cycles": {
+      "use_adaptive_sampling": true,
+      "adaptive_threshold": 0.05,
+      "samples": 16,
+      "adaptive_min_samples": 0,
+      "time_limit": 0.0,
+      "use_denoising": true,
+      "denoiser": "OPENIMAGEDENOISE",
+      "denoiser_label": "OIDN",
+      "preview_denoiser": "OPTIX",
+      "preview_denoiser_label": "OptiX",
+      "denoising_store_passes": true,
+      "device": "GPU",
+      "sampling_pattern": "AUTOMATIC"
+    }
+  },
+  "denoiser": "OPENIMAGEDENOISE",
+  "samples": 16,
+  "adaptive_threshold": 0.05000000074505806,
+  "use_adaptive_sampling": true,
+  "adaptive_min_samples": 0,
+  "time_limit": 0.0,
+  "resolution_percentage": 100,
+  "frame_start": 300,
+  "frame_end": 350,
+  "sampling_pattern": "AUTOMATIC"
+}

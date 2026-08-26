@@ -5,7 +5,7 @@ Usage:
     python tools/export_test_frames.py --dry-run --mode rr --output test-frames/rr_inject_ready.json
     python tools/export_test_frames.py --dry-run --mode sr  --output test-frames/sr_inject_ready.json
 
-    # Full export to RAM disk (requires R:\ mounted and Blender 5.3+)
+    # Full export to RAM disk (requires R:\\ mounted and Blender 5.3+)
     python tools/export_test_frames.py --mode rr
     python tools/export_test_frames.py --mode sr
 
@@ -85,8 +85,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--ram-disk",
-        default="R:",
-        help="RAM disk root (default: R:)",
+        default=r"R:\\",
+        help="RAM disk root (default: R:\\)",
     )
     p.add_argument(
         "--quality",
@@ -266,7 +266,7 @@ def main() -> int:
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(inject_ready, f, indent=2, ensure_ascii=False)
-            print(f"[export_test_frames] Wrote inject_ready → {out_path}")
+            print(f"[export_test_frames] Wrote inject_ready -> {out_path}")
         else:
             print(json.dumps(inject_ready, indent=2, ensure_ascii=False))
         return 0
