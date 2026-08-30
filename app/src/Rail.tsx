@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {ActionButton, Button, Text, ToggleButton, ToggleButtonGroup} from '@react-spectrum/s2';
 import Add from '@react-spectrum/s2/icons/Add';
+import Brush from '@react-spectrum/s2/icons/Brush';
 import Export from '@react-spectrum/s2/icons/Export';
 import Filmstrip from '@react-spectrum/s2/icons/Filmstrip';
 import Settings from '@react-spectrum/s2/icons/Settings';
@@ -80,6 +81,10 @@ export function Rail() {
         <ToggleButton id="jobs" isDisabled={!hasProject}>
           <ViewList />
           {collapsed ? null : <Text>Jobs</Text>}
+        </ToggleButton>
+        <ToggleButton id="nrtool">
+          <Brush />
+          {collapsed ? null : <Text>NR 工具</Text>}
         </ToggleButton>
         <ToggleButton id="settings">
           <Settings />

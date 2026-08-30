@@ -302,6 +302,9 @@ export class PipelineOrchestrator {
   private cli: ChildProcess | null = null;
   private rpc: StdioRpcClient | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
+  private nrPollTimer: NodeJS.Timeout | null = null;
+  private nrPollInFlight = false;
+  private nrStopRequested = false;
   private running = false;
   private ramLetter: string | null = null;
   private cliPath: string | null = null;
@@ -630,6 +633,95 @@ export class PipelineOrchestrator {
     return {ok: true, unmounted: false};
   }
 
+  // ── NR tool (standalone DLSSNR compositor pass) ───────────────────────────
+
+  /** Open an NR session over a color source + dlssnrbuffer guidance dir.
+   *  Boots the CLI on demand (the NR tool works without an open project). */
+  async nrOpen(params: {
+    color_source: string;
+    buffer_dir: string;
+  }): Promise<Record<string, unknown>> {
+    const cli = findCli(undefined, backendDir ?? undefined);
+    if (!cli) return {ok: false, error: '找不到 dlss-compositor-cli.exe'};
+    const logs = logRoot();
+    fs.mkdirSync(logs, {recursive: true});
+    const rpc = await this.ensureCli(cli, logs);
+    return rpc.request('nrtool_open', params, 120000);
+  }
+
+  async nrPreview(
+    frame: number,
+    settings: Record<string, unknown>
+  ): Promise<Record<string, unknown>> {
+    if (!this.rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    return this.rpc.request('nrtool_preview', {frame, ...settings}, 120000);
+  }
+
+  /** Start an NR export and poll progress until it settles, forwarding
+   *  nrtool_progress / nrtool_export_done / nrtool_export_error events. */
+  async nrExport(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!this.rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    this.nrStopRequested = false;
+    const result = await this.rpc.request('nrtool_export', params, 30000);
+    if (this.nrPollTimer) clearInterval(this.nrPollTimer);
+    this.nrPollInFlight = false;
+    this.nrPollTimer = setInterval(() => void this.nrPollOnce(), 400);
+    return result;
+  }
+
+  async nrClose(): Promise<Record<string, unknown>> {
+    if (this.nrPollTimer) {
+      clearInterval(this.nrPollTimer);
+      this.nrPollTimer = null;
+    }
+    if (!this.rpc?.writable()) return {ok: true};
+    return this.rpc.request('nrtool_close', {}, 30000);
+  }
+
+  /** Cancel a running NR export via the shared stop RPC. */
+  async nrStop(): Promise<Record<string, unknown>> {
+    this.nrStopRequested = true;
+    if (!this.rpc?.writable()) return {ok: true};
+    return this.rpc.request('stop', {}, 5000);
+  }
+
+  private async nrPollOnce(): Promise<void> {
+    if (!this.rpc?.writable() || this.nrPollInFlight) return;
+    this.nrPollInFlight = true;
+    try {
+      const progress = await this.rpc.request('progress', {}, 5000);
+      const state = progress.state;
+      this.emit({type: 'nrtool_progress', ...progress});
+      if (state === 2 || state === 'done') {
+        this.stopNrPoll();
+        this.nrStopRequested = false;
+        this.emit({type: 'nrtool_export_done'});
+      } else if (state === 3 || state === 'error') {
+        this.stopNrPoll();
+        // The CLI reports a user stop as state 3 as well; disambiguate via
+        // the stop flag so the UI shows 已停止 instead of a failure.
+        const stopped = this.nrStopRequested;
+        this.nrStopRequested = false;
+        this.emit(
+          stopped
+            ? {type: 'nrtool_export_stopped'}
+            : {type: 'nrtool_export_error', message: 'NR 导出失败（见日志 cli.stderr.log）'}
+        );
+      }
+    } catch (err) {
+      this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
+    } finally {
+      this.nrPollInFlight = false;
+    }
+  }
+
+  private stopNrPoll(): void {
+    if (this.nrPollTimer) {
+      clearInterval(this.nrPollTimer);
+      this.nrPollTimer = null;
+    }
+  }
+
   /**
    * Delete leftover input frames once a job settles. Anything the pipeline did not
    * consume (failed decodes, tail frames written after the engine stopped) is
@@ -651,6 +743,7 @@ export class PipelineOrchestrator {
   }
 
   async shutdown(): Promise<{ok: boolean; unmounted: false}> {
+    this.stopNrPoll();
     const result = await this.stop();
     await this.releaseRamdisk();
     this.discardCli();

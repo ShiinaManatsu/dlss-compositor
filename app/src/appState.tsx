@@ -33,7 +33,7 @@ import {
 } from './dcp';
 import {userErrorMessage} from './errors';
 
-export type Route = 'project' | 'export' | 'jobs' | 'settings';
+export type Route = 'project' | 'export' | 'jobs' | 'nrtool' | 'settings';
 export type ColorSchemePref = 'dark' | 'light' | 'system';
 export type JobStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -55,6 +55,7 @@ export const ROUTE_LABELS: Record<Route, string> = {
   project: '项目',
   export: '导出',
   jobs: 'Jobs',
+  nrtool: 'NR 工具',
   settings: '设置'
 };
 
@@ -642,8 +643,8 @@ export function useAppState() {
       }
       if (stored === 'dark' || stored === 'light' || stored === 'system') setColorSchemeState(stored);
       const page = launch.page;
-      if (page === 'export' || page === 'jobs' || page === 'settings') {
-        setRoute(page);
+      if (page === 'export' || page === 'jobs' || page === 'nrtool' || page === 'settings') {
+        setRoute(page as Route);
       }
       if (launch.dcp) {
         await openDcp(launch.dcp);

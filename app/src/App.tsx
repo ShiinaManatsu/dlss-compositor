@@ -9,13 +9,18 @@ import {TitleBar} from './TitleBar';
 import {ProjectPage} from './pages/ProjectPage';
 import {ExportPage} from './pages/ExportPage';
 import {JobsPage} from './pages/JobsPage';
+import {NrToolPage} from './pages/NrToolPage';
 import {SettingsPage} from './pages/SettingsPage';
 import './shell.css';
 
 function Shell() {
   const app = useApp();
   const crumbs =
-    app.route === 'project' ? ['项目'] : [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]];
+    app.route === 'project'
+      ? ['项目']
+      : app.route === 'nrtool'
+        ? ['NR 工具']
+        : [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]];
 
   let startAction: ReactNode = null;
   if (app.route === 'export' && app.hasProject) {
@@ -54,6 +59,8 @@ function Shell() {
             <ExportPage />
           ) : app.route === 'jobs' ? (
             <JobsPage />
+          ) : app.route === 'nrtool' ? (
+            <NrToolPage />
           ) : (
             <SettingsPage />
           )}

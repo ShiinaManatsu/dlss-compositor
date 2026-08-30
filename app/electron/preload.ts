@@ -5,6 +5,17 @@ contextBridge.exposeInMainWorld('dlss', {
   inspect: (blend: string) => ipcRenderer.invoke('pipeline:inspect', blend),
   start: (req: unknown) => ipcRenderer.invoke('pipeline:start', req),
   stop: () => ipcRenderer.invoke('pipeline:stop'),
+  nrOpen: (params: {color_source: string; buffer_dir: string}) =>
+    ipcRenderer.invoke('nrtool:open', params),
+  nrPreview: (frame: number, settings: Record<string, unknown>) =>
+    ipcRenderer.invoke('nrtool:preview', frame, settings),
+  nrExport: (params: Record<string, unknown>) => ipcRenderer.invoke('nrtool:export', params),
+  nrClose: () => ipcRenderer.invoke('nrtool:close'),
+  nrStop: () => ipcRenderer.invoke('nrtool:stop'),
+  chooseNrVideo: () => ipcRenderer.invoke('dialog:nrVideo'),
+  chooseDir: (title: string) => ipcRenderer.invoke('dialog:pickDir', title),
+  chooseNrVideoSave: (defaultPath?: string) =>
+    ipcRenderer.invoke('dialog:nrVideoSave', defaultPath ?? ''),
   chooseBlend: () => ipcRenderer.invoke('dialog:blend'),
   chooseExportDir: () => ipcRenderer.invoke('dialog:exportDir'),
   chooseDcpOpen: () => ipcRenderer.invoke('dialog:dcpOpen'),

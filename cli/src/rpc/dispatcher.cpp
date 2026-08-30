@@ -168,6 +168,9 @@ nlohmann::json RpcDispatcher::handleStartJob(const nlohmann::json& p) {
     if (m_jobRunning.load(std::memory_order_acquire)) {
         return {{"ok", false}, {"error", "A job is already running; call stop first"}};
     }
+    if (m_nrExportRunning.load(std::memory_order_acquire)) {
+        return {{"ok", false}, {"error", "An NR tool export is running; stop it first"}};
+    }
 
     PipelineConfig cfg;
     try {
@@ -191,6 +194,12 @@ nlohmann::json RpcDispatcher::handleStartJob(const nlohmann::json& p) {
 }
 
 nlohmann::json RpcDispatcher::handleStop(const nlohmann::json& /*p*/) {
+    // NR tool export and pipeline jobs are mutually exclusive; cancel whichever runs.
+    if (m_nrExportRunning.load(std::memory_order_acquire)) {
+        m_nrExportStop.store(true, std::memory_order_release);
+        LOG_INFO("[RPC] stop: requested NR tool export stop");
+        return {{"ok", true}, {"nr_export_stop", true}};
+    }
     if (m_pipeline) {
         m_pipeline->stop();
         LOG_INFO("[RPC] stop: requested pipeline stop");
@@ -283,6 +292,9 @@ nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
     if (!m_ctx || !m_ngx) {
         throw std::runtime_error("GPU not bound; call bindGpu before nrtool_open");
     }
+    if (m_jobRunning.load(std::memory_order_acquire)) {
+        throw std::runtime_error("nrtool_open: a pipeline job is running");
+    }
     const std::string color = p.at("color_source").get<std::string>();
     const std::string buffer = p.value("buffer_dir", "");
     if (buffer.empty()) {
@@ -310,6 +322,9 @@ nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
 
 nlohmann::json RpcDispatcher::handleNrToolPreview(const nlohmann::json& p) {
     if (!m_nrTool) throw std::runtime_error("nrtool_preview: no session (call nrtool_open)");
+    if (m_nrExportRunning.load(std::memory_order_acquire)) {
+        throw std::runtime_error("nrtool_preview: an export is running");
+    }
     const auto frame = p.value("frame", 0);
     if (frame < 0 || static_cast<uint32_t>(frame) >= m_nrTool->info().frames) {
         throw std::runtime_error("nrtool_preview: frame " + std::to_string(frame) +
@@ -377,8 +392,13 @@ nlohmann::json RpcDispatcher::handleNrToolExport(const nlohmann::json& p) {
             if (m_eventCb) m_eventCb({{"event", "nrtool_export_done"}});
         } catch (const std::exception& e) {
             m_progress.state.store(3);  // Error
-            LOG_ERROR("[NrTool] export error: {}", e.what());
-            if (m_eventCb) m_eventCb({{"event", "nrtool_export_error"}, {"detail", e.what()}});
+            const std::string what = e.what();
+            const bool cancelled = what.find("cancelled") != std::string::npos;
+            LOG_ERROR("[NrTool] export error: {}", what);
+            if (m_eventCb) {
+                m_eventCb({{"event", cancelled ? "nrtool_export_stopped" : "nrtool_export_error"},
+                           {"detail", what}});
+            }
         }
         m_nrExportRunning.store(false, std::memory_order_release);
     });

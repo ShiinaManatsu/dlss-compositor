@@ -137,6 +137,46 @@ app.whenReady().then(() => {
   ipcMain.handle('pipeline:inspect', (_event, blend: unknown) => orchestrator.inspect(String(blend || '')));
   ipcMain.handle('pipeline:start', (_event, raw: unknown) => orchestrator.start(ipcExportRequest(raw)));
   ipcMain.handle('pipeline:stop', () => orchestrator.stop());
+  ipcMain.handle('nrtool:open', (_event, params: unknown) =>
+    orchestrator.nrOpen((params ?? {}) as {color_source: string; buffer_dir: string})
+  );
+  ipcMain.handle('nrtool:preview', (_event, frame: unknown, settings: unknown) =>
+    orchestrator.nrPreview(Number(frame ?? 0), (settings ?? {}) as Record<string, unknown>)
+  );
+  ipcMain.handle('nrtool:export', (_event, params: unknown) =>
+    orchestrator.nrExport((params ?? {}) as Record<string, unknown>)
+  );
+  ipcMain.handle('nrtool:close', () => orchestrator.nrClose());
+  ipcMain.handle('nrtool:stop', () => orchestrator.nrStop());
+  ipcMain.handle('dialog:nrVideo', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择色彩源视频',
+      filters: [
+        {name: '视频', extensions: ['mov', 'mp4', 'm4v', 'mkv', 'avi']},
+        {name: '所有文件', extensions: ['*']},
+      ],
+      properties: ['openFile'],
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('dialog:pickDir', async (_event, title: unknown) => {
+    const result = await dialog.showOpenDialog(win, {
+      title: String(title || '选择目录'),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('dialog:nrVideoSave', async (_event, defaultPath: unknown) => {
+    const result = await dialog.showSaveDialog(win, {
+      title: '保存 NR 视频',
+      defaultPath: String(defaultPath || ''),
+      filters: [
+        {name: 'QuickTime', extensions: ['mov']},
+        {name: 'MP4', extensions: ['mp4']},
+      ],
+    });
+    return result.canceled || !result.filePath ? null : result.filePath;
+  });
   ipcMain.handle('dialog:blend', async () => {
     const result = await dialog.showOpenDialog(win, {
       title: '打开 Blender 文件',
