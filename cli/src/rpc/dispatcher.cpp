@@ -105,6 +105,10 @@ RpcDispatcher::~RpcDispatcher() {
     // Stop any running pipeline and wait for the worker.
     if (m_pipeline) m_pipeline->stop();
     if (m_worker.joinable()) m_worker.join();
+    // NR tool export worker: request cancel then join.
+    m_nrExportStop.store(true, std::memory_order_release);
+    if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
+    m_nrTool.reset();
 }
 
 void RpcDispatcher::bindGpu(VulkanContext* ctx, NgxContext* ngx) {
@@ -125,6 +129,12 @@ nlohmann::json RpcDispatcher::dispatch(const std::string& method, const nlohmann
         if (method == "stop")               return handleStop(params);
         if (method == "progress")           return handleProgress(params);
         if (method == "preview_frame")      return handlePreviewFrame(params);
+
+        // NR tool (standalone DLSSNR compositor pass)
+        if (method == "nrtool_open")        return handleNrToolOpen(params);
+        if (method == "nrtool_preview")     return handleNrToolPreview(params);
+        if (method == "nrtool_export")      return handleNrToolExport(params);
+        if (method == "nrtool_close")       return handleNrToolClose(params);
 
         // Legacy two-step API (MethodChannel compat)
         if (method == "setTask")               return handleSetTask(params);
@@ -232,6 +242,160 @@ nlohmann::json RpcDispatcher::handlePreviewFrame(const nlohmann::json& /*p*/) {
 }
 
 // =============================================================================
+// NR tool (standalone DLSSNR compositor pass)
+// =============================================================================
+
+namespace {
+
+std::string b64Encode(const std::vector<uint8_t>& jpeg) {
+    static constexpr char kB64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string b64;
+    b64.reserve((jpeg.size() + 2) / 3 * 4);
+    for (std::size_t i = 0; i < jpeg.size(); i += 3) {
+        const uint32_t a = jpeg[i];
+        const uint32_t b = (i + 1 < jpeg.size()) ? jpeg[i + 1] : 0u;
+        const uint32_t c = (i + 2 < jpeg.size()) ? jpeg[i + 2] : 0u;
+        const uint32_t v = (a << 16) | (b << 8) | c;
+        b64 += kB64[(v >> 18) & 0x3F];
+        b64 += kB64[(v >> 12) & 0x3F];
+        b64 += (i + 1 < jpeg.size()) ? kB64[(v >>  6) & 0x3F] : '=';
+        b64 += (i + 2 < jpeg.size()) ? kB64[ v        & 0x3F] : '=';
+    }
+    return b64;
+}
+
+} // namespace
+
+/// Shared nr_* tuning keys (same names as start_job).
+NrSettings RpcDispatcher::parseNrSettings(const nlohmann::json& p) {
+    NrSettings s{};
+    s.style = static_cast<NrStyle>(std::clamp(p.value("nr_style", 0), 0, 2));
+    s.intensity = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
+    s.localToneStrength = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
+    s.localStructureStrength = std::clamp(p.value("nr_local_structure", 1.0f), 0.0f, 1.0f);
+    s.useAutoMask = p.value("nr_automask", false);
+    s.guidanceMode = static_cast<NrGuidanceMode>(std::clamp(p.value("nr_guidance", 0), 0, 3));
+    return s;
+}
+
+nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
+    if (!m_ctx || !m_ngx) {
+        throw std::runtime_error("GPU not bound; call bindGpu before nrtool_open");
+    }
+    const std::string color = p.at("color_source").get<std::string>();
+    const std::string buffer = p.value("buffer_dir", "");
+    if (buffer.empty()) {
+        throw std::runtime_error("nrtool_open: buffer_dir is required (dlssnrbuffer sequence)");
+    }
+
+    if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
+    m_nrExportRunning.store(false, std::memory_order_release);
+    m_nrTool.reset();  // close any previous session
+    m_nrTool = std::make_unique<NrToolSession>(m_ctx, m_ngx,
+                                               std::filesystem::path(color),
+                                               std::filesystem::path(buffer));
+    const auto& i = m_nrTool->info();
+    return {{"ok", true},
+            {"color_source", i.colorSource},
+            {"color_kind", i.colorKind},
+            {"buffer_dir", i.bufferDir},
+            {"frames", i.frames},
+            {"width", i.width},
+            {"height", i.height},
+            {"buffer_width", i.bufferWidth},
+            {"buffer_height", i.bufferHeight},
+            {"fps", i.fps}};
+}
+
+nlohmann::json RpcDispatcher::handleNrToolPreview(const nlohmann::json& p) {
+    if (!m_nrTool) throw std::runtime_error("nrtool_preview: no session (call nrtool_open)");
+    const auto frame = p.value("frame", 0);
+    if (frame < 0 || static_cast<uint32_t>(frame) >= m_nrTool->info().frames) {
+        throw std::runtime_error("nrtool_preview: frame " + std::to_string(frame) +
+                                 " out of range (0.." +
+                                 std::to_string(m_nrTool->info().frames - 1) + ")");
+    }
+    auto r = m_nrTool->preview(frame, parseNrSettings(p));
+    nlohmann::json resp{{"ok", true},
+                        {"frame", frame},
+                        {"width", r.width},
+                        {"height", r.height},
+                        {"eval_ms", r.evalMs},
+                        {"reset_applied", r.resetApplied}};
+    if (!r.jpeg.empty()) resp["jpeg_b64"] = b64Encode(r.jpeg);
+    return resp;
+}
+
+nlohmann::json RpcDispatcher::handleNrToolExport(const nlohmann::json& p) {
+    if (!m_nrTool) throw std::runtime_error("nrtool_export: no session (call nrtool_open)");
+    bool expected = false;
+    if (!m_nrExportRunning.compare_exchange_strong(expected, true)) {
+        throw std::runtime_error("nrtool_export: an export is already running");
+    }
+    if (m_jobRunning.load(std::memory_order_acquire)) {
+        m_nrExportRunning.store(false, std::memory_order_release);
+        throw std::runtime_error("nrtool_export: a pipeline job is running");
+    }
+
+    const std::string fmtStr = p.value("output_format", std::string{"prores_422hq"});
+    const OutputFormat fmt = parseOutputFormat(fmtStr);
+    const std::string outPathStr = p.value("output_path", "");
+    const std::string outDirStr  = p.value("output_dir", "");
+    const std::string tmpl       = p.value("output_template", std::string{"nr_####.png"});
+    const NrSettings settings = parseNrSettings(p);
+    m_nrExportStop.store(false, std::memory_order_release);
+
+    // Validation on the RPC thread — fail before the worker starts.
+    const bool isVideo = fmt == OutputFormat::ProRes422HQ || fmt == OutputFormat::H265Mp4;
+    if (isVideo && outPathStr.empty()) {
+        m_nrExportRunning.store(false, std::memory_order_release);
+        throw std::runtime_error("nrtool_export: output_path is required for video formats");
+    }
+    if (!isVideo && (outDirStr.empty() || tmpl.empty())) {
+        m_nrExportRunning.store(false, std::memory_order_release);
+        throw std::runtime_error("nrtool_export: output_dir and output_template are required for png_16");
+    }
+
+    auto* session = m_nrTool.get();
+    m_progress.total_frames.store(static_cast<int>(session->info().frames));
+    m_progress.current_frame.store(0);
+    m_progress.percent.store(0.0f);
+    m_progress.state.store(1);  // Running
+
+    if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
+    m_nrExportWorker = std::thread([this, session, settings, fmt,
+                                    outPath = std::filesystem::path(outPathStr),
+                                    outDir = std::filesystem::path(outDirStr), tmpl]() {
+        try {
+            session->exportTo(settings, fmt, outPath, outDir, tmpl,
+                              [this](float prog) {
+                                  m_progress.percent.store(prog);
+                              },
+                              &m_nrExportStop);
+            m_progress.state.store(2);  // Done
+            if (m_eventCb) m_eventCb({{"event", "nrtool_export_done"}});
+        } catch (const std::exception& e) {
+            m_progress.state.store(3);  // Error
+            LOG_ERROR("[NrTool] export error: {}", e.what());
+            if (m_eventCb) m_eventCb({{"event", "nrtool_export_error"}, {"detail", e.what()}});
+        }
+        m_nrExportRunning.store(false, std::memory_order_release);
+    });
+
+    return {{"ok", true}, {"started", true}, {"frames", session->info().frames}};
+}
+
+nlohmann::json RpcDispatcher::handleNrToolClose(const nlohmann::json& /*p*/) {
+    if (m_nrExportRunning.load(std::memory_order_acquire)) {
+        throw std::runtime_error("nrtool_close: export is running — stop it first");
+    }
+    if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
+    m_nrTool.reset();
+    return {{"ok", true}};
+}
+
+// =============================================================================
 // PipelineConfig builder
 // =============================================================================
 
@@ -292,12 +456,13 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.watchInput         = watchInput;
 
     // ── NR (experimental; feature bits carry the on/off) ──────────────────────
-    cfg.nrStyle        = std::clamp(p.value("nr_style", 0), 0, 2);
-    cfg.nrIntensity    = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
-    cfg.nrGuidanceMode = std::clamp(p.value("nr_guidance", 0), 0, 3);
-    cfg.nrLocalTone      = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
-    cfg.nrLocalStructure = std::clamp(p.value("nr_local_structure", 1.0f), 0.0f, 1.0f);
-    cfg.nrAutoMask       = p.value("nr_automask", false);
+    const NrSettings nrS = parseNrSettings(p);
+    cfg.nrStyle          = static_cast<int>(nrS.style);
+    cfg.nrIntensity      = nrS.intensity;
+    cfg.nrLocalTone      = nrS.localToneStrength;
+    cfg.nrLocalStructure = nrS.localStructureStrength;
+    cfg.nrAutoMask       = nrS.useAutoMask;
+    cfg.nrGuidanceMode   = static_cast<int>(nrS.guidanceMode);
     cfg.nrBuffer         = p.value("nr_buffer", false);
     if (cfg.nrBuffer && (cfg.features & kNR)) {
         throw std::runtime_error(

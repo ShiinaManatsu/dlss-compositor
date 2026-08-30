@@ -18,6 +18,21 @@ def encode_frame(payload: dict[str, Any]) -> bytes:
     return header + body
 
 
+def _read_exact(stream: Any, n: int) -> bytes:
+    """Read exactly `n` bytes. With Popen(bufsize=0) the stream is a raw
+    FileIO whose read() may return fewer bytes than requested (single
+    os.read) — large frames (preview JPEGs) require a loop."""
+    parts: list[bytes] = []
+    remaining = n
+    while remaining > 0:
+        chunk = stream.read(remaining)
+        if not chunk:
+            break  # EOF
+        parts.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(parts)
+
+
 def read_frame(stream: Any) -> dict[str, Any]:
     content_length = 0
     while True:
@@ -35,7 +50,7 @@ def read_frame(stream: Any) -> dict[str, Any]:
             content_length = int(stripped.split(":", 1)[1].strip())
     if content_length <= 0:
         raise RpcError("RPC frame missing Content-Length")
-    body = stream.read(content_length)
+    body = _read_exact(stream, content_length)
     if isinstance(body, str):
         raw = body
     else:

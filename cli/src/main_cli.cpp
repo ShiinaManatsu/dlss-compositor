@@ -108,13 +108,16 @@ int main(int argc, char* argv[]) {
     if (hasArg(args, "--rpc-stdio")) {
         LOG_INFO("[startup] CLI mode=rpc-stdio");
 
-        dlss::RpcDispatcher dispatcher;
-
         // Boot Vulkan + NGX.  These objects must outlive the dispatcher and
-        // the JSON-RPC loop.  On failure, the server still starts but
-        // start_job / getStatus will report the error.
+        // the JSON-RPC loop, so they are declared BEFORE the dispatcher
+        // (reverse destruction order: dispatcher → ngx → vk).  The dispatcher
+        // holds NR tool sessions that tear down GPU passes on exit.
         std::unique_ptr<dlss::VulkanContext> vk;
         std::unique_ptr<dlss::NgxContext>    ngx;
+
+        // On failure, the server still starts but start_job / getStatus will
+        // report the error.
+        dlss::RpcDispatcher dispatcher;
         try {
             vk  = std::make_unique<dlss::VulkanContext>();
             ngx = std::make_unique<dlss::NgxContext>(vk->instance(),

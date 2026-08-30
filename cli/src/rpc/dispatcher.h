@@ -17,6 +17,7 @@
 #pragma once
 
 #include "../pipeline/pipeline.h"
+#include "../pipeline/nr_tool_session.h"
 
 #include <atomic>
 #include <functional>
@@ -97,6 +98,11 @@ private:
     nlohmann::json handleStop(const nlohmann::json& p);
     nlohmann::json handleProgress(const nlohmann::json& p);
     nlohmann::json handlePreviewFrame(const nlohmann::json& p);
+    // NR tool (standalone DLSSNR compositor pass)
+    nlohmann::json handleNrToolOpen(const nlohmann::json& p);
+    nlohmann::json handleNrToolPreview(const nlohmann::json& p);
+    nlohmann::json handleNrToolExport(const nlohmann::json& p);
+    nlohmann::json handleNrToolClose(const nlohmann::json& p);
     // Status / debug
     nlohmann::json handleGetStatus(const nlohmann::json& p);
     nlohmann::json handleGetTaskState(const nlohmann::json& p);
@@ -124,6 +130,15 @@ private:
     std::unique_ptr<Pipeline>   m_pipeline;
     std::thread                 m_worker;
     std::atomic<bool>           m_jobRunning{false};
+
+    // NR tool session (open/preview synchronous; export on its own worker).
+    std::unique_ptr<NrToolSession> m_nrTool;
+    std::thread                    m_nrExportWorker;
+    std::atomic<bool>              m_nrExportRunning{false};
+    std::atomic<bool>              m_nrExportStop{false};
+
+    /// Parse the shared nr_* tuning keys (start_job and nrtool_* alike).
+    static NrSettings parseNrSettings(const nlohmann::json& p);
 
     // Last preview JPEG delivered by the pipeline callback (may be empty).
     std::mutex              m_previewMu;

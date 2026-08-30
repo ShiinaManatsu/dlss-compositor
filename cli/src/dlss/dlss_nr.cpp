@@ -541,10 +541,12 @@ void DlssNrPass::destroy() {
         m_handle = nullptr;
     }
     if (m_snippet.library) {
+        LOG_INFO("[DLSS NR] snippet shutdown begin");
         (void)m_snippet.shutdown(m_ctx->device());
         restoreSnippetCallerHook();
         FreeLibrary(static_cast<HMODULE>(m_snippet.library));
         m_snippet = {};
+        LOG_INFO("[DLSS NR] snippet shutdown done");
     }
 }
 

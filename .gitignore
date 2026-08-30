@@ -47,6 +47,10 @@ test-frames/*.jpeg
 test-frames/*.mov
 test-frames/rr/luts/
 test-frames/rr/pipeline-out/
+test-frames/rr/pipeline-out-nr/
+test-frames/rr/pipeline-out-nrbuf/
+test-frames/rr/preview/
+test-frames/rr/nr-tool-out/
 test-frames/rr/*.png
 test-frames/rr/*.mov
 
