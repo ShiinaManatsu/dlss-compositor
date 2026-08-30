@@ -1,0 +1,19 @@
+#version 450
+// NR display-domain pack: rgb10_a2 (display-ready) -> RGBA8_UNORM.
+// DLSSNR contract (feature 18 snippet): same-resolution SDR RGBA8 in/out.
+// Values are already display-referred [0,1] (sRGB or PQ encoded); the pack is
+// a pure bit-depth change, no color math.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D srcDisplay;   // A2B10G10R10_UNORM_PACK32
+layout(set = 0, binding = 1, rgba8) uniform image2D dstNr;   // R8G8B8A8_UNORM
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstNr);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec4 c = texelFetch(srcDisplay, coord, 0);
+    imageStore(dstNr, coord, clamp(c, vec4(0.0), vec4(1.0)));
+}

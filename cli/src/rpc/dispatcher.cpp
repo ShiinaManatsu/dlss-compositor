@@ -252,7 +252,9 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     const std::string mode = p.value("mode", std::string{"sr"});
     const int parsedFg = parseFgMultiplier(p);
     const bool hasFg = parsedFg >= 2;
-    const PipelineFeatures features = parseFeaturesFromMode(mode, hasFg);
+    const bool hasNr = p.value("nr", false);
+    PipelineFeatures features = parseFeaturesFromMode(mode, hasFg);
+    if (hasNr) features |= kNR;
     const std::string err = validateFeatures(features);
     if (!err.empty()) throw std::runtime_error(err);
 
@@ -288,6 +290,11 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.writerThreads      = std::max(1, wrThreads);
     cfg.writerQueueMultiplier = std::max(1, wrQueueMul);
     cfg.watchInput         = watchInput;
+
+    // ── NR (experimental; feature bits carry the on/off) ──────────────────────
+    cfg.nrStyle        = std::clamp(p.value("nr_style", 0), 0, 2);
+    cfg.nrIntensity    = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
+    cfg.nrGuidanceMode = std::clamp(p.value("nr_guidance", 0), 0, 3);
 
     const std::string rrPresetStr = p.value("rr_preset", std::string{"F"});
     if (rrPresetStr == "D" || rrPresetStr == "d")      cfg.rrPreset = RrPreset::D;

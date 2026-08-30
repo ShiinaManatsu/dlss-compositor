@@ -1,0 +1,17 @@
+#version 450
+// NR display-domain unpack: RGBA8_UNORM -> rgb10_a2 (display-ready).
+// Inverse of nr_pack_rgba8.comp; pure bit-depth change, no color math.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D srcNr;        // R8G8B8A8_UNORM
+layout(set = 0, binding = 1, rgb10_a2) uniform image2D dstDisplay;  // A2B10G10R10_UNORM_PACK32
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dstDisplay);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    vec4 c = texelFetch(srcNr, coord, 0);
+    imageStore(dstDisplay, coord, c);
+}

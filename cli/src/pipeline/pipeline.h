@@ -16,6 +16,9 @@
 //   Tonemap              (always — SR/RR output is scene-linear in, display-ready out)
 //     │
 //     ▼
+//   NR pass  ──── [ feature::kNR ]    (experimental — DLSSNR feature 18, same-res
+//     │                                 display-domain denoise; rgb10a2 ↔ rgba8 pack)
+//     ▼
 //   FG pass  ──── [ feature::kFG ]    (optional; off → frames passed straight through)
 //     │
 //     ▼
@@ -25,7 +28,6 @@
 //   Output (AsyncFrameWriter / ProResWriter)
 //
 // Future features with bit positions reserved:
-//   kNR    = 0x08   Neural Rendering (post-FG full-screen effect; position TBD)
 //   kHDR   = 0x10   Explicit HDR path flag (currently derived from dlssconfig.is_hdr)
 //
 // NOT a bitmask for input source selection (SR vs RR are mutually exclusive and
@@ -40,6 +42,7 @@
 #include "../dlss/dlss_sr.h"
 #include "../dlss/dlss_rr.h"
 #include "../dlss/dlss_fg.h"
+#include "../dlss/dlss_nr.h"
 #include "../gpu/vulkan_context.h"
 #include "../gpu/texture_pool.h"
 #include "../gpu/passes/depth_pass.h"
@@ -48,6 +51,7 @@
 #include "../gpu/passes/inverse_tonemap_pass.h"
 #include "../gpu/passes/lut_inverse_pass.h"
 #include "../gpu/passes/lut_tonemap_pass.h"
+#include "../gpu/passes/nr_format_pass.h"
 #include "../io/frame_prefetcher.h"
 #include "../io/rr_frame_prefetcher.h"
 #include "../io/channel_mapper.h"
@@ -74,14 +78,15 @@ enum PipelineFeature : std::uint32_t {
     kSR   = 0x01u,  ///< DLSS Super Resolution (mutually exclusive with kRR)
     kRR   = 0x02u,  ///< DLSS Ray Reconstruction (mutually exclusive with kSR)
     kFG   = 0x04u,  ///< DLSS Frame Generation (optional post-SR/RR)
-    // 0x08 reserved for kNR  — Neural Rendering (position in pipeline TBD)
+    kNR   = 0x08u,  ///< DLSSNR feature 18 — experimental, display-domain denoise
+                    ///< between tonemap and FG (see docs/research/magpie-nr-notes.md)
     // 0x10 reserved for kHDR — explicit HDR path override
     // 0x20–0x80 available for future use
 };
 
 using PipelineFeatures = std::uint32_t;
 
-/// Validate a feature combination.  Returns empty string on success, error message on failure.
+/// Validate a feature combination. Returns empty string on success, error message on failure.
 inline std::string validateFeatures(PipelineFeatures f) {
     const bool hasSR = (f & kSR) != 0;
     const bool hasRR = (f & kRR) != 0;
@@ -169,6 +174,11 @@ struct PipelineConfig {
 
     // ── FG ────────────────────────────────────────────────────────────────────
     int fgMultiplier = 2; ///< Frame generation multiplier (2–6; clamped to NGX cap)
+
+    // ── NR (experimental — requires nvngx_dlssnr.dll next to the exe) ─────────
+    int  nrStyle        = 0;    ///< NrStyle: 0 Default / 1 Natural / 2 Cinematic
+    float nrIntensity   = 1.0f; ///< 0–1
+    int  nrGuidanceMode = 0;    ///< NrGuidanceMode: 0 all / 1 zero / 2 motion / 3 depth
 
     // ── Output ────────────────────────────────────────────────────────────────
     OutputFormat    outputFormat = OutputFormat::ExrLinear;

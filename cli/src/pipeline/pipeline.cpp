@@ -64,6 +64,9 @@ struct PassTextures {
     PooledTextureHandle specularMotion;     // null when not available
     // Post-upscale
     PooledTextureHandle displayTex;         // tonemap output (display-ready)
+    PooledTextureHandle nrIn;               // NR color input (RGBA8, packed from displayTex)
+    PooledTextureHandle nrOut;              // NR color output (RGBA8)
+    PooledTextureHandle displayNr;          // NR output unpacked back to rgb10_a2
     PooledTextureHandle sceneLinear;        // inverse-tonemap output (ExrLinear only)
     std::vector<PooledTextureHandle> interpFrames; // FG generated frames
 };
@@ -355,6 +358,7 @@ void Pipeline::run(const PipelineConfig& config) {
 
     const bool useSR  = (config.features & kSR) != 0;
     const bool useFG  = (config.features & kFG) != 0;
+    const bool useNR  = (config.features & kNR) != 0;
     const bool exrOut = (config.outputFormat == OutputFormat::ExrLinear);
 
     const DlssConfig& dlssCfg = config.dlssConfig;
@@ -368,6 +372,12 @@ void Pipeline::run(const PipelineConfig& config) {
     const int fgMult = useFG ? std::max(2, std::min(6, config.fgMultiplier)) : 1;
     const int outputFrames = useFG ? (fgMult * inputFrames - (fgMult - 1)) : inputFrames;
     const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps); // DLSS §3.14 — from fps
+
+    if (useNR && dlssCfg.is_hdr) {
+        throw std::runtime_error(
+            "Pipeline: NR (feature 18) is SDR-only (RGBA8 display domain); "
+            "HDR tasks cannot enable kNR");
+    }
 
     const uint32_t rW = dlssCfg.render_resolution.width;
     const uint32_t rH = dlssCfg.render_resolution.height;
@@ -386,10 +396,11 @@ void Pipeline::run(const PipelineConfig& config) {
         if (cb.onRunEvent) cb.onRunEvent(ev, detail);
     };
 
-    LOG_INFO("[Pipeline] Starting: features=0x{:x} {}+{}{} input={} output={} {}x{}->{}x{} fps={} rrPreset={}",
+    LOG_INFO("[Pipeline] Starting: features=0x{:x} {}+{}{}{} input={} output={} {}x{}->{}x{} fps={} rrPreset={}",
              config.features,
              useSR ? "SR" : "RR",
              exrOut ? "Tonemap+InvTonemap" : "Tonemap",
+             useNR ? "+NR" : "",
              useFG ? "+FG(" + std::to_string(fgMult) + "x)" : "",
              inputFrames, outputFrames,
              rW, rH, oW, oH, dlssCfg.fps,
@@ -440,6 +451,22 @@ void Pipeline::run(const PipelineConfig& config) {
             fgPass->create(rW, rH, oW, oH, fgMult);
         }
 
+        // NR (experimental — feature 18). create() is the availability probe:
+        // a missing nvngx_dlssnr.dll or failed feature creation throws and the
+        // run errors out (fail-loud, no passthrough fallback).
+        std::unique_ptr<DlssNrPass> nrPass;
+        std::unique_ptr<NrFormatPass> nrPack;    // rgb10_a2 -> rgba8
+        std::unique_ptr<NrFormatPass> nrUnpack;  // rgba8 -> rgb10_a2
+        if (useNR) {
+            nrPass  = std::make_unique<DlssNrPass>(m_ngx, m_ctx);
+            nrPass->create(oW, oH,
+                           static_cast<NrStyle>(config.nrStyle),
+                           config.nrIntensity,
+                           static_cast<NrGuidanceMode>(config.nrGuidanceMode));
+            nrPack   = std::make_unique<NrFormatPass>(m_ctx, "pack");
+            nrUnpack = std::make_unique<NrFormatPass>(m_ctx, "unpack");
+        }
+
         // Preview
         PreviewPass previewPass(m_ctx);
 
@@ -485,6 +512,10 @@ void Pipeline::run(const PipelineConfig& config) {
         TextureDesc tdDisplay      {oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32, storageRw};
         TextureDesc tdInterp       {oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32, storageRw};
         TextureDesc tdSceneLinear  {oW, oH, VK_FORMAT_R16G16B16A16_SFLOAT, storageRw};
+        // NR extras (feature 18 consumes SDR RGBA8, same resolution)
+        TextureDesc tdNrIn         {oW, oH, VK_FORMAT_R8G8B8A8_UNORM,          storageRw};
+        TextureDesc tdNrOut        {oW, oH, VK_FORMAT_R8G8B8A8_UNORM,          storageRw};
+        TextureDesc tdDisplayNr    {oW, oH, VK_FORMAT_A2B10G10R10_UNORM_PACK32, storageRw};
         // RR extras
         TextureDesc tdDiffAlbedo   {rW, rH, VK_FORMAT_R16G16B16A16_SFLOAT, sampledUpload};
         TextureDesc tdSpecAlbedo   {rW, rH, VK_FORMAT_R16G16B16A16_SFLOAT, sampledUpload};
@@ -645,6 +676,11 @@ void Pipeline::run(const PipelineConfig& config) {
             tex.mvBlender        = pool.acquire(tdMvBlender);
             tex.mvDlss           = pool.acquire(tdMvDlss);    // shared with FG
             tex.displayTex       = pool.acquire(tdDisplay);
+            if (useNR) {
+                tex.nrIn      = pool.acquire(tdNrIn);
+                tex.nrOut     = pool.acquire(tdNrOut);
+                tex.displayNr = pool.acquire(tdDisplayNr);
+            }
 
             UploadBatch batch(m_ctx);
             if (useSR) {
@@ -769,25 +805,114 @@ void Pipeline::run(const PipelineConfig& config) {
             if (lutTonemap) lutTonemap->execute(cmd, tex.sceneColorOutput, tex.displayTex);
             else            tonemapPass.execute(cmd, tex.sceneColorOutput, tex.displayTex, tonemapMode);
 
+            // ── [6.5] NR (experimental — display-domain, same-res) ─────────────
+            // Pack rgb10_a2 → rgba8, run DLSSNR, unpack. The pipeline continues
+            // from `displayOut` so FG/output/preview all see the denoised frame.
+            PooledTextureHandle displayOut = tex.displayTex;
+            if (useNR) {
+                // Guidance selection by mode: 0 all / 1 zero / 2 motion / 3 depth.
+                const int gMode = std::clamp(config.nrGuidanceMode, 0, 3);
+                const bool passMotion = (gMode == 0 || gMode == 2);
+                const bool passDepth  = (gMode == 0 || gMode == 3);
+
+                // displayTex: tonemap wrote it (GENERAL storage) → SHADER_READ for the pack.
+                barrierGeneralToShaderRead(cmd, tex.displayTex);
+                // Pack writes nrIn (execute transitions UNDEFINED → GENERAL itself).
+                nrPack->execute(cmd, tex.displayTex, tex.nrIn);
+
+                // NGX eval contract (DLSS SR §3.4): inputs SHADER_READ, output GENERAL.
+                // nrIn: GENERAL → SHADER_READ; nrOut: UNDEFINED → GENERAL.
+                VkImageMemoryBarrier2 nb[2]{};
+                auto ninit = [&](VkImageMemoryBarrier2& b, VkImage img,
+                                 VkImageLayout oldL, VkImageLayout newL,
+                                 VkAccessFlags2 srcAcc, VkAccessFlags2 dstAcc) {
+                    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                    b.srcAccessMask = srcAcc;
+                    b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                    b.dstAccessMask = dstAcc;
+                    b.oldLayout = oldL;
+                    b.newLayout = newL;
+                    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    b.image = img;
+                    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                };
+                ninit(nb[0], tex.nrIn->image,
+                      VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                ninit(nb[1], tex.nrOut->image,
+                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                      VK_ACCESS_2_NONE, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+                nb[1].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+                {
+                    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                    dep.imageMemoryBarrierCount = 2;
+                    dep.pImageMemoryBarriers = nb;
+                    vkCmdPipelineBarrier2(cmd, &dep);
+                }
+
+                // Guides at NR-eval time:
+                //   mvDlss    — already SHADER_READ on both paths (SR promoted it
+                //               pre-eval; RR consumed it in NGX eval, which returns
+                //               inputs to SHADER_READ per DLSS PG §3.4).
+                //   depthNdc  — SHADER_READ on SR; on RR it was only written by
+                //               depthPass (GENERAL) and RR never consumed it, so
+                //               promote it here.
+                std::vector<VkImageMemoryBarrier2> gb;
+                if (!useSR && passDepth && tex.depthNdc) {
+                    VkImageMemoryBarrier2 b{};
+                    ninit(b, tex.depthNdc->image,
+                          VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+                    gb.push_back(b);
+                }
+                if (!gb.empty()) {
+                    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                    dep.imageMemoryBarrierCount = static_cast<uint32_t>(gb.size());
+                    dep.pImageMemoryBarriers = gb.data();
+                    vkCmdPipelineBarrier2(cmd, &dep);
+                }
+
+                NrInputs nrIn{};
+                nrIn.colorView    = tex.nrIn->view;
+                nrIn.colorImage   = tex.nrIn->image;
+                nrIn.outputView   = tex.nrOut->view;
+                nrIn.outputImage  = tex.nrOut->image;
+                nrIn.mvView       = passMotion ? tex.mvDlss->view   : VK_NULL_HANDLE;
+                nrIn.mvImage      = passMotion ? tex.mvDlss->image  : VK_NULL_HANDLE;
+                nrIn.depthView    = passDepth  ? tex.depthNdc->view : VK_NULL_HANDLE;
+                nrIn.depthImage   = passDepth  ? tex.depthNdc->image: VK_NULL_HANDLE;
+                nrIn.renderWidth  = rW;
+                nrIn.renderHeight = rH;
+                nrIn.reset        = reset;
+                nrPass->evaluate(cmd, nrIn);
+
+                // After eval NGX returns inputs to SHADER_READ and output to GENERAL.
+                // Unpack nrOut → displayNr (execute transitions displayNr UNDEFINED → GENERAL).
+                nrUnpack->execute(cmd, tex.nrOut, tex.displayNr);
+                displayOut = tex.displayNr;
+            }
+
             // ── [7] FG (optional) ──────────────────────────────────────────────
             if (useFG) {
                 // RR path skips NDC conversion into the NGX evaluate barrier; FG still
                 // samples depthNdc so promote it to SHADER_READ before eval.
-                if (!useSR) barrierGeneralToShaderRead(cmd, tex.depthNdc);
-                transitionForFgEvaluate(cmd, tex.displayTex, tex.interpFrames);
+                if (!useSR && !useNR) barrierGeneralToShaderRead(cmd, tex.depthNdc);
+                transitionForFgEvaluate(cmd, displayOut, tex.interpFrames);
 
                 FgInputs fgIn{};
-                fgIn.backbufferDisplayReady = tex.displayTex->view;
+                fgIn.backbufferDisplayReady = displayOut->view;
                 fgIn.depthNdcRenderRes      = tex.depthNdc->view;
                 fgIn.motionVecDlssRenderRes = tex.mvDlss->view;
-                fgIn.backbufferImage        = tex.displayTex->image;
+                fgIn.backbufferImage        = displayOut->image;
                 fgIn.depthImage             = tex.depthNdc->image;
                 fgIn.motionVecImage         = tex.mvDlss->image;
                 for (const auto& h : tex.interpFrames) {
                     fgIn.outputInterp.push_back(h->view);
                     fgIn.outputInterpImages.push_back(h->image);
                 }
-                fgIn.backbufferFormat   = tex.displayTex->desc.format;
+                fgIn.backbufferFormat   = displayOut->desc.format;
                 fgIn.depthFormat        = tex.depthNdc->desc.format;
                 fgIn.motionVecFormat    = tex.mvDlss->desc.format;
                 fgIn.width              = oW;      fgIn.height           = oH;
@@ -800,11 +925,11 @@ void Pipeline::run(const PipelineConfig& config) {
                 fgIn.jitterClipY = cam ? -2.f * cam->jitter.y / (float)rH : 0.f;
                 fgPass->evaluate(cmd, fgIn);
 
-                transitionDisplayAfterFg(cmd, tex.displayTex, exrOut);
+                transitionDisplayAfterFg(cmd, displayOut, exrOut);
                 transitionInterpOutputsForRead(cmd, tex.interpFrames, exrOut);
             } else {
                 // No FG: transition display for downstream read.
-                if (exrOut) barrierGeneralToShaderRead(cmd, tex.displayTex);
+                if (exrOut) barrierGeneralToShaderRead(cmd, displayOut);
                 else {
                     VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
                     b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -815,7 +940,7 @@ void Pipeline::run(const PipelineConfig& config) {
                     b.newLayout    = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
                     b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    b.image = tex.displayTex->image;
+                    b.image = displayOut->image;
                     b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
                     VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
                     dep.imageMemoryBarrierCount = 1;
@@ -836,7 +961,7 @@ void Pipeline::run(const PipelineConfig& config) {
             const bool wantPreview = cb.wantsPreview && cb.wantsPreview();
             if (wantPreview && cb.onPreview && cb.encodePreview) {
                 PreviewReadback prev2 = previewPass.renderAndReadback(
-                    tex.displayTex, PreviewInputMode::DisplayReady, dlssCfg.is_hdr,
+                    displayOut, PreviewInputMode::DisplayReady, dlssCfg.is_hdr,
                     exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL);
                 if (!prev2.rgba8.empty()) {
                     auto jpeg = cb.encodePreview(prev2.width, prev2.height, prev2.rgba8);
@@ -855,7 +980,7 @@ void Pipeline::run(const PipelineConfig& config) {
                                : VK_IMAGE_LAYOUT_GENERAL, /*isGenerated=*/true);
                 }
             }
-            enqueueOutput(tex.displayTex,
+            enqueueOutput(displayOut,
                 exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                        : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
 
@@ -881,7 +1006,8 @@ void Pipeline::run(const PipelineConfig& config) {
                     ",\"reset\":" + (reset ? "true" : "false") +
                     ",\"evalMs\":" + std::to_string(frameSw.elapsedMs()) +
                     ",\"mode\":\"" + (useSR ? "SR" : "RR") + "\""
-                    ",\"fg\":" + (useFG ? "true" : "false") + "}";
+                    ",\"fg\":" + (useFG ? "true" : "false") +
+                    ",\"nr\":" + (useNR ? "true" : "false") + "}";
                 cb.onFrameDiagnostics(diag);
             }
 
@@ -893,6 +1019,9 @@ void Pipeline::run(const PipelineConfig& config) {
             pool.release(tex.mvBlender);
             pool.release(tex.mvDlss);
             pool.release(tex.displayTex);
+            if (tex.nrIn)      pool.release(tex.nrIn);
+            if (tex.nrOut)     pool.release(tex.nrOut);
+            if (tex.displayNr) pool.release(tex.displayNr);
             if (tex.diffuseAlbedo)  pool.release(tex.diffuseAlbedo);
             if (tex.specularAlbedo) pool.release(tex.specularAlbedo);
             if (tex.normals)        pool.release(tex.normals);

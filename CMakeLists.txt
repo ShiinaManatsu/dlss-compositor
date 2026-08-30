@@ -185,6 +185,7 @@ add_library(dlss_engine_lib STATIC
     cli/src/core/log.cpp
     cli/src/core/stub.cpp
     cli/src/dlss/dlss_fg.cpp
+    cli/src/dlss/dlss_nr.cpp
     cli/src/dlss/dlss_rr.cpp
     cli/src/dlss/dlss_sr.cpp
     cli/src/dlss/ngx_wrapper.cpp
@@ -194,6 +195,7 @@ add_library(dlss_engine_lib STATIC
     cli/src/gpu/passes/lut_inverse_pass.cpp
     cli/src/gpu/passes/lut_tonemap_pass.cpp
     cli/src/gpu/passes/mv_pass.cpp
+    cli/src/gpu/passes/nr_format_pass.cpp
     cli/src/gpu/passes/prores_convert_pass.cpp
     cli/src/gpu/passes/preview_pass.cpp
     cli/src/gpu/passes/tonemap_pass.cpp
@@ -334,6 +336,8 @@ endfunction()
 # -----------------------------------------------------------------------------
 dlss_add_shader(dlss_engine_lib cli/src/shaders/depth_world_to_ndc.comp)
 dlss_add_shader(dlss_engine_lib cli/src/shaders/mv_blender_to_dlss.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/nr_pack_rgba8.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/nr_unpack_rgba8.comp)
 dlss_add_shader(dlss_engine_lib cli/src/shaders/preview_display.comp)
 dlss_add_shader(dlss_engine_lib cli/src/shaders/prores_yuv422.comp)
 
