@@ -1,5 +1,5 @@
 {
-  "note": "Runtime DLLs used for local testing. Official release must locate these at runtime and must not ship them.",
+  "note": "Locked feature DLLs (310.7.129.0). Dev builds copy them from resources/ next to the exe via POST_BUILD; packaged builds bundle the same three in resources/backend/cli. NGX core (_nvngx.dll) always comes from the driver.",
   "source": "dlss-swapper",
   "version": "310.7.129.0",
   "dlls": {

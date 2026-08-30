@@ -33,7 +33,7 @@ TEST_CASE("DlssSrPass - InMVScaleX/Y = 1.0 (never rescaled)", "[unit]") {
 }
 
 TEST_CASE("DlssSrPass - UltraQuality maps to NGX UltraQuality", "[unit]") {
-    const std::string source = readTextFile("dlss-plugin/src/dlss/dlss_sr.cpp");
+    const std::string source = readTextFile("cli/src/dlss/dlss_sr.cpp");
     const auto ultraQualityCase = source.find("case QualityMode::UltraQuality:");
     REQUIRE(ultraQualityCase != std::string::npos);
     const auto nextCase = source.find("case QualityMode::Quality:", ultraQualityCase);
@@ -45,7 +45,7 @@ TEST_CASE("DlssSrPass - UltraQuality maps to NGX UltraQuality", "[unit]") {
 }
 
 TEST_CASE("DlssSrPass - queries optimal settings and supplies backing VkImages", "[unit]") {
-    const std::string source = readTextFile("dlss-plugin/src/dlss/dlss_sr.cpp");
+    const std::string source = readTextFile("cli/src/dlss/dlss_sr.cpp");
     REQUIRE(source.find("queryDlssOptimalSettings") != std::string::npos);
     REQUIRE(source.find("createParams.Feature.InWidth  = optimal.optimalWidth") != std::string::npos);
     REQUIRE(source.find("in.sceneColorRenderImage") != std::string::npos);

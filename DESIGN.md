@@ -267,12 +267,12 @@ FG 输入：
 - `inject.py`：增加 `Denoising Specular Motion` pass 的 socket 连接（Blender 5.3）
 - `run.py`：根据 `.dcp` 配置决定管线模式，添加 RR 路径
 
-### 5.2 C++ CLI（dlss-plugin/）
+### 5.2 C++ CLI（cli/）
 
 **新增 RrFgPipeline**，结构参考 `SrFgPipeline`：
 
 ```cpp
-// dlss-plugin/src/pipeline/rr_fg_pipeline.h
+// cli/src/pipeline/rr_fg_pipeline.h
 class RrFgPipeline {
     void run(const RrFgConfig& config);
 };
@@ -392,7 +392,7 @@ DLSS_EVENT:{"event":"error","message":"..."}
 ```
 dlss-compositor/
 ├── DLSS/                      # submodule（头文件 + 导入库）
-├── dlss-plugin/               # C++ Vulkan pipeline（改名 backend/）
+├── cli/               # C++ Vulkan pipeline（改名 backend/）
 │   └── src/
 │       ├── dlss/              # SR pass（现有）
 │       │   ├── dlss_rr.cpp/h  # 新增：RR pass

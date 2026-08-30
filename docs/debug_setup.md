@@ -124,7 +124,7 @@ Use the **C++ Launch CLI** configuration when you want to debug the native execu
 - executable: `${workspaceFolder}/build/Release/dlss-compositor-cli.exe`
 - args:
   - `--config`
-  - `${workspaceFolder}/dlss-plugin/tests/fixtures/sample-dlssconfig.json`
+  - `${workspaceFolder}/cli/tests/fixtures/sample-dlssconfig.json`
 - environment:
   - `DLSS_COMPOSITOR_LOG=debug`
 

@@ -4,9 +4,9 @@ High-signal notes for future OpenCode sessions. Keep this file compact; prefer v
 
 ## Repository shape
 
-- `dlss-plugin/src/`: C++23 Vulkan/NGX engine, `dlss_engine_lib`, and `dlss-compositor-cli.exe`.
-- `dlss-plugin/tests/`: native Catch2 coverage and focused regression checks.
-- `dlss-plugin/resources/`: engine-side reference assets; `legacy-luts/` is archival scratch data, not the active Blender-export LUT path.
+- `cli/src/`: C++23 Vulkan/NGX engine, `dlss_engine_lib`, and `dlss-compositor-cli.exe`.
+- `cli/tests/`: native Catch2 coverage and focused regression checks.
+- `cli/resources/`: engine-side reference assets; `legacy-luts/` is archival scratch data, not the active Blender-export LUT path.
 - `app/`: Electron + React Spectrum 2 product UI — rail navigation (项目/导出/Jobs/设置). Pre-redesign V3 UI kept read-only under `app/ref-v3ui/` (excluded from tsconfig/vite). CLI subprocess is the backend; do not add a native in-process plugin path. Packaging: electron-builder (`npm run dist`), backend bundle assembled by `app/scripts/pack-backend.mjs`.
 - `blender-plugin/`: Blender 5.1+ extension that writes multilayer EXR input and `dlssconfig.json`.
 - `docs/dlss-refs/`: local DLSS SDK doc mirrors; cite these before changing NGX calls.
@@ -68,7 +68,7 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 ## DLSS / Vulkan invariants
 
 - Every `NVSDK_NGX_*` API call needs a nearby `// DLSS §...` citation comment. Use `docs/dlss-refs/` for section numbers.
-- stdout is reserved for JSON-RPC `Content-Length` frames. Diagnostics go through `spdlog` to stderr + rotating log files. Do not add `std::cout`, `printf`, or `fprintf(stdout, ...)` in `dlss-plugin/src/` except the RPC transport itself.
+- stdout is reserved for JSON-RPC `Content-Length` frames. Diagnostics go through `spdlog` to stderr + rotating log files. Do not add `std::cout`, `printf`, or `fprintf(stdout, ...)` in `cli/src/` except the RPC transport itself.
 - Do not allocate GPU images per frame. Use `TexturePool::acquire/release`; per-frame `vkCreateImage` is a regression.
 - Motion vectors are pixel-space curr→prev. Keep SR `InMVScaleX/Y = 1.0`; FG `mvecScale` follows the DLSSG SDK header and normalizes pixel-unit MVs by the motion-vector resource size.
 - Current Blender MV mapping is `DLSS_MV = (Blender.X, -Blender.Y)`. Do not whole-vector negate.
@@ -80,7 +80,7 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 
 - Implemented outputs today: EXR scene-linear and PNG16 for LDR. HDR + PNG is rejected.
 - ProRes 422 HQ is implemented as a sequence-level MOV muxer via `ProResWriter`; it is intentionally not registered in the per-frame `EncoderRegistry`. LDR uses BT.709 tagging; HDR uses HDR10/PQ + BT.2020 tagging for display-ready review/export. DNxHR/H264/H265/AV1/AVIF/JPEG/WebP and ProRes 4444 remain placeholders and must not be exposed.
-- `dlss-plugin/src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `app/` or `blender-plugin/`.
+- `cli/src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `app/` or `blender-plugin/`.
 - GUI template text is stored extensionless (`frame_####`); selected output format appends/replaces `.png` or `.exr` when launching the task.
 
 ## GUI/runtime/logging gotchas

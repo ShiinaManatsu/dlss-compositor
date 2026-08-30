@@ -44,7 +44,7 @@ std::size_t requireFindAfter(const std::string& source,
 } // namespace
 
 TEST_CASE("FgOnlyPipeline - static contract keeps FG path Stage 1->4->5->7 only", "[gpu][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/fg_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/fg_only_pipeline.cpp");
 
     // grep verification: DlssSrPass must have 0 matches in fg_only_pipeline.cpp.
     REQUIRE(source.find("DlssSrPass") == std::string::npos);
@@ -66,7 +66,7 @@ TEST_CASE("FgOnlyPipeline - static contract keeps FG path Stage 1->4->5->7 only"
 }
 
 TEST_CASE("FgOnlyPipeline - ProRes path writes real frames asynchronously at FG output fps", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/fg_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/fg_only_pipeline.cpp");
 
     REQUIRE(source.find("dlssCfg.fps * config.multiplier") != std::string::npos);
     REQUIRE(source.find("proresWriter->enqueuePackedYuv422Frame") != std::string::npos);
@@ -77,7 +77,7 @@ TEST_CASE("FgOnlyPipeline - ProRes path writes real frames asynchronously at FG 
 }
 
 TEST_CASE("FgOnlyPipeline - tonemap_lut selects LUT tonemap before FG", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/fg_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/fg_only_pipeline.cpp");
 
     const std::size_t lutField = requireFindAfter(source, "dlssCfg.tonemap_lut", 0);
     const std::size_t loadCube = requireFindAfter(source, "LutLoader::LoadCube", lutField);

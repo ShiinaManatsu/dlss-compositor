@@ -35,7 +35,7 @@ std::size_t requireFindAfter(const std::string& source,
 } // namespace
 
 TEST_CASE("SrFgPipeline - shared depth/MV invariant documented", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
 
     const auto depthAcquire = requireFindAfter(source, "auto depthNdc", 0);
     const auto mvAcquire = requireFindAfter(source, "auto mvDlss", depthAcquire);
@@ -52,7 +52,7 @@ TEST_CASE("SrFgPipeline - shared depth/MV invariant documented", "[unit][pipelin
 }
 
 TEST_CASE("SrFgPipeline - stage order invariant documented", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
 
     const auto stage1 = requireFindAfter(source, "ChannelMapper::map", 0);
     const auto stage2 = requireFindAfter(source, "srPass.evaluate", stage1);
@@ -71,7 +71,7 @@ TEST_CASE("SrFgPipeline - stage order invariant documented", "[unit][pipeline]")
 }
 
 TEST_CASE("SrFgPipeline - ProRes path writes real frames asynchronously at FG output fps", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
 
     REQUIRE(source.find("dlssCfg.fps * config.fgMultiplier") != std::string::npos);
     REQUIRE(source.find("proresWriter->enqueuePackedYuv422Frame") != std::string::npos);
@@ -82,7 +82,7 @@ TEST_CASE("SrFgPipeline - ProRes path writes real frames asynchronously at FG ou
 }
 
 TEST_CASE("SrFgPipeline - tonemap_lut selects LUT tonemap before FG", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
 
     const auto lutField = requireFindAfter(source, "dlssCfg.tonemap_lut", 0);
     const auto loadCube = requireFindAfter(source, "LutLoader::LoadCube", lutField);
@@ -97,7 +97,7 @@ TEST_CASE("SrFgPipeline - tonemap_lut selects LUT tonemap before FG", "[unit][pi
 }
 
 TEST_CASE("SrFgPipeline - frame time delta from fps", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
     REQUIRE(source.find("1000.0f / static_cast<float>(dlssCfg.fps)") != std::string::npos);
     REQUIRE(source.find("33.3f") == std::string::npos);
 
@@ -108,7 +108,7 @@ TEST_CASE("SrFgPipeline - frame time delta from fps", "[unit][pipeline]") {
 }
 
 TEST_CASE("SrFgPipeline - converts Blender nominal jitter for SR and FG", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
     REQUIRE(source.find("srIn.jitterX             = cam ? -cam->jitter.x") != std::string::npos);
     REQUIRE(source.find("srIn.jitterY             = cam ?  cam->jitter.y") != std::string::npos);
     REQUIRE(source.find("fgIn.jitterClipX = cam ? -2.0f * cam->jitter.x") != std::string::npos);
@@ -122,7 +122,7 @@ TEST_CASE("SrFgPipeline - output frame count formula", "[unit][pipeline]") {
 }
 
 TEST_CASE("SrFgPipeline - no image creation in processing loop", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_fg_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_fg_pipeline.cpp");
     const auto loopPos = source.find("for (int frameIdx = 0; frameIdx < inputFrames");
     REQUIRE(loopPos != std::string::npos);
     const auto loopBody = source.substr(loopPos);

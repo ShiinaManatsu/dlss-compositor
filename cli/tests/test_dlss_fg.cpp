@@ -51,7 +51,7 @@ dlss::FgInputs makeFgInputs(
 } // namespace
 
 TEST_CASE("DlssFgPass - normalizes pixel motion vectors for FG", "[unit]") {
-    std::ifstream in("dlss-plugin/src/dlss/dlss_fg.cpp", std::ios::binary);
+    std::ifstream in("cli/src/dlss/dlss_fg.cpp", std::ios::binary);
     REQUIRE(in.good());
     const std::string source((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 

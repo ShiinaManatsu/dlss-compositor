@@ -1,5 +1,5 @@
 """
-DLSS quality mode constants — MUST match dlss-plugin/src/core/types.h exactly.
+DLSS quality mode constants — MUST match cli/src/core/types.h exactly.
 SR §3.7.1.1 scaling ratio table and minimum phase count table.
 """
 

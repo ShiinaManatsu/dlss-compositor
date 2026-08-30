@@ -152,15 +152,15 @@ endif()
 # avoids Vulkan/NGX objects so --config / JSON-RPC smoke flows can build and run
 # even when GPU toolchain pieces are unavailable or under repair.
 add_library(dlss_cli_support STATIC
-    dlss-plugin/src/cli/config_executor.cpp
-    dlss-plugin/src/cli/preview_ipc.cpp
-    dlss-plugin/src/core/dlssconfig.cpp
-    dlss-plugin/src/core/lut_loader.cpp
-    dlss-plugin/src/core/log.cpp
-    dlss-plugin/src/io/async_writer.cpp
-    dlss-plugin/src/io/prores_writer.cpp)
+    cli/src/cli/config_executor.cpp
+    cli/src/cli/preview_ipc.cpp
+    cli/src/core/dlssconfig.cpp
+    cli/src/core/lut_loader.cpp
+    cli/src/core/log.cpp
+    cli/src/io/async_writer.cpp
+    cli/src/io/prores_writer.cpp)
 
-target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/dlss-plugin/src ${FFMPEG_INCLUDE_DIRS})
+target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/cli/src ${FFMPEG_INCLUDE_DIRS})
 target_link_libraries(dlss_cli_support
     PUBLIC
         nlohmann_json::nlohmann_json
@@ -178,45 +178,45 @@ target_link_libraries(dlss_cli_support
 # Engine static library — populated incrementally by later tasks (T4..T30).
 # -----------------------------------------------------------------------------
 add_library(dlss_engine_lib STATIC
-    dlss-plugin/src/cli/config_executor.cpp
-    dlss-plugin/src/cli/preview_ipc.cpp
-    dlss-plugin/src/core/dlssconfig.cpp
-    dlss-plugin/src/core/lut_loader.cpp
-    dlss-plugin/src/core/log.cpp
-    dlss-plugin/src/core/stub.cpp
-    dlss-plugin/src/dlss/dlss_fg.cpp
-    dlss-plugin/src/dlss/dlss_rr.cpp
-    dlss-plugin/src/dlss/dlss_sr.cpp
-    dlss-plugin/src/dlss/ngx_wrapper.cpp
-    dlss-plugin/src/gpu/vulkan_context.cpp
-    dlss-plugin/src/gpu/texture_pool.cpp
-    dlss-plugin/src/gpu/passes/depth_pass.cpp
-    dlss-plugin/src/gpu/passes/lut_inverse_pass.cpp
-    dlss-plugin/src/gpu/passes/lut_tonemap_pass.cpp
-    dlss-plugin/src/gpu/passes/mv_pass.cpp
-    dlss-plugin/src/gpu/passes/prores_convert_pass.cpp
-    dlss-plugin/src/gpu/passes/preview_pass.cpp
-    dlss-plugin/src/gpu/passes/tonemap_pass.cpp
-    dlss-plugin/src/gpu/passes/inverse_tonemap_pass.cpp
-    dlss-plugin/src/io/frame_prefetcher.cpp
-    dlss-plugin/src/io/rr_frame_prefetcher.cpp
-    dlss-plugin/src/io/channel_mapper.cpp
-    dlss-plugin/src/io/rr_channel_mapper.cpp
-    dlss-plugin/src/io/file_watcher.cpp
-    dlss-plugin/src/io/async_writer.cpp
-    dlss-plugin/src/io/prores_writer.cpp
-    dlss-plugin/src/pipeline/fg_camera.cpp
-    dlss-plugin/src/pipeline/fg_only_pipeline.cpp
-    dlss-plugin/src/pipeline/pipeline.cpp
-    dlss-plugin/src/pipeline/sr_fg_pipeline.cpp
-    dlss-plugin/src/pipeline/sr_only_pipeline.cpp
-    dlss-plugin/src/rpc/dispatcher.cpp
-    dlss-plugin/src/rpc/transport_stdio.cpp
-    dlss-plugin/src/rpc/transport_native.cpp)
+    cli/src/cli/config_executor.cpp
+    cli/src/cli/preview_ipc.cpp
+    cli/src/core/dlssconfig.cpp
+    cli/src/core/lut_loader.cpp
+    cli/src/core/log.cpp
+    cli/src/core/stub.cpp
+    cli/src/dlss/dlss_fg.cpp
+    cli/src/dlss/dlss_rr.cpp
+    cli/src/dlss/dlss_sr.cpp
+    cli/src/dlss/ngx_wrapper.cpp
+    cli/src/gpu/vulkan_context.cpp
+    cli/src/gpu/texture_pool.cpp
+    cli/src/gpu/passes/depth_pass.cpp
+    cli/src/gpu/passes/lut_inverse_pass.cpp
+    cli/src/gpu/passes/lut_tonemap_pass.cpp
+    cli/src/gpu/passes/mv_pass.cpp
+    cli/src/gpu/passes/prores_convert_pass.cpp
+    cli/src/gpu/passes/preview_pass.cpp
+    cli/src/gpu/passes/tonemap_pass.cpp
+    cli/src/gpu/passes/inverse_tonemap_pass.cpp
+    cli/src/io/frame_prefetcher.cpp
+    cli/src/io/rr_frame_prefetcher.cpp
+    cli/src/io/channel_mapper.cpp
+    cli/src/io/rr_channel_mapper.cpp
+    cli/src/io/file_watcher.cpp
+    cli/src/io/async_writer.cpp
+    cli/src/io/prores_writer.cpp
+    cli/src/pipeline/fg_camera.cpp
+    cli/src/pipeline/fg_only_pipeline.cpp
+    cli/src/pipeline/pipeline.cpp
+    cli/src/pipeline/sr_fg_pipeline.cpp
+    cli/src/pipeline/sr_only_pipeline.cpp
+    cli/src/rpc/dispatcher.cpp
+    cli/src/rpc/transport_stdio.cpp
+    cli/src/rpc/transport_native.cpp)
 
 target_include_directories(dlss_engine_lib
     PUBLIC
-        ${DLSS_COMPOSITOR_SOURCE_DIR}/dlss-plugin/src
+        ${DLSS_COMPOSITOR_SOURCE_DIR}/cli/src
         ${FFMPEG_INCLUDE_DIRS})
 
 target_include_directories(dlss_engine_lib SYSTEM PUBLIC
@@ -253,7 +253,7 @@ target_compile_definitions(dlss_engine_lib PRIVATE
 # -----------------------------------------------------------------------------
 # CLI executable — full CLI front-end (T31): JSON-RPC stdio + --self-check + --config.
 # -----------------------------------------------------------------------------
-add_executable(dlss-compositor-cli dlss-plugin/src/main_cli.cpp)
+add_executable(dlss-compositor-cli cli/src/main_cli.cpp)
 target_link_libraries(dlss-compositor-cli PRIVATE dlss_engine_lib dlss_warnings)
 target_link_libraries(dlss-compositor-cli PRIVATE volk::volk)
 if(WIN32)
@@ -332,22 +332,22 @@ endfunction()
 # -----------------------------------------------------------------------------
 # Shader compilation: depth world-linear → NDC (T22) + MV Blender→DLSS (T23)
 # -----------------------------------------------------------------------------
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/depth_world_to_ndc.comp)
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/mv_blender_to_dlss.comp)
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/preview_display.comp)
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/prores_yuv422.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/depth_world_to_ndc.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/mv_blender_to_dlss.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/preview_display.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/prores_yuv422.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 4 tonemap + EOTF
 # -----------------------------------------------------------------------------
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/tonemap_eotf.comp)
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/lut_tonemap.comp)
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/lut_inverse.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/tonemap_eotf.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/lut_tonemap.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/lut_inverse.comp)
 
 # -----------------------------------------------------------------------------
 # Shader compilation — Stage 6 inverse tonemap + EOTF
 # -----------------------------------------------------------------------------
-dlss_add_shader(dlss_engine_lib dlss-plugin/src/shaders/inverse_tonemap_eotf.comp)
+dlss_add_shader(dlss_engine_lib cli/src/shaders/inverse_tonemap_eotf.comp)
 
 get_property(_dlss_shader_spv_files GLOBAL PROPERTY DLSS_SHADER_SPV_FILES)
 if(TARGET dlss-compositor-cli)
@@ -363,8 +363,8 @@ endif()
 # Tests
 # -----------------------------------------------------------------------------
 enable_testing()
-if(PROJECT_IS_TOP_LEVEL AND EXISTS "${DLSS_COMPOSITOR_SOURCE_DIR}/dlss-plugin/tests/CMakeLists.txt")
-    add_subdirectory(dlss-plugin/tests)
+if(PROJECT_IS_TOP_LEVEL AND EXISTS "${DLSS_COMPOSITOR_SOURCE_DIR}/cli/tests/CMakeLists.txt")
+    add_subdirectory(cli/tests)
 endif()
 
 # -----------------------------------------------------------------------------

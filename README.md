@@ -8,7 +8,7 @@ The GUI (or CLI) drives a three-way pipeline: a Blender session injects camera j
 
 ## Repo Layout
 
-- `dlss-plugin/` - native Vulkan/NGX engine (`dlss-compositor-cli`), shaders, tests
+- `cli/` - native Vulkan/NGX engine (`dlss-compositor-cli`), shaders, tests
 - `app/` - Electron + React Spectrum 2 GUI; electron-builder packaging (`npm run dist`)
 - `pipeline/` - Blender-side inject/inspect scripts, RAM-disk helper, RPC client
 - `blender-plugin/` - Blender extension source (LUT generator)

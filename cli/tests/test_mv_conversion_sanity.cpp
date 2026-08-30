@@ -93,7 +93,7 @@ TEST_CASE("MV mapping - sanity result file exists", "[unit]") {
 }
 
 TEST_CASE("MV conversion pass - execute reuses descriptor set", "[unit]") {
-    auto content = std::ifstream(sourcePath("dlss-plugin/src/gpu/passes/mv_pass.cpp"));
+    auto content = std::ifstream(sourcePath("cli/src/gpu/passes/mv_pass.cpp"));
     REQUIRE(content.good());
     std::string source((std::istreambuf_iterator<char>(content)),
                        std::istreambuf_iterator<char>());
@@ -108,7 +108,7 @@ TEST_CASE("MV conversion pass - execute reuses descriptor set", "[unit]") {
 }
 
 TEST_CASE("MV shader - matches documented Blender to DLSS mapping", "[unit]") {
-    auto content = std::ifstream(sourcePath("dlss-plugin/src/shaders/mv_blender_to_dlss.comp"));
+    auto content = std::ifstream(sourcePath("cli/src/shaders/mv_blender_to_dlss.comp"));
     REQUIRE(content.good());
     std::string source((std::istreambuf_iterator<char>(content)),
                        std::istreambuf_iterator<char>());

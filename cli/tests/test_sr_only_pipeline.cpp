@@ -151,7 +151,7 @@ std::string readTextFile(const fs::path& path) {
 } // namespace
 
 TEST_CASE("SrOnlyPipeline - static contract keeps SR path free of FG and inverse", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_only_pipeline.cpp");
     REQUIRE(source.find("DlssFgPass") == std::string::npos);
     REQUIRE(source.find("InverseTonemapPass") == std::string::npos);
     REQUIRE(source.find("LutTonemapPass") != std::string::npos);
@@ -162,7 +162,7 @@ TEST_CASE("SrOnlyPipeline - static contract keeps SR path free of FG and inverse
 }
 
 TEST_CASE("SrOnlyPipeline - pipeline loop uses TexturePool acquire instead of vkCreateImage", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_only_pipeline.cpp");
     const auto loopPos = source.find("for (int frameIdx = 0; frameIdx < totalFrames");
     REQUIRE(loopPos != std::string::npos);
     const auto loopBody = source.substr(loopPos);
@@ -172,7 +172,7 @@ TEST_CASE("SrOnlyPipeline - pipeline loop uses TexturePool acquire instead of vk
 }
 
 TEST_CASE("SrOnlyPipeline - converts Blender guides and uses DLSS pixel-space jitter", "[unit][pipeline]") {
-    const std::string source = readTextFile("dlss-plugin/src/pipeline/sr_only_pipeline.cpp");
+    const std::string source = readTextFile("cli/src/pipeline/sr_only_pipeline.cpp");
     REQUIRE(source.find("DepthConversionPass depthPass") != std::string::npos);
     REQUIRE(source.find("MvConversionPass mvPass") != std::string::npos);
     REQUIRE(source.find("depthPass.execute") != std::string::npos);

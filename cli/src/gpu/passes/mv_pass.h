@@ -6,7 +6,7 @@ namespace dlss {
 
 /// Converts Blender 4-channel Vector pass to DLSS 2-channel motion vectors.
 /// Mapping: DLSS_MV = (Blender.X, -Blender.Y)
-/// Per DLSS SR §3.6 + empirical verification in dlss-plugin/tests/MV_SANITY_RESULT.md
+/// Per DLSS SR §3.6 + empirical verification in cli/tests/MV_SANITY_RESULT.md
 class MvConversionPass {
 public:
     MvConversionPass(VulkanContext* ctx);
