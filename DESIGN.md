@@ -440,24 +440,11 @@ dlss-compositor/
 
 blend 未保存。
 
-### 下一会话先做（GUI 之前必须落地）
+### 下一会话先做（GUI 之前必须落地）— 已全部完成（2026-08-30）
 
-顺序：预览 JPEG → DLL 加载 → 打包。三项做完再开 GUI。
-
-1. **预览 JPEG 回读**
-   - 已有：`PreviewPass::renderAndReadback`（长边 512，display-ready）；pipeline 在非 FG 生成帧上可选回调。
-   - 缺口：`RpcDispatcher` 里 `wantsPreview` 恒 `false`；`encodePreview` 把 raw RGBA 当 JPEG；`preview_frame` 一直 `no preview available yet`；`run.py` 打 `preview_unavailable`。
-   - 落地：打开 `wantsPreview`；用现成 OpenImageIO 编 JPEG（不加 libjpeg）；`preview_frame` 回 base64；`run.py` 发 `preview` 事件。生成帧不回读。
-
-2. **DLL 加载**
-   - Debug：维持 POST_BUILD 拷 `resources/nvngx_*.dll`（310.7.129）到 exe 旁。
-   - Release：按 DLSS 文档随应用携带三份 feature DLL（exe 旁）；NGX core 由驱动提供。不运行时搜索驱动目录。
-   - 不要做 `dlss_updater.py` 发布下载。
-
-3. **打包**
-   - 现有 `scripts/package_release.ps1` 只打 Flutter GUI zip + blender-plugin zip，没有 CLI / `pipeline/`。
-   - 发布 zip：`dlss-compositor-cli.exe` + `pipeline/` + 三份 `nvngx_*.dll`（exe 旁）+ 必要资源。
-   - MSI 后置。先把目录布局做对。
+1. **预览 JPEG 回读**：`preview_frame` 走 RPC base64；GUI 侧 latest-wins 解码到 canvas。
+2. **DLL 加载**：双版本都锁 `resources/` 的 310.7.129.0 三份 feature DLL（拷到 exe 旁）；NGX core 由驱动提供，不打包 `_nvngx.dll`。
+3. **打包**：electron-builder（`app/`，`npm run dist`）产出 NSIS 安装包（`.dcp` 关联）+ 便携 zip + win-unpacked；`app/scripts/pack-backend.mjs` 组装 `resources/backend/`（cli + `*.spv` + 锁定 DLL + `pipeline/` 脚本）。
 
 ### 再往后（明天这三项之后）
 

@@ -7,7 +7,7 @@ High-signal notes for future OpenCode sessions. Keep this file compact; prefer v
 - `dlss-plugin/src/`: C++23 Vulkan/NGX engine, `dlss_engine_lib`, and `dlss-compositor-cli.exe`.
 - `dlss-plugin/tests/`: native Catch2 coverage and focused regression checks.
 - `dlss-plugin/resources/`: engine-side reference assets; `legacy-luts/` is archival scratch data, not the active Blender-export LUT path.
-- `gui/`: leftover Flutter Windows GUI. Product UI is Electron + React Spectrum 2 in `app/` — rail navigation (项目/导出/Jobs/设置), pre-redesign V3 UI kept read-only under `app/ref-v3ui/` (excluded from tsconfig/vite). CLI subprocess is the backend; do not add a native in-process plugin path.
+- `app/`: Electron + React Spectrum 2 product UI — rail navigation (项目/导出/Jobs/设置). Pre-redesign V3 UI kept read-only under `app/ref-v3ui/` (excluded from tsconfig/vite). CLI subprocess is the backend; do not add a native in-process plugin path. Packaging: electron-builder (`npm run dist`), backend bundle assembled by `app/scripts/pack-backend.mjs`.
 - `blender-plugin/`: Blender 5.1+ extension that writes multilayer EXR input and `dlssconfig.json`.
 - `docs/dlss-refs/`: local DLSS SDK doc mirrors; cite these before changing NGX calls.
 - `docs/research/`: scratch notes worth keeping around but not treating as source-of-truth docs.
@@ -80,14 +80,14 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 
 - Implemented outputs today: EXR scene-linear and PNG16 for LDR. HDR + PNG is rejected.
 - ProRes 422 HQ is implemented as a sequence-level MOV muxer via `ProResWriter`; it is intentionally not registered in the per-frame `EncoderRegistry`. LDR uses BT.709 tagging; HDR uses HDR10/PQ + BT.2020 tagging for display-ready review/export. DNxHR/H264/H265/AV1/AVIF/JPEG/WebP and ProRes 4444 remain placeholders and must not be exposed.
-- `dlss-plugin/src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `gui/` or `blender-plugin/`.
+- `dlss-plugin/src/core/dlssconfig.schema.json` is the single schema source; do not copy it into `app/` or `blender-plugin/`.
 - GUI template text is stored extensionless (`frame_####`); selected output format appends/replaces `.png` or `.exr` when launching the task.
 
 ## GUI/runtime/logging gotchas
 
 - Native plugin owns a resident `VulkanContext` + `NgxContext`; `checkReady`, `getStatus`, and `startTask` should reuse that runtime. Avoid one-off NGX status probes.
 - GUI/native logs go beside the GUI exe under `logs/`; native C++ honors `DLSS_COMPOSITOR_LOG_DIR`. Debug runner sets `DLSS_COMPOSITOR_LOG=debug` and `DLSS_COMPOSITOR_GUI_LOG=1` if missing.
-- Release staging artifacts belong under `build/release/` and are ignored. Do not commit generated `.omo/evidence/`, `build/release/`, repo-root release zips, or `.omo/run-continuation/` artifacts.
+- Release staging artifacts belong under `build/release/` and are ignored. Do not commit `build/release/` or repo-root release zips.
 
 ## Blender extension gotchas
 
@@ -102,7 +102,7 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 
 ## False claims to avoid
 
-- GUI is Electron + React Spectrum 2 (`app/`): rail nav (项目/导出/Jobs/设置)， breadcrumb title bar, Start/停止 in title bar on the Export page; progress overlays the preview. S2 usage follows the component docs (subpath imports for ActionMenu/MenuItem, Tabs for the rail, Disclosure groups in settings). Flutter `gui/` is leftover; `app/ref-v3ui/` is the retired V3 shell kept for reference only.
+- GUI is Electron + React Spectrum 2 (`app/`): rail nav (项目/导出/Jobs/设置)， breadcrumb title bar, Start/停止 in title bar on the Export page; progress overlays the preview. S2 usage follows the component docs (subpath imports for ActionMenu/MenuItem, ToggleButtonGroup for the rail, Disclosure groups in settings). `app/ref-v3ui/` is the retired V3 shell kept for reference only.
 - Not DX12 output: v2 is Vulkan only.
 - Not NIS: SR is DLSS only.
 - Not general video export yet: ProRes 422 HQ is the only implemented video muxer; ProRes 4444 and other video codecs are not.

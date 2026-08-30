@@ -1,1 +1,0 @@
-- 2026-04-12: Kept existing IPC channel names and fixed progress updates by broadening stdout parsing, adding main-process diagnostics, and making preload listener registration removable instead of relying on one-time refs in React.

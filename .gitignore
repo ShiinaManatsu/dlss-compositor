@@ -3,6 +3,9 @@ build/
 build_release/
 out/
 cmake-build-*/
+compile_commands.json
+build-clangd/
+.cache/
 *.exe
 *.obj
 *.pdb
@@ -10,123 +13,46 @@ cmake-build-*/
 *.lib
 *.exp
 
-# IDE
-.vs/
-.vscode/*
-!.vscode/launch.json
-!.vscode/tasks.json
-!.vscode/settings.json
-*.user
-*.suo
-
-# Output
-output/
-test_output/
-
-# Reference sample (read-only, not part of our project)
-DLSS_Sample_App/
-
-# Evidence (generated)
-.sisyphus/evidence/
-
 # Python
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# LSP / clangd
-compile_commands.json
-build-clangd/
-.cache/
-docs/external/2026.02.10_UE5.7_DLSS4.5Plugin_v8.5.0/
-
-# Node.js (gui/)
-gui/node_modules/
-gui/dist/
-gui/dist-electron/
-gui/out/
-gui/test-results/
-gui/playwright-report/
-
-# App (Electron, v3)
+# Node.js / Electron app
 app/node_modules/
 app/dist/
-app/dist-electron/
 app/out/
+# Electron packaging (pack/ is assembled by scripts/pack-backend.mjs)
+app/release/
+app/pack/
 
-# GUI runtime settings (project-relative; .example.json is committed)
-gui/dlss-compositor.json
-
-# Scratch / temp test output directories
-tmp/
-gui/tmp/
-
-# Runtime logs / temp
-generation.log
-nvngx*.log
-nvngx_dlssd*.log
-nvsdk_ngx*.log
-imgui.ini
-test_out.txt
-
-.playwright-mcp/
-
-# Runtime logs
-dlss-compositor.log
-dlss-compositor-cli*.log
-dlss-compositor-gui*.log
-build_t31*.log
-
-.omo/run-continuation/
-.omo/evidence/
-.omo/release/
-build/release/
-gui-windows.zip
-blender-plugin-v*.zip
-
-# ── DLSS runtime DLLs ──────────────────────────────────────────────────
-# Fetched by tools/dlss_updater.py from dlss-swapper; not stored in repo.
-# Version pins live in tools/dlss_versions.json (committed).
-resources/nvngx_dlss.dll
-resources/nvngx_dlssd.dll
-resources/nvngx_dlssg.dll
+# DLSS feature DLLs + downloaded archives (version pins live in tools/dlss_versions.json)
 resources/*.dll
+resources/*.zip
 
-# ── RAM disk / ImDisk temp files ───────────────────────────────────────
-# The RAM disk (default R:\) is ephemeral; nothing from it belongs in git.
-# Pipeline writes EXR frames, dlssconfig.json, and LUT files to the RAM
-# disk during a session. Only test-frames/*.json metadata is committed.
-# If you ever map the RAM disk to a path inside the repo (don't), these
-# patterns will catch the leftovers.
+# NGX / engine runtime logs
+nvngx*.log
+nvsdk_ngx*.log
+dlss-compositor*.log
+
+# RAM disk scratch (never map a RAM disk inside the repo; patterns catch leftovers)
 ramdisk/
 ramtmp/
 *.exr
-# Allow the small dry-run metadata JSON committed for test reproducibility
-!test-frames/*.json
-!test-frames/README.md
 
-# ── Test frame large files ─────────────────────────────────────────────
-# Actual rendered EXR frames used for DLSS pipeline tests are stored on
-# the RAM disk (R:\) during development and are NOT committed.
-# Only the dry-run inject_ready JSON and README live in test-frames/.
-test-frames/*.exr
+# Test frames: rendered frames/outputs are not committed; configs + SOURCE.md are
 test-frames/*.png
 test-frames/*.jpg
 test-frames/*.jpeg
 test-frames/*.mov
-test-frames/rr/*.exr
-test-frames/rr/*.jpg
-test-frames/rr/preview/
-
-# Electron packaging
-app/release/
-app/pack/
-
-# Downloaded DLSS archives (DLLs themselves are also ignored)
-resources/*.zip
-
-# RR CLI test runs: outputs and regenerable LUTs (configs + SOURCE.md are kept)
 test-frames/rr/luts/
 test-frames/rr/pipeline-out/
 test-frames/rr/*.png
 test-frames/rr/*.mov
+
+# Misc runtime scratch
+tmp/
+imgui.ini
+
+# Large third-party reference drops (kept on disk, outside git)
+docs/external/
