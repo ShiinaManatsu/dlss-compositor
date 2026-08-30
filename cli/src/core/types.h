@@ -51,6 +51,7 @@ struct DlssConfig {
 enum class OutputFormat {
     ExrLinear,
     Png16,
+    ExrNrBuffer,  ///< DLSSNR guidance data (RGB half: mv.x, mv.y, NDC depth) — no color transform
     ProRes422HQ,
     H265Mp4,
     // not implemented in v2 - future extension hooks:

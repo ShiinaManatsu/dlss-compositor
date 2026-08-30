@@ -176,9 +176,16 @@ struct PipelineConfig {
     int fgMultiplier = 2; ///< Frame generation multiplier (2–6; clamped to NGX cap)
 
     // ── NR (experimental — requires nvngx_dlssnr.dll next to the exe) ─────────
-    int  nrStyle        = 0;    ///< NrStyle: 0 Default / 1 Natural / 2 Cinematic
-    float nrIntensity   = 1.0f; ///< 0–1
-    int  nrGuidanceMode = 0;    ///< NrGuidanceMode: 0 all / 1 zero / 2 motion / 3 depth
+    int   nrStyle        = 0;    ///< NrStyle: 0 Default / 1 Natural / 2 Cinematic
+    float nrIntensity    = 1.0f; ///< 0–1
+    int   nrGuidanceMode = 0;    ///< NrGuidanceMode: 0 all / 1 zero / 2 motion / 3 depth
+    float nrLocalTone      = 1.0f; ///< 0–1 (Magpie Local Tone Strength)
+    float nrLocalStructure = 1.0f; ///< 0–1 (Magpie Local Structure Strength)
+    bool  nrAutoMask       = false; ///< DLSSNR.UseAutoMask
+    /// Write the dlssnrbuffer guidance sequence (RGB half EXR: mv.x, mv.y, NDC
+    /// depth) next to the main output for the standalone NR tool. FG must be
+    /// off (guidance is per input frame). Mutually exclusive with kNR.
+    bool nrBuffer = false;
 
     // ── Output ────────────────────────────────────────────────────────────────
     OutputFormat    outputFormat = OutputFormat::ExrLinear;

@@ -348,15 +348,15 @@ DlssNrPass::~DlssNrPass() {
     destroy();
 }
 
-void DlssNrPass::create(uint32_t width, uint32_t height,
-                        NrStyle style, float intensity, NrGuidanceMode guidanceMode) {
+void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& settings) {
     if (m_handle) return;  // already created
     if (width == 0 || height == 0) {
         throw std::runtime_error("DlssNrPass::create: invalid resolution");
     }
 
-    m_width  = width;
-    m_height = height;
+    m_width   = width;
+    m_height  = height;
+    m_settings = settings;
 
     // ── Load the snippet and init it on OUR Vulkan device ─────────────────────
     // The 310.8.0.0 snippet exports the full Vulkan API surface; it is its own
@@ -394,7 +394,7 @@ void DlssNrPass::create(uint32_t width, uint32_t height,
     }
     m_snippet = snippet;
 
-    // ── Creation-time parameters (Magpie SetCreateParametersUnsafe equivalents)
+    // ── Creation-time geometry (Magpie SetCreateParametersUnsafe equivalents)
     m_ngxParams->Set("DLSSNR.Width",  static_cast<int>(width));
     m_ngxParams->Set("DLSSNR.Height", static_cast<int>(height));
     m_ngxParams->Set("DLSSNR.InputWidth",  static_cast<int>(width));
@@ -416,15 +416,11 @@ void DlssNrPass::create(uint32_t width, uint32_t height,
     m_ngxParams->Set(NVSDK_NGX_Parameter_CreationNodeMask, 1);
     m_ngxParams->Set(NVSDK_NGX_Parameter_VisibilityNodeMask, 1);
 
-    // Per-session tuning is set at creation here; guidance selection happens
-    // per-evaluate (which views the pipeline passes).
-    m_ngxParams->Set("DLSSNR.Style", static_cast<int>(style));
-    m_ngxParams->Set("DLSSNR.Intensity", intensity);
-    m_ngxParams->Set("DLSSNR.LocalToneStrength", 1.0f);
-    m_ngxParams->Set("DLSSNR.LocalStructureStrength", 1.0f);
-    m_ngxParams->Set("DLSSNR.UseAutoMask", 1);
+    // Tuning params — re-applied on every evaluate so the NR tool can retune
+    // live (Magpie sets them in SetEvaluateParametersUnsafe for the same reason).
+    applyTuningParams();
     LOG_INFO("[DLSS NR] guidance mode={} (0=all 1=zero 2=motion 3=depth)",
-             static_cast<int>(guidanceMode));
+             static_cast<int>(m_settings.guidanceMode));
 
     VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
     VkCommandBuffer initCmd = m_ctx->beginOneTimeCommands(cmdPool);
@@ -445,8 +441,30 @@ void DlssNrPass::create(uint32_t width, uint32_t height,
             "DLSSNR create failed (feature 18): NVSDK_NGX_Result=" + std::to_string(r));
     }
 
-    LOG_INFO("[DLSS NR] Created feature 18 same-res {}x{} style={} intensity={:.2f}",
-             width, height, static_cast<int>(style), intensity);
+    LOG_INFO("[DLSS NR] Created feature 18 same-res {}x{} style={} intensity={:.2f} "
+             "localTone={:.2f} localStructure={:.2f} autoMask={}",
+             width, height, static_cast<int>(m_settings.style), m_settings.intensity,
+             m_settings.localToneStrength, m_settings.localStructureStrength,
+             m_settings.useAutoMask ? 1 : 0);
+}
+
+void DlssNrPass::updateSettings(const NrSettings& settings) {
+    m_settings = settings;
+    if (m_handle) applyTuningParams();
+}
+
+/// Per-evaluate tuning keys — mirrors Magpie's SetEvaluateParametersUnsafe
+/// (style/intensity/tone/structure/autoMask are evaluate-time in Magpie too).
+/// `DLSSNR.Enabled` gates the feature per-eval; UICorrection stays off (we are
+/// not a HUD compositor).
+void DlssNrPass::applyTuningParams() {
+    m_ngxParams->Set("DLSSNR.Style",       static_cast<int>(m_settings.style));
+    m_ngxParams->Set("DLSSNR.Intensity",   m_settings.intensity);
+    m_ngxParams->Set("DLSSNR.LocalToneStrength",      m_settings.localToneStrength);
+    m_ngxParams->Set("DLSSNR.LocalStructureStrength", m_settings.localStructureStrength);
+    m_ngxParams->Set("DLSSNR.UseAutoMask", m_settings.useAutoMask ? 1 : 0);
+    m_ngxParams->Set("DLSSNR.Enabled", 1);
+    m_ngxParams->Set("DLSSNR.UICorrection", 0);
 }
 
 void DlssNrPass::evaluate(VkCommandBuffer cmd, const NrInputs& in) {
@@ -503,6 +521,9 @@ void DlssNrPass::evaluate(VkCommandBuffer cmd, const NrInputs& in) {
     if (useMotion) m_ngxParams->Set("DLSSNR.MVec",  static_cast<void*>(&rMotion));
     if (useDepth)  m_ngxParams->Set("DLSSNR.Depth", static_cast<void*>(&rDepth));
 
+    // Reset on both the stock key and the snippet's own key (Magpie uses
+    // "DLSSNR.Reset"; the stock key covers other 310.x builds).
+    m_ngxParams->Set("DLSSNR.Reset", in.reset ? 1 : 0);
     m_ngxParams->Set(NVSDK_NGX_Parameter_Reset, in.reset ? 1 : 0); // DLSS §3.13
     m_ngxParams->Set(NVSDK_NGX_Parameter_Width,  static_cast<int>(m_width));
     m_ngxParams->Set(NVSDK_NGX_Parameter_Height, static_cast<int>(m_height));

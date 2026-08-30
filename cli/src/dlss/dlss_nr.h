@@ -4,15 +4,19 @@
 // Experimental. Contract reverse-engineered from the Magpie fork
 // (SAOG0721/Magpie @ 8dfdf37, DLSSNRFilter.cpp — see docs/research/magpie-nr-notes.md):
 //   - Feature ID 18, provided by nvngx_dlssnr.dll (310.8.0.0) located next to
-//     the exe (NGX core PathListInfo, same mechanism as dlss/dlssd/dlssg).
+//     the exe. The signed snippet verifies its caller (GetModuleFileNameW must
+//     report "nvngx.dll") — dlss_nr.cpp installs an IAT shim for that.
 //   - Same-resolution, SDR RGBA8_UNORM in/out (display domain).
-//   - Optional motion-vector + depth guidance via "DLSSNR.MVec"/"DLSSNR.Depth".
-//   - All parameters are string keys ("DLSSNR.*") set on the capability
-//     parameter block; resources are passed as NVSDK_NGX_Resource_VK pointers.
+//   - Guidance: "DLSSNR.MVec" (RG16F pixel-unit) + "DLSSNR.Depth" (R32 NDC,
+//     DepthInverted=1). Unlike Magpie we feed REAL guidance, not zero-filled
+//     stand-ins, so its synthetic depth-inference cadence does not apply.
+//   - All parameters are string keys ("DLSSNR.*") on the capability parameter
+//     block; resources are passed as NVSDK_NGX_Resource_VK pointers.
+//   - Tuning params (style/intensity/tone/structure/automask) are re-set on
+//     every evaluate — the standalone NR tool retunes between previews.
 //
-// The pass is created raw (NVSDK_NGX_VULKAN_CreateFeature with feature id 18) —
-// the 310.6.0 SDK headers carry no NR helper. Failure to create = the feature
-// is unavailable; callers must surface that as a hard error (no fallback).
+// Failure to create = the feature is unavailable; callers must surface that as
+// a hard error (no fallback).
 
 #include "../gpu/vulkan_context.h"
 #include "../gpu/texture_pool.h"
@@ -70,6 +74,18 @@ enum class NrGuidanceMode : int {
     DepthOnly  = 3,  ///< depth only
 };
 
+/// Full tuning surface (Magpie DLSSNRSettings minus its synthetic-guidance
+/// depthInferenceInterval, which has no NGX parameter — it only drives
+/// Magpie's zero-filled guidance interop).
+struct NrSettings {
+    NrStyle        style              = NrStyle::Default;
+    float          intensity          = 1.0f;
+    float          localToneStrength  = 1.0f;
+    float          localStructureStrength = 1.0f;
+    bool           useAutoMask        = false;
+    NrGuidanceMode guidanceMode       = NrGuidanceMode::All;
+};
+
 struct NrInputs {
     // Display-ready color (R8G8B8A8_UNORM, output resolution).
     VkImageView colorView;
@@ -101,19 +117,24 @@ public:
 
     /// Create the feature. Throws std::runtime_error when nvngx_dlssnr.dll /
     /// feature 18 is unavailable (this is the availability probe).
-    void create(uint32_t width, uint32_t height,
-                NrStyle style, float intensity, NrGuidanceMode guidanceMode);
+    void create(uint32_t width, uint32_t height, const NrSettings& settings);
+
+    /// Retune without recreating (NR tool preview path).
+    void updateSettings(const NrSettings& settings);
 
     void evaluate(VkCommandBuffer cmd, const NrInputs& in);
 
     void destroy();
 
 private:
+    void applyTuningParams();
+
     NgxContext*          m_ngx;
     VulkanContext*       m_ctx;
     NVSDK_NGX_Parameter* m_ngxParams = nullptr;
     NVSDK_NGX_Handle*    m_handle    = nullptr;
     NrSnippetTable       m_snippet;
+    NrSettings           m_settings;
     uint32_t m_width = 0;
     uint32_t m_height = 0;
 };

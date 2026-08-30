@@ -526,7 +526,8 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,
                                                           uint32_t width,
                                                           uint32_t height,
                                                           uint32_t bytesPerPixel,
-                                                          VkImageLayout oldLayout) const {
+                                                          VkImageLayout oldLayout,
+                                                          bool restoreLayout) const {
     const VkDeviceSize byteSize = static_cast<VkDeviceSize>(width) * height * bytesPerPixel;
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(byteSize));
 
@@ -577,6 +578,24 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {width, height, 1};
     vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
+
+    // Optionally restore the incoming layout so pooled textures keep matching
+    // the layout assumptions of later pipeline stages (mid-run data capture).
+    if (restoreLayout) {
+        VkImageMemoryBarrier2 fromTransfer = toTransfer;
+        fromTransfer.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        fromTransfer.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        fromTransfer.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        fromTransfer.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT
+                                   | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        fromTransfer.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        fromTransfer.newLayout = oldLayout;
+        VkDependencyInfo restoreDependency{};
+        restoreDependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        restoreDependency.imageMemoryBarrierCount = 1;
+        restoreDependency.pImageMemoryBarriers = &fromTransfer;
+        vkCmdPipelineBarrier2(cmd, &restoreDependency);
+    }
 
     endOneTimeCommands(pool, cmd, computeQueue());
     vkDestroyCommandPool(m_device, pool, nullptr);

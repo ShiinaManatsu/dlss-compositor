@@ -295,6 +295,20 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.nrStyle        = std::clamp(p.value("nr_style", 0), 0, 2);
     cfg.nrIntensity    = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
     cfg.nrGuidanceMode = std::clamp(p.value("nr_guidance", 0), 0, 3);
+    cfg.nrLocalTone      = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
+    cfg.nrLocalStructure = std::clamp(p.value("nr_local_structure", 1.0f), 0.0f, 1.0f);
+    cfg.nrAutoMask       = p.value("nr_automask", false);
+    cfg.nrBuffer         = p.value("nr_buffer", false);
+    if (cfg.nrBuffer && (cfg.features & kNR)) {
+        throw std::runtime_error(
+            "nr_buffer cannot be combined with nr: dlssnrbuffer is the export for the "
+            "standalone NR tool; run NR there instead");
+    }
+    if (cfg.nrBuffer && (cfg.features & kFG)) {
+        throw std::runtime_error(
+            "nr_buffer requires FG off: guidance frames are written at input rate and "
+            "would not align with interpolated output");
+    }
 
     const std::string rrPresetStr = p.value("rr_preset", std::string{"F"});
     if (rrPresetStr == "D" || rrPresetStr == "d")      cfg.rrPreset = RrPreset::D;

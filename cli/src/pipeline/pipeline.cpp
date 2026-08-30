@@ -42,6 +42,8 @@
 #include <utility>
 #include <vector>
 
+#include <Imath/half.h>
+
 namespace dlss {
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +76,25 @@ struct PassTextures {
 namespace {
 
 constexpr int kDefaultPrefetchDepth = 3;
+
+/// Interleave mv (RG16F bits) + depth (R32F) into RGB16F half bits for the
+/// dlssnrbuffer sequence: R=mv.x, G=mv.y, B=NDC depth. See encodeExrNrBuffer.
+std::vector<std::uint8_t> packNrBuffer(const std::vector<std::uint8_t>& mv,
+                                       const std::vector<std::uint8_t>& depth,
+                                       uint32_t w, uint32_t h) {
+    const std::size_t px = static_cast<std::size_t>(w) * h;
+    std::vector<std::uint8_t> out(px * 3 * sizeof(std::uint16_t));
+    auto*       outHalf = reinterpret_cast<std::uint16_t*>(out.data());
+    const auto* mvHalf  = reinterpret_cast<const std::uint16_t*>(mv.data());
+    const auto* depthF  = reinterpret_cast<const float*>(depth.data());
+    for (std::size_t i = 0; i < px; ++i) {
+        outHalf[i * 3 + 0] = mvHalf[i * 2 + 0];
+        outHalf[i * 3 + 1] = mvHalf[i * 2 + 1];
+        const Imath::half dh(depthF[i]);  // round-to-nearest f32 → f16
+        outHalf[i * 3 + 2] = dh.bits();
+    }
+    return out;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small utility helpers (replicated from sr_fg_pipeline.cpp private section)
@@ -458,11 +479,15 @@ void Pipeline::run(const PipelineConfig& config) {
         std::unique_ptr<NrFormatPass> nrPack;    // rgb10_a2 -> rgba8
         std::unique_ptr<NrFormatPass> nrUnpack;  // rgba8 -> rgb10_a2
         if (useNR) {
+            NrSettings nrSettings{};
+            nrSettings.style              = static_cast<NrStyle>(std::clamp(config.nrStyle, 0, 2));
+            nrSettings.intensity          = std::clamp(config.nrIntensity, 0.0f, 1.0f);
+            nrSettings.localToneStrength  = std::clamp(config.nrLocalTone, 0.0f, 1.0f);
+            nrSettings.localStructureStrength = std::clamp(config.nrLocalStructure, 0.0f, 1.0f);
+            nrSettings.useAutoMask        = config.nrAutoMask;
+            nrSettings.guidanceMode       = static_cast<NrGuidanceMode>(std::clamp(config.nrGuidanceMode, 0, 3));
             nrPass  = std::make_unique<DlssNrPass>(m_ngx, m_ctx);
-            nrPass->create(oW, oH,
-                           static_cast<NrStyle>(config.nrStyle),
-                           config.nrIntensity,
-                           static_cast<NrGuidanceMode>(config.nrGuidanceMode));
+            nrPass->create(oW, oH, nrSettings);
             nrPack   = std::make_unique<NrFormatPass>(m_ctx, "pack");
             nrUnpack = std::make_unique<NrFormatPass>(m_ctx, "unpack");
         }
@@ -731,8 +756,9 @@ void Pipeline::run(const PipelineConfig& config) {
             // ── [4] GPU: DepthConv + MvConv ────────────────────────────────────
             VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
             // SR wants HW/NDC depth. RR is created with Depth=Linear — pass world Z, skip NDC.
-            // FG still needs NDC even on the RR path.
-            const bool needNdcDepth = useSR || useFG;
+            // FG still needs NDC even on the RR path. The dlssnrbuffer capture
+            // stores NDC depth (the in-pipeline NR convention), so force it on.
+            const bool needNdcDepth = useSR || useFG || config.nrBuffer;
             if (needNdcDepth) {
                 barrierUndefinedToGeneral(cmd, tex.depthNdc);
                 depthPass.execute(cmd, tex.depthWorld, tex.depthNdc,
@@ -955,6 +981,21 @@ void Pipeline::run(const PipelineConfig& config) {
             // Drain the device so the image is idle before the layout-mismatched
             // cross-queue copy (otherwise vkQueueSubmit returns DEVICE_LOST).
             m_ctx->waitIdle();
+
+            // ── DLSSNR guidance buffer capture (dlssnrbuffer) ──────────────────
+            // After NGX eval the inputs are back in SHADER_READ and the device
+            // is idle. restoreLayout keeps the pooled textures' layouts valid
+            // for the next frame's layout assumptions.
+            std::vector<std::uint8_t> nrBufferPixels;
+            if (config.nrBuffer) {
+                auto mvRaw = m_ctx->downloadImageRaw(tex.mvDlss->image, rW, rH, 4,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, /*restoreLayout=*/true);
+                auto depthRaw = m_ctx->downloadImageRaw(tex.depthNdc->image, rW, rH, 4,
+                    useSR ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                          : VK_IMAGE_LAYOUT_GENERAL,
+                    /*restoreLayout=*/true);
+                nrBufferPixels = packNrBuffer(mvRaw, depthRaw, rW, rH);
+            }
             const auto tGpu = std::chrono::steady_clock::now();
 
             // ── [8] Preview (non-generated frames only) ────────────────────────
@@ -983,6 +1024,24 @@ void Pipeline::run(const PipelineConfig& config) {
             enqueueOutput(displayOut,
                 exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                        : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
+
+            // dlssnrbuffer rides along at the same frame index (FG must be off —
+            // dispatcher validates — so output idx == input idx).
+            if (config.nrBuffer && !nrBufferPixels.empty()) {
+                WriteJob bufJob;
+                bufJob.format         = OutputFormat::ExrNrBuffer;
+                bufJob.outputPath     = std::filesystem::path(config.outputDir) /
+                    AsyncFrameWriter::formatPath("dlssnrbuffer_####.exr", outputFrameIdx);
+                bufJob.width          = rW;
+                bufJob.height         = rH;
+                bufJob.fps            = dlssCfg.fps;
+                bufJob.is_hdr         = false;
+                bufJob.pixelEncoding  = PixelEncoding::SceneLinear;  // ignored by data encoder
+                bufJob.encoderOptions = config.encoderOptions;
+                bufJob.overwriteMode  = config.overwriteMode;
+                bufJob.pixels         = std::move(nrBufferPixels);
+                frameWriter.enqueue(std::move(bufJob));
+            }
 
             // ── [10] Fire frame event ──────────────────────────────────────────
             if (cb.onFrame) {

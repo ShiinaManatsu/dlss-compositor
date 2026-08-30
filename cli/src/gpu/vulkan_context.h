@@ -51,7 +51,8 @@ public:
                                                uint32_t width,
                                                uint32_t height,
                                                uint32_t bytesPerPixel,
-                                               VkImageLayout oldLayout) const;
+                                               VkImageLayout oldLayout,
+                                               bool restoreLayout = false) const;
 
     VkCommandPool   createTransferCommandPool() const;
     VkCommandPool   createComputeCommandPool() const;
