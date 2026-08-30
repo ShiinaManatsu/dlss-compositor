@@ -111,4 +111,22 @@ ramtmp/
 # Only the dry-run inject_ready JSON and README live in test-frames/.
 test-frames/*.exr
 test-frames/*.png
+test-frames/*.jpg
+test-frames/*.jpeg
 test-frames/*.mov
+test-frames/rr/*.exr
+test-frames/rr/*.jpg
+test-frames/rr/preview/
+
+# Electron packaging
+app/release/
+app/pack/
+
+# Downloaded DLSS archives (DLLs themselves are also ignored)
+resources/*.zip
+
+# RR CLI test runs: outputs and regenerable LUTs (configs + SOURCE.md are kept)
+test-frames/rr/luts/
+test-frames/rr/pipeline-out/
+test-frames/rr/*.png
+test-frames/rr/*.mov

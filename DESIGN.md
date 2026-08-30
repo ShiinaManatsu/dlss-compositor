@@ -1,8 +1,11 @@
 # DLSS Compositor v3 — Architecture Design
 
-> 状态：草案 / 待审阅  
+> 状态：草案 / 待审阅（§6 前端已按 Spectrum 2 rail 结构落地）  
 > 作者：Claude  
 > 基于：V3 分支、d3d12-rr 实验、RR 集成文档、310.7.129 DLL  
+>
+> **2026-08-28（晚）**：前端已用 Spectrum 2 重新设计落地（`app/src`）：左侧 rail 导航（项目/导出/Jobs/设置），面包屑标题栏，导出页 = 左设置面板 + 右预览叠进度条，标题栏右上发起任务/停止；Jobs 页列产出（序列/视频各一条，随 `.dcp` 持久化 `history`）。旧 V3 UI 保留在 `app/ref-v3ui/`（不参与编译）。  
+> **2026-08-28**：Phase 1 后端主路径已实测通过；预览 JPEG（回读→JPEG→RPC→base64）已落地。  
 
 ---
 
@@ -67,16 +70,21 @@ submodule (`DLSS/`) 只用于：
 - **导入库**（lib/）
 - **CMake 集成**
 
-运行时 DLL **不打包进 repo**，通过以下方式获取：
+运行时 DLL **不进 git**；按 DLSS 文档（Programming Guide §5.1），**feature DLL 随应用分发，放在 exe 旁**（NGX core `_nvngx.dll` 由驱动提供，不打包）。
+
+- **Debug**：CMake POST_BUILD 把 `resources/` 里锁死的 310.7.129.0 拷到 exe 旁（开发可复现）。
+- **Release**：发布 zip 同样携带三份 `nvngx_*.dll`（exe 旁）；NGX Init 通过 NGX core 定位它们，无需驱动内搜索。
+- `tools/dlss_versions.json` 只给开发锁版本用，**不是**发布下载器。
+
+开发锁版本仍可从 dlss-swapper 取（不进发布包）：
 
 ```
 tools/
-  dlss_updater.py      # 从 dlss-swapper manifest 下载最新 DLL
-  dlss_versions.json   # 锁定版本信息
-resources/
-  nvngx_dlss.dll       # SR  310.7.129.0  (gitignored, auto-download)
-  nvngx_dlssd.dll      # RR  310.7.129.0
-  nvngx_dlssg.dll      # FG  310.7.129.0
+  dlss_versions.json   # 开发锁版本（310.7.129.0 + md5 + url）
+resources/             # gitignored；仅 Debug POST_BUILD 拷到 exe 旁
+  nvngx_dlss.dll
+  nvngx_dlssd.dll
+  nvngx_dlssg.dll
 ```
 
 `dlss_versions.json` 格式（锁定，类似 lockfile）：
@@ -91,7 +99,7 @@ resources/
 }
 ```
 
-首次运行 / 版本不符时，Electron 启动前调用 `dlss_updater.py --check` 自动下载。
+Debug 构建拷贝 `resources/`；Release zip 携带同样三份 DLL（exe 旁），都不下载。
 
 ---
 
@@ -307,122 +315,45 @@ V2 已有 `FramePrefetcher`（预读），v3 在此基础上：
 
 ---
 
-## 6. 前端
+## 6. 前端（已按 Spectrum 2 落地）
 
 ### 6.1 技术栈
 
 ```
-Electron 33+
-├── Main: TypeScript（复用 V3 orchestrator.ts 逻辑）
-├── Renderer: React 18 + Vite
-├── UI: @adobe/react-spectrum + Spectrum tokens
-└── 通信: contextBridge IPC（JSON + ArrayBuffer for preview）
+Electron 36
+├── Main: TypeScript（electron/orchestrator.ts ↔ 子进程，stdout DLSS_EVENT 转发）
+├── Renderer: React 19 + Vite 7
+├── UI: @react-spectrum/s2（Spectrum 2，style macro + tokens）
+└── 通信: contextBridge（window.dlss.*，JSON + base64 JPEG 预览）
 ```
 
-Adobe Spectrum 选型理由：符合"专业简洁"定位，内置 dark/light theme，组件库完善（Picker、NumberField、Switch、ProgressBar、ListView 都有）。
+选型理由：符合"专业简洁"定位，内置 dark/light theme，控件齐全（Picker、NumberField、Switch、ProgressBar、Disclosure、ListView、ActionMenu、CardView、Tabs）。
 
-### 6.2 屏幕设计
+### 6.2 屏幕结构（rail 四页）
 
-**启动屏：项目选择**
-```
-┌─────────────────────────────────────────────────┐
-│  DLSS Compositor                        [─][□][×]│
-├─────────────────────────────────────────────────┤
-│  最近项目                                        │
-│  ┌──────────────────────────────────────────┐   │
-│  │ 📄 TypeAsuka SnowMix          2025-08-26 │   │
-│  │ 📄 Project B                  2025-08-10 │   │
-│  └──────────────────────────────────────────┘   │
-│                                                  │
-│  [+ 新建项目]  [📂 打开 .dcp]  [🗑 删除]        │
-└─────────────────────────────────────────────────┘
-```
+左侧竖排导航（S2 Tabs vertical：项目/导出/Jobs/设置），标题栏 = logo + 面包屑（`项目名 > 页面`）+ 窗口控制；导出页时标题栏右上为 **发起任务**（运行中变 **停止**）。
 
-**主工作区（项目已加载）**
+- **项目**（首屏）：最近 `.dcp` 卡片网格（CardView/AssetCard），右上 [打开][新建项目]。
+- **导出**：左侧设置面板，四个 Disclosure 组 ——
+  - ▸ Blend 文件：blend 路径+[读取]、引擎/分辨率/降噪 meta（只读）、起始/结束帧与采样/降噪 override（pin 覆盖）
+  - ▸ DLSS：模式（SR/RR）、质量档 + 推荐百分比、渲染百分比（RR 隐藏并提示质量档）、原生分辨率缓冲（SR+Cycles）、帧生成（关/2x–6x）
+  - ▸ 导出：宽/高、编码（ProRes 422 HQ / EXR / PNG16）、文件名模板 + 版本、目录
+  - ▸ 高级：消费窗口、ImDisk/内存盘状态
+  右侧预览：JPEG 预览（512px readback → base64 → objectURL），**底部叠加进度条**（按 Blender 帧数计百分比 + 第 x/y 帧 + 每/帧 + 剩余时间）。
+- **Jobs**：当前项目产出列表（ListView），序列与视频各一条（模板前缀+帧区间 / 单文件），`…` 菜单：打开文件夹 / 打开文件 / 复制路径；序列帧数由 `fs:listDir` 实扫。记录随 `.dcp` 的 `history` 字段持久化。
+- **设置**：颜色方案（深/浅/跟随系统）、环境探测（Blender/ImDisk/内存盘）、DLSS DLL 版本（锁定 310.7.129.0）、关于。
 
-三栏布局：
-
-```
-┌──────────┬───────────────────────────────┬──────────────────┐
-│ 设置面板 │  预览                         │ Job 列表         │
-│          │  [当前帧预览 / 进度动画]       │                  │
-│ ▸ 文件   │                               │ ● 任务 1 运行中  │
-│ ▸ DLSS   │                               │ ✓ 任务 2 完成    │
-│ ▸ 导出   │  Frame 325 / 350              │   [打开文件夹]   │
-│ ▸ 高级   │  [RR→FG]  [1920×1080→3840]   │                  │
-│          │                               │                  │
-│          ├───────────────────────────────┤                  │
-│          │ 进度条  ████████░░  78%       │                  │
-│          │ 预计剩余 4m 32s               │                  │
-│          │ [▶ 发起任务]  [⏹ 停止]        │                  │
-└──────────┴───────────────────────────────┴──────────────────┘
-```
-
-**设置面板详细（各折叠组）**
-
-*▸ Blend 文件*
-- blend 文件路径（只读 + [更改]按钮）
-- 引擎：EEVEE-NEXT / Cycles（从 blend 读取，只读）
-- 帧范围（从 blend 读取，可 override）
-- 渲染分辨率（从 blend 读取）
-- Override 开关（打开后以下项变可编辑）
-  - 最大采样次数
-  - 降噪（勾选/取消）
-  - 降噪器（OIDN / OptiX）
-  - 噪音类型（白噪音 / 蓝噪音）—— RR 推荐白噪音
-
-*▸ DLSS*
-- 模式：自动 / SR / RR（依据引擎自动判断，可手动覆盖）
-- 质量：DLAA / Ultra Quality / Quality / Balanced / Performance / Ultra Performance
-- SR 时：
-  - SR Preset（M 默认 Perf 档 / K 默认 Quality 档）
-  - 高精度 Buffer（native_res_buffers，适合大幅度 SR 时提升质量）
-- RR 时：
-  - RR Preset（E 默认 / D / F[beta]）
-  - 粗糙度模式（Unpacked / Packed，通常保持 Unpacked）
-- FG 倍率（2× / 3× / 4×）—— 上限由 NGX 能力查询决定
-
-*▸ 导出*
-- 导出分辨率（宽/高，默认读 blend 全分辨率）
-- 格式：ProRes 4444 MOV / ProRes 422 HQ MOV / EXR Sequence / PNG16 Sequence
-- 输出目录
-- 文件名模板（支持 `{Name}` `{Version}` `{Frame}` `{Date}`）
-- 帧范围覆盖（可单独设置，默认同 blend）
-
-*▸ 高级*
-- Blender 路径（留空自动检测）
-- 内存盘盘符（默认 R）
-- 内存盘大小 GB（默认 8）
+状态集中在 `src/appState.tsx`（context）：全部设置、事件流（inspect/progress/preview/export_done→history）、自动保存 .dcp。页面组件在 `src/pages/`。旧 V3 界面留在 `app/ref-v3ui/` 供参考，不参与编译。
 
 ### 6.3 预览传输
 
-CLI 输出帧时，通过 JSON-RPC callback 传 JPEG preview（512px 宽，80%质量）：
+CLI 生成帧时经 JSON-RPC callback 传 JPEG 预览（512px 宽，display-ready）：
 
 ```
 CLI --[RPC]--> Python run.py --[stdout DLSS_EVENT:]--> Electron main --[IPC]--> renderer
 ```
 
-preview 以 `ArrayBuffer` / `Uint8Array` 传输，renderer 用 `URL.createObjectURL` 显示。
-
-### 6.4 Job 列表
-
-每个 job 条目：
-```typescript
-type Job = {
-  id: string;
-  name: string;          // "{blend basename} {timestamp}"
-  status: 'running' | 'done' | 'error' | 'cancelled';
-  mode: 'sr' | 'rr';
-  frameStart: number;
-  frameEnd: number;
-  frameDone: number;
-  outputDir: string;
-  createdAt: number;
-  error?: string;
-};
-```
-
-点击"打开文件夹"调用 `shell.openPath(job.outputDir)`。新 job 插入顶部。
+renderer 用 `atob → Blob → URL.createObjectURL` 显示。
 
 ---
 
@@ -497,29 +428,47 @@ dlss-compositor/
 
 ---
 
-## 9. 实施顺序
+## 9. 实施顺序（2026-08-28）
 
-### Phase 1：后端跑通
+### 已完成 — Phase 1 后端主路径
 
-1. **RR pass（C++）**：基于 d3d12-rr 实验，移植到 Vulkan（参考 `dlss-plugin/src/dlss/dlss_sr.cpp`）
-   - `DlssRrPass`：封装 `NGX_DLSSD_CREATE_VK_EXT` + `NGX_DLSSD_EVALUATE_VK_EXT`
-   - `NgxContext` 扩展 `isRrAvailable()`、`rr` DLL 版本字段
-2. **RR EXR 读取**：基于 d3d12-rr `rr_exr.cpp` 移植到 Vulkan pipeline，加 Specular Motion 支持
-3. **RrFgPipeline**：参照 `SrFgPipeline`，输入多 4 个 guide buffer
-4. **inject.py 更新**：增加 `Denoising Specular Motion` pass socket（Blender 5.3）
-5. **测试**：使用 `5.render_material_remaster.blend`，帧 300-350
+统一 `Pipeline`（SR|RR → Tonemap → FG → Output）、FileWatcher 消费删除、ProRes 422 HQ 流式写盘、RR 只走质量档。实测 frames 300–350、R:→S:：
 
-### Phase 2：Electron + React UI
+- RR 原生 100% FG 4x MOV（`…_rr_v1.mov`）
+- RR Balanced 58% / 8 spp / adaptive off / FG 2x（`…_rr_v2.mov`）
+- SR EEVEE Balanced 58% / FG 2x（`…_sr_v1.mov`）
 
-6. **DCP 读写**：`project.ts` 扩展，支持新字段
-7. **设置面板**：Adobe Spectrum 组件
-8. **Job 列表 + 进度**：复用 V3 progress.ts 逻辑
-9. **预览**：preview 事件→ArrayBuffer→img src
+blend 未保存。
 
-### Phase 3：打包与发布
+### 下一会话先做（GUI 之前必须落地）
 
-10. **DLL 下载器**：`tools/dlss_updater.py`
-11. **发布脚本**：更新 `scripts/package_release.ps1`
+顺序：预览 JPEG → DLL 加载 → 打包。三项做完再开 GUI。
+
+1. **预览 JPEG 回读**
+   - 已有：`PreviewPass::renderAndReadback`（长边 512，display-ready）；pipeline 在非 FG 生成帧上可选回调。
+   - 缺口：`RpcDispatcher` 里 `wantsPreview` 恒 `false`；`encodePreview` 把 raw RGBA 当 JPEG；`preview_frame` 一直 `no preview available yet`；`run.py` 打 `preview_unavailable`。
+   - 落地：打开 `wantsPreview`；用现成 OpenImageIO 编 JPEG（不加 libjpeg）；`preview_frame` 回 base64；`run.py` 发 `preview` 事件。生成帧不回读。
+
+2. **DLL 加载**
+   - Debug：维持 POST_BUILD 拷 `resources/nvngx_*.dll`（310.7.129）到 exe 旁。
+   - Release：按 DLSS 文档随应用携带三份 feature DLL（exe 旁）；NGX core 由驱动提供。不运行时搜索驱动目录。
+   - 不要做 `dlss_updater.py` 发布下载。
+
+3. **打包**
+   - 现有 `scripts/package_release.ps1` 只打 Flutter GUI zip + blender-plugin zip，没有 CLI / `pipeline/`。
+   - 发布 zip：`dlss-compositor-cli.exe` + `pipeline/` + 三份 `nvngx_*.dll`（exe 旁）+ 必要资源。
+   - MSI 后置。先把目录布局做对。
+
+### 再往后（明天这三项之后）
+
+| 优先级 | 项 | 说明 |
+|---|---|---|
+| 中 | 最后几帧背景变脏 | 完整序列后再查，高于双趟/HDR |
+| 低 | SR `native_res_buffers` 双趟 | Python 有 `color/`+`guides/`，C++ 只有一个 `inputDir` |
+| 低 | HDR ProRes | 打了 PQ+BT.2020 标签，未跑过 |
+| 预留 | NR / ProRes 4444 | 位和枚举在，不做 |
+
+前端（Flutter 设置面板、Job 列表、把 JPEG 画到预览窗）等上面三项完成后再开。DESIGN §6 Electron 草案不要当施工图。
 
 ---
 
@@ -527,8 +476,10 @@ dlss-compositor/
 
 | 编号 | 问题 | 结论 |
 |---|---|---|
-| RR-P1 | RR Preset F 在 310.7.129 DLL 中是 RR2 还是 default？ | 实验 310.7.128 确认是 RR2（需驱动≥580）；310.7.129 待测，UI 先加 beta 标签 |
-| RR-P2 | Blender 5.3 Denoising Specular Motion socket 名称 | 屏幕截图可见 "Denoising Specular Motion"，inject.py 需验证 `rl.outputs.get("Denoising Specular Motion")` |
-| SR-P1 | native_res_buffers 双趟内存盘空间规划 | V3 `plan_ram_windows` 已实现，需适配双趟场景 |
-| FG-P1 | RR→FG 与 SR→FG 的区别 | 管线层面相同；RR 输出已是 display-ready，进 FG 前不需要额外 tonemap |
-| DLL-P1 | 310.7.129 DLL 下载：Electron 首次运行自动触发 | 需要确认网络/签名验证策略 |
+| RR-P1 | RR Preset F 在 310.7.129 是 RR2 | 已用 129 + Preset F 跑通 300–350；驱动需 ≥580 |
+| RR-P2 | Blender 5.3 Denoising Specular Motion | inject 已接线，正式测试用过 |
+| SR-P1 | native_res_buffers 双趟 | Python 窗口有，C++ 没接。优先级同 HDR，后做 |
+| FG-P1 | RR→FG 与 SR→FG | 都是 tonemap 后进 FG。已实测 |
+| DLL-P1 | Release DLL 从哪来 | 随应用（exe 旁），NGX core 来自驱动；开发版锁 310.7.129 |
+| PV-P1 | 预览 JPEG | 回读通路在，编码/RPC 未开。GUI 前必须做 |
+| QA-P1 | 4x 原生片最后几帧背景变脏 | 完整拼完再查 |

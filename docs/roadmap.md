@@ -2,26 +2,22 @@
 
 Working notes for future DLSS Compositor milestones. Keep this as intent and design context, not a replacement for issues or implementation docs.
 
+## Next backend (before GUI)
+
+See DESIGN.md §9 (2026-08-28). Do these in order, then start the GUI:
+
+1. Preview JPEG readback (PreviewPass exists; RPC encode path is still a stub).
+2. DLL loading: 两个版本都锁定 `resources/` 的 310.7.129.0（nvngx_dlss/dlssd/dlssg），拷到 cli.exe 旁；NGX core 仍来自驱动，不打包 `_nvngx.dll`。
+3. 打包：electron-builder（`app/`，`npm run dist`）产出 NSIS 安装包（`.dcp` 关联）+ 便携 zip；`app/scripts/pack-backend.mjs` 组装 backend（cli + *.spv + 锁定 DLL + pipeline 脚本）。旧的 `scripts/package_release.ps1`（Flutter 时代）已移除。
+
+After that, in descending priority: last-frame dirty background (full sequence) → SR dual-pass → HDR ProRes.
+
 ## Installer
 
-- Add an MSI installer for Windows releases.
-- Installer should place the GUI, native DLSS runtime files, Blender extension package, and required resources in predictable locations.
-- Future installer can also own file association for `.dlssc`; until then, manual "open with" remains acceptable.
+- 2026-08-30: electron-builder NSIS 安装包 + 便携 zip（见上「打包」条目）。
+- 安装包不带 NGX core（`_nvngx.dll` 仍来自驱动）；三个 feature DLL（nvngx_dlss/dlssd/dlssg，310.7.129.0）随包发布在 `resources/backend/cli/`。
+- `.dcp` 文件关联已注册（per-user）；运行期单实例，二次双击 .dcp 转发给已开窗口。
 
 ## Render-To-Video Scratch Storage
 
-- Explore a virtual RAM disk / memory-backed scratch filesystem for Blender AOV output.
-- Intended flow:
-  - Blender writes AOV EXR frames to the scratch path.
-  - DLSS Compositor watches/consumes each frame or small frame batch.
-  - Finished frames are pushed into FFmpeg video output.
-  - Consumed EXRs are deleted immediately.
-- Goals:
-  - Reduce SSD write volume and wear.
-  - Avoid large intermediate AOV folders, especially for long projects.
-  - Support a "direct-to-video" workflow once the DLSS pipeline is stable enough that repeated reruns are uncommon.
-- Candidate technology: WinFsp-backed virtual filesystem or another Windows RAM disk/scratch mount.
-- Design constraints:
-  - Must tolerate Blender or DLSS process crashes without silently losing the whole job state.
-  - Needs backpressure so Blender does not outrun DLSS/encoder capacity.
-  - Should keep a conventional disk-output fallback for debugging and reproducibility.
+ImDisk Stage 3 is in (`pipeline/run.py` attach existing `R:`, FileWatcher consume/delete, ProRes to working disk). Do not unmount the member disk. WinFsp / auto-create can wait until the GUI owns disk lifecycle.
