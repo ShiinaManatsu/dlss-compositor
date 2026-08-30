@@ -8,19 +8,23 @@ import path from 'node:path';
  * inspect/render scripts run inside Blender's own interpreter, and the
  * GUI talks to imdisk directly.
  *
+ * Volume enumeration MUST use Win32_LogicalDisk, not Get-Volume: the
+ * Storage Management provider (MSFT_Volume) does not report ImDisk
+ * volumes at all on some systems, while classic WMI sees them (verified
+ * 2026-08-30: a mounted 8GB NTFS ImDisk volume was invisible to
+ * Get-Volume but present via Win32_LogicalDisk).
+ *
  * No fallback filesystem: NTFS via `imdisk -p` needs an elevated token
- * (format.com). If the format fails, report the permission problem —
- * never pretend the disk exists.
+ * (format.com). If the format fails, report the problem — never pretend
+ * the disk exists.
  */
 
 export const IMDISK_MISSING = '请安装 ImDisk Toolkit';
 export const VOLUME_LABEL = 'DLSSRAM';
-export const NTFS_FORMAT_ERROR =
-  '内存盘创建失败：NTFS 快速格式化需要管理员权限（format.com）。请以管理员身份运行，或改用缓存路径模式。';
 
 /** imdisk returns 0 even when the -p format fails; the only truth is the
- *  volume's filesystem. Allow a short settle window — Get-Volume can lag the
- *  format completing by a beat on a freshly attached device. */
+ *  volume's filesystem. Allow a short settle window — the mount can land a
+ *  beat after imdisk exits. */
 async function waitForFilesystem(letter: string, timeoutMs = 6000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let filesystem = '';
@@ -132,12 +136,13 @@ export async function findImdisk(): Promise<string | null> {
   return null;
 }
 
-/** All volumes with a drive letter, in one Get-Volume call. */
+/** All volumes with a drive letter, in one Win32_LogicalDisk call.
+ *  Get-Volume (MSFT_Volume) cannot see ImDisk volumes; classic WMI can. */
 export async function listVolumes(timeoutMs = 30000): Promise<VolumeInfo[]> {
   const script =
     '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ' +
-    'ConvertTo-Json -InputObject @{volumes=@(Get-Volume -ErrorAction SilentlyContinue | ' +
-    'Select-Object DriveLetter,FileSystemLabel,FileSystem,Size,SizeRemaining)} -Compress -Depth 4';
+    'ConvertTo-Json -InputObject @{volumes=@(Get-CimInstance Win32_LogicalDisk | ' +
+    'Select-Object DeviceID,VolumeName,FileSystem,Size,FreeSpace)} -Compress -Depth 4';
   const result = await runProcess(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
@@ -152,17 +157,15 @@ export async function listVolumes(timeoutMs = 30000): Promise<VolumeInfo[]> {
   const rows = Array.isArray(parsed?.volumes) ? (parsed.volumes as Record<string, unknown>[]) : [];
   const volumes: VolumeInfo[] = [];
   for (const row of rows) {
-    // PS 5.1 serializes char DriveLetter as its code point (e.g. 82 for R).
-    const raw = row.DriveLetter;
-    const letter = normalizeLetter(typeof raw === 'number' ? String.fromCharCode(raw) : String(raw ?? ''));
+    const letter = normalizeLetter(typeof row.DeviceID === 'string' ? row.DeviceID : '');
     if (!/^[A-Z]$/.test(letter)) continue;
     volumes.push({
       letter,
-      label: typeof row.FileSystemLabel === 'string' ? row.FileSystemLabel : '',
+      label: typeof row.VolumeName === 'string' ? row.VolumeName : '',
       filesystem: typeof row.FileSystem === 'string' ? row.FileSystem : '',
       totalBytes: typeof row.Size === 'number' && Number.isFinite(row.Size) ? row.Size : 0,
       freeBytes:
-        typeof row.SizeRemaining === 'number' && Number.isFinite(row.SizeRemaining) ? row.SizeRemaining : 0,
+        typeof row.FreeSpace === 'number' && Number.isFinite(row.FreeSpace) ? row.FreeSpace : 0,
     });
   }
   return volumes;
@@ -280,36 +283,22 @@ async function forceDetach(imdisk: string, letter: string): Promise<void> {
 }
 
 /** Create an NTFS RAM disk. Needs an elevated token for format.com. */
-export async function createRamdisk(size = '8G', requested?: string): Promise<RamdiskResult<RamDiskInfo>> {
+export async function createRamdisk(size = '2G', requested?: string): Promise<RamdiskResult<RamDiskInfo>> {
   const imdisk = await findImdisk();
   if (!imdisk) return {ok: false, error: IMDISK_MISSING, missing: true};
   const used = new Set((await listVolumes()).map((v) => v.letter));
   const pick = pickLetter(used, requested);
   if (!pick.ok) return {ok: false, error: pick.error};
   const letter = pick.letter;
-  const attach = (diskSize: string) =>
-    runProcess(
-      imdisk,
-      ['-a', '-t', 'vm', '-s', diskSize, '-m', `${letter}:`, '-p', NTFS_FORMAT_ARGS],
-      120000
-    );
   try {
     // Clear phantom devices a prior failed run may have left on the letter —
     // a stale unformatted device otherwise blocks attach + format silently.
     await forceDetach(imdisk, letter);
-    // 64MB probe: proves format.com works before committing to the full disk.
-    const probe = await attach('64M');
-    const probeFs = await waitForFilesystem(letter);
-    await forceDetach(imdisk, letter);
-    if (probeFs.toUpperCase() !== 'NTFS') {
-      const tail = formatLogTail(probe);
-      const guidance = /elevated|access denied|privilege/i.test(tail) ? NTFS_FORMAT_ERROR : '';
-      return {
-        ok: false,
-        error: `内存盘 64MB NTFS 格式化探测未通过（${letter}:）。${tail} ${guidance}`.trim(),
-      };
-    }
-    const result = await attach(size);
+    const result = await runProcess(
+      imdisk,
+      ['-a', '-t', 'vm', '-s', size, '-m', `${letter}:`, '-p', NTFS_FORMAT_ARGS],
+      120000
+    );
     const filesystem = await waitForFilesystem(letter);
     if (result.code !== 0 || filesystem.toUpperCase() !== 'NTFS') {
       await forceDetach(imdisk, letter);

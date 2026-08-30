@@ -138,6 +138,7 @@ export function useAppState() {
   const [denoiser, setDenoiser] = useState('OPENIMAGEDENOISE');
   const [windowSize, setWindowSize] = useState(6);
   const [useRamdisk, setUseRamdisk] = useState(true);
+  const [ramdiskGb, setRamdiskGb] = useState(2);
   const [cachePath, setCachePath] = useState('');
   const [elevated, setElevated] = useState(false);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
@@ -319,6 +320,7 @@ export function useAppState() {
       window: windowSize,
       useRamdisk: useRamdisk && elevated,
       cachePath: useRamdisk && elevated ? '' : cachePath,
+      ramdiskGb,
       overrides,
       nativeResBuffers: nativeResEnabled && nativeResBuffers,
       nrBuffer,
@@ -347,6 +349,7 @@ export function useAppState() {
     exportDir,
     windowSize,
     useRamdisk,
+    ramdiskGb,
     cachePath,
     nativeResBuffers,
     nativeResEnabled,
@@ -382,6 +385,7 @@ export function useAppState() {
       outputVersion,
       windowSize,
       useRamdisk,
+      ramdiskGb,
       cachePath,
       nativeResBuffers,
       nrBuffer,
@@ -416,6 +420,7 @@ export function useAppState() {
     setOutputVersion(Math.max(1, project.outputVersion || 1));
     setWindowSize(project.windowSize);
     setUseRamdisk(project.useRamdisk);
+    setRamdiskGb(Math.min(64, Math.max(1, Math.round(project.ramdiskGb ?? 2))));
     setCachePath(project.cachePath);
     setNativeResBuffers(Boolean(project.nativeResBuffers));
     setNrBuffer(Boolean(project.nrBuffer));
@@ -736,6 +741,7 @@ export function useAppState() {
     outputVersion,
     windowSize,
     useRamdisk,
+    ramdiskGb,
     cachePath,
     nativeResBuffers,
     nrBuffer,
@@ -1082,6 +1088,8 @@ export function useAppState() {
     setWindowSize,
     useRamdisk,
     setUseRamdisk,
+    ramdiskGb,
+    setRamdiskGb,
     cachePath,
     setCachePath,
     elevated,
@@ -1145,7 +1153,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.1';
+  return appVersion || '0.4.2';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {

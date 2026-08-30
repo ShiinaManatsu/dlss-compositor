@@ -137,6 +137,8 @@ export function ExportPage() {
     setWindowSize,
     useRamdisk,
     setUseRamdisk,
+    ramdiskGb,
+    setRamdiskGb,
     cachePath,
     setCachePath,
     elevated,
@@ -505,6 +507,18 @@ export function ExportPage() {
             onChange={setWindowSize}
             isDisabled={busy}
           />
+          {elevated && useRamdisk ? (
+            <NumberField
+              label="内存盘大小 (GB)"
+              size="S"
+              minValue={1}
+              maxValue={64}
+              value={ramdiskGb}
+              onChange={setRamdiskGb}
+              isDisabled={busy}
+              hideStepper
+            />
+          ) : null}
         </SettingsSection>
       </aside>
 

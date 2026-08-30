@@ -122,6 +122,8 @@ export type ExportRequest = {
   ramWindowFrames?: number;
   /** Input buffer: RAM disk (auto-created when packaged) or a plain cache dir. */
   useRamdisk: boolean;
+  /** RAM-disk size in GB when the app auto-creates one (default 2, clamped 1..64). */
+  ramdiskGb?: number;
   cachePath: string;
 };
 
@@ -458,7 +460,9 @@ export class PipelineOrchestrator {
     const rpc = await this.ensureCli(cli, exportDir);
     let ramDir: string;
     if (req.useRamdisk) {
-      const prepared = await this.prepareRamdisk();
+      const prepared = await this.prepareRamdisk(
+        Math.min(64, Math.max(1, Math.round(req.ramdiskGb ?? 2)))
+      );
       if (!prepared.ok) return {ok: false, error: prepared.error};
       const letter = (prepared.letter ?? 'R').replace(':', '');
       this.ramLetter = letter;
@@ -755,7 +759,7 @@ export class PipelineOrchestrator {
 
   /** Find an existing DLSSRAM disk; in packaged builds create one when missing
    *  (imdisk needs an elevated token). Dev builds never create. */
-  private async prepareRamdisk(): Promise<{ok: boolean; letter?: string; error?: string}> {
+  private async prepareRamdisk(sizeGb: number): Promise<{ok: boolean; letter?: string; error?: string}> {
     try {
       const discovered = await discoverRamdisk(this.ramLetter ?? undefined);
       if (discovered.ok) {
@@ -773,7 +777,7 @@ export class PipelineOrchestrator {
         error: '未找到内存盘（DLSSRAM）。开发环境请用 ImDisk Toolkit 手动挂载，或改用导出页的缓存路径模式。',
       };
     }
-    const created = await createRamdisk('8G');
+    const created = await createRamdisk(`${sizeGb}G`);
     if (created.ok) {
       const letter = created.value.letter;
       this.ramdiskManaged = true;

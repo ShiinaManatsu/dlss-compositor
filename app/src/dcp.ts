@@ -116,6 +116,8 @@ export type DcpProject = {
   windowSize: number;
   /** Input buffer: RAM disk (auto-created in packaged builds) or cache dir. */
   useRamdisk: boolean;
+  /** Auto-created RAM-disk size in GB (default 2). */
+  ramdiskGb: number;
   cachePath: string;
   nativeResBuffers: boolean;
   /** Export dlssnrbuffer_####.exr (MV+depth) alongside the output for the NR tool. */
@@ -416,6 +418,7 @@ export function parseDcp(raw: string): ParseDcpResult {
       outputVersion: Math.max(1, Math.trunc(num(obj.outputVersion, 1))),
       windowSize: num(obj.windowSize, 6),
       useRamdisk: bool(obj.useRamdisk, true),
+      ramdiskGb: Math.min(64, Math.max(1, Math.round(num(obj.ramdiskGb, 2)))),
       cachePath: str(obj.cachePath, ''),
       nativeResBuffers: bool(obj.nativeResBuffers, false),
       nrBuffer: bool(obj.nrBuffer, false),
@@ -478,6 +481,7 @@ export function emptyProject(blend: string): DcpProject {
     outputVersion: 1,
     windowSize: 6,
     useRamdisk: true,
+    ramdiskGb: 2,
     cachePath: '',
     nativeResBuffers: false,
     nrBuffer: false,

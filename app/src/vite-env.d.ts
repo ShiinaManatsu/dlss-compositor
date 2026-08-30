@@ -88,6 +88,7 @@ type ExportRequest = {
   ramWindowFrames?: number;
   /** Input buffer: RAM disk (auto-created in packaged builds) or cache dir. */
   useRamdisk: boolean;
+  ramdiskGb?: number;
   cachePath: string;
 };
 
