@@ -86,7 +86,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--ram-disk",
         default=r"R:\\",
-        help="RAM disk root (default: R:\\)",
+        help="RAM disk root (default: R:\\). Ignored when --output-dir is set.",
+    )
+    p.add_argument(
+        "--output-dir",
+        default=None,
+        help="Exact EXR output directory. Overrides --ram-disk/<mode>-test.",
     )
     p.add_argument(
         "--quality",
@@ -123,6 +128,22 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to blender.exe (auto-detected if omitted)",
     )
+    p.add_argument(
+        "--preview-dir",
+        default=None,
+        help="Write JPEG previews here (quality --preview-jpeg-quality). Default: <output-dir>/preview",
+    )
+    p.add_argument(
+        "--preview-jpeg-quality",
+        type=int,
+        default=5,
+        help="JPEG quality for --preview-dir (default 5)",
+    )
+    p.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Do not write JPEG previews (scene render goes to NUL)",
+    )
     return p.parse_args()
 
 
@@ -138,6 +159,8 @@ def run_inject(
     samples: int | None,
     sampling_pattern: str,
     dry_run: bool,
+    preview_dir: Path | None = None,
+    preview_jpeg_quality: int = 5,
 ) -> list[dict]:
     """Spawn blender -b and collect DLSS_EVENT: lines from stdout."""
     cmd = [
@@ -162,6 +185,8 @@ def run_inject(
     ]
     if samples is not None:
         cmd.extend(["--samples", str(samples)])
+    if preview_dir is not None:
+        cmd.extend(["--preview-dir", str(preview_dir), "--preview-jpeg-quality", str(preview_jpeg_quality)])
     if dry_run:
         cmd.append("--dry-run")
 
@@ -227,9 +252,16 @@ def main() -> int:
     if args.dry_run:
         print("[export_test_frames] DRY RUN — compositor nodes only, no render")
 
-    subdir = f"{args.mode}-test"
-    output_dir = Path(args.ram_disk) / subdir
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = Path(args.ram_disk) / f"{args.mode}-test"
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_dir = None
+    if not args.no_preview and not args.dry_run:
+        preview_dir = Path(args.preview_dir) if args.preview_dir else output_dir / "preview"
+        preview_dir.mkdir(parents=True, exist_ok=True)
 
     events = run_inject(
         blender=blender,
@@ -242,6 +274,8 @@ def main() -> int:
         samples=args.samples,
         sampling_pattern=args.sampling_pattern,
         dry_run=args.dry_run,
+        preview_dir=preview_dir,
+        preview_jpeg_quality=int(args.preview_jpeg_quality),
     )
 
     print()

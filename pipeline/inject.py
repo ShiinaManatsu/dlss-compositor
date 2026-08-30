@@ -14,7 +14,9 @@ import argparse
 import json
 import math
 import os
+import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +134,7 @@ def parse_args() -> argparse.Namespace:
         "--quality",
         default="BALANCED",
         choices=sorted(JITTER_PHASES.keys()),
-        help="jitter phase table only; percentage is independent",
+        help="DLSS quality slot (jitter table; RR render scale is chosen by run.py from this)",
     )
     parser.add_argument("--file-name", default="####")
     parser.add_argument(
@@ -190,6 +192,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--look", default=None, help="ignored: colour follows the blend")
     parser.add_argument("--exposure", type=float, default=None, help="ignored: colour follows the blend")
     parser.add_argument("--gamma", type=float, default=None, help="ignored: colour follows the blend")
+    parser.add_argument(
+        "--preview-dir",
+        default=None,
+        help="If set, write JPEG previews here (scene render output) instead of //NUL",
+    )
+    parser.add_argument(
+        "--preview-jpeg-quality",
+        type=int,
+        default=5,
+        help="JPEG quality 1-100 for --preview-dir (default 5, tiny files)",
+    )
     return parser.parse_args(argv_after_double_dash())
 
 
@@ -359,6 +372,16 @@ def enable_passes(scene: bpy.types.Scene, mode: str = "sr", sampling_pattern: st
     if mode == "rr" and sampling_pattern and hasattr(scene, "cycles"):
         try:
             scene.cycles.sampling_pattern = sampling_pattern
+        except (TypeError, AttributeError):
+            pass  # Older Blender — best-effort, no abort.
+
+    # Distinct noise/dither pattern per frame: with a fixed seed every frame
+    # carries the same noise, and temporal DLSS passes (RR accumulation, FG
+    # synthesis) blend it into a persistent dirt pattern. Animated seed ties
+    # the Cycles seed to the frame number.
+    if hasattr(scene, "cycles") and hasattr(scene.cycles, "use_animated_seed"):
+        try:
+            scene.cycles.use_animated_seed = True
         except (TypeError, AttributeError):
             pass  # Older Blender — best-effort, no abort.
 
@@ -617,11 +640,21 @@ def main() -> int:
     # Session-only: disable the scene-level animation output entirely.
     # Blender writes scene.render.filepath (e.g. preview_####.jpg) in addition
     # to File Output nodes; on a RAM disk this wastes precious space.
-    # Redirect to NUL (Windows null device) so the main render loop produces
-    # nothing and only the File Output node writes the EXR files we actually want.
+    # Default: dump the scene render to NUL so only the File Output EXR is kept
+    # (RAM-disk low watermark). Optional --preview-dir writes tiny JPEGs instead.
     render.use_sequencer = False
     render.use_overwrite = True
-    render.filepath = "//NUL"  # Windows null device; forward-slash form avoids escape warnings
+    preview_dir = getattr(args, "preview_dir", None)
+    if preview_dir:
+        prev = Path(preview_dir)
+        prev.mkdir(parents=True, exist_ok=True)
+        render.filepath = str(prev / "####")
+        render.image_settings.file_format = "JPEG"
+        render.image_settings.color_mode = "RGB"
+        q = int(getattr(args, "preview_jpeg_quality", 5) or 5)
+        render.image_settings.quality = max(1, min(100, q))
+    else:
+        render.filepath = "//NUL"  # Windows null device; forward-slash form avoids escape warnings
 
     frame_start = int(scene.frame_start)
     frame_end = int(scene.frame_end)
@@ -682,8 +715,39 @@ def main() -> int:
     if quality not in JITTER_PHASES:
         quality = args.quality
 
+    def wait_for_buffer_headroom() -> None:
+        """Block until the RAM-disk buffer has headroom again.
+
+        Blender can out-render the CLI consumer; once the fixed-size RAM disk fills,
+        writes come out truncated and frames are lost. Gating each frame on free
+        space makes the pipeline run at the consumer's pace instead of overflowing.
+        """
+        out_dir = Path(args.output_dir)
+        try:
+            total = shutil.disk_usage(out_dir).total
+        except OSError:
+            return  # Not an fs-backed path — nothing to gate on.
+        if total <= 0:
+            return
+        floor = max(1 << 30, int(total * 0.25))
+        warned = False
+        while True:
+            try:
+                free = shutil.disk_usage(out_dir).free
+            except OSError:
+                return
+            if free >= floor:
+                if warned:
+                    emit("buffer_recovered", free=free)
+                return
+            if not warned:
+                emit("buffer_full", free=free, floor=floor)
+                warned = True
+            time.sleep(0.5)
+
     @bpy.app.handlers.persistent
     def on_render_pre(update_scene: bpy.types.Scene) -> None:
+        wait_for_buffer_headroom()
         frame_num = update_scene.frame_current
         jitter_x, jitter_y = jitter_for_frame_number(quality, frame_num)
         apply_jitter_to_frame(update_scene, jitter_x, jitter_y, base_shift_x, base_shift_y)

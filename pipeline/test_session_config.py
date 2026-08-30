@@ -135,6 +135,21 @@ def test_default_leaves_blend_percentage() -> None:
     assert reason == "rr_native_output"
 
 
+def test_rr_uses_quality_slot_not_arbitrary_percentage() -> None:
+    pct, reason = resolve_render_percentage(None, "BALANCED", mode="rr")
+    assert pct == 58
+    assert reason == "rr_quality_scale"
+    pct, reason = resolve_render_percentage(57, "BALANCED", mode="rr")
+    assert pct == 58
+    assert reason == "rr_quality_scale"
+    pct, reason = resolve_render_percentage(None, "PERFORMANCE", mode="rr")
+    assert pct == 50
+    assert reason == "rr_quality_scale"
+    pct, reason = resolve_render_percentage(40, "QUALITY", native_res_buffers=True, mode="rr")
+    assert pct == 100
+    assert reason == "rr_native_output"
+
+
 def test_dual_pass_only_when_native_and_scaled_sr() -> None:
     assert wants_dual_pass(native_res_buffers=False, mode="sr", percentage=58) is False
     assert wants_dual_pass(native_res_buffers=True, mode="sr", percentage=58) is True
@@ -212,6 +227,7 @@ if __name__ == "__main__":
     test_parse_fg_multiplier()
     test_resolve_filename_template()
     test_default_leaves_blend_percentage()
+    test_rr_uses_quality_slot_not_arbitrary_percentage()
     test_dual_pass_only_when_native_and_scaled_sr()
     test_ram_window_budget_90_or_1g()
     test_plan_ram_windows_spans_two()

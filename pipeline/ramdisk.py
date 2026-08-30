@@ -4,13 +4,8 @@ ImDisk is the recommended backend, not a hard compile-time dependency.
 If it is missing, fail with a clear install message — never pretend the
 disk was created.
 
-Release installer (not Stage 2) should ship / install ImDisk Toolkit
-alongside the compositor so users do not have to hunt it down.
-
-NTFS via `imdisk -p` needs an elevated token (`format.com`). This process
-is usually a UAC-filtered admin, so create() tries NTFS first, then falls
-back to a preformatted FAT32 image loaded into an ImDisk VM disk — still
-16 GB in RAM, still a drive letter, no EXRs on the working disk.
+NTFS via `imdisk -p` needs an elevated token (`format.com`). No fallback
+filesystem: if the format fails, report the permission problem clearly.
 """
 from __future__ import annotations
 
@@ -21,11 +16,8 @@ import shutil
 import string
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-
-from _fat32img import write_fat32_image
 
 IMDISK_MISSING_MESSAGE = "请安装 ImDisk Toolkit"
 
@@ -276,8 +268,6 @@ def unmount(letter: str, *, force: bool = False, missing_ok: bool = False) -> No
     if letter in logical_letters():
         result = _run_imdisk(imdisk, ["-D", "-m", f"{letter}:"])
     _force_remove_units(imdisk)
-    for leftover in Path(tempfile.gettempdir()).glob("dlss-ramdisk-*.img"):
-        leftover.unlink(missing_ok=True)
     still_there = letter in logical_letters() and volume_filesystem(letter) is not None
     if still_there and not missing_ok:
         stderr = (result.stderr or result.stdout or "").strip()
@@ -356,36 +346,25 @@ def _try_image(imdisk: Path, letter: str, size: str) -> Path:
 
 
 def create(size: str = DEFAULT_SIZE, letter: str | None = None) -> RamDisk:
-    """Create a 16 GB RAM disk. NTFS if format.com can elevate; else FAT32 image in VM."""
+    """Create a RAM disk formatted NTFS. Needs an elevated token for format.com."""
     imdisk = require_imdisk()
     chosen = pick_letter(letter)
     emit("ramdisk_create", letter=chosen, size=size, imdisk=str(imdisk))
-    image_path: Path | None = None
-    filesystem = "NTFS"
     try:
-        if _try_ntfs(imdisk, chosen, size):
-            filesystem = "NTFS"
-        else:
+        if not _try_ntfs(imdisk, chosen, size):
             unmount(chosen, force=True, missing_ok=True)
-            leftover = _try_image(imdisk, chosen, size)
-            filesystem = volume_filesystem(chosen) or "FAT32"
-            image_path = leftover if leftover and leftover.exists() else None
+            raise ImDiskError(
+                "内存盘创建失败：NTFS 快速格式化需要管理员权限（format.com）。"
+                "请以管理员身份运行，或改用缓存路径模式。"
+            )
         fs = volume_filesystem(chosen)
         if fs is None:
             raise ImDiskError(f"ImDisk attached {chosen}: but no filesystem")
         root = Path(f"{chosen}:\\")
         emit("ramdisk_ready", letter=chosen, root=str(root), filesystem=fs)
-        return RamDisk(
-            letter=chosen,
-            size=size,
-            root=root,
-            filesystem=fs,
-            image_path=image_path,
-        )
+        return RamDisk(letter=chosen, size=size, root=root, filesystem=fs)
     except Exception:
         unmount(chosen, force=True, missing_ok=True)
-        if image_path:
-            image_path.unlink(missing_ok=True)
         raise
 
 

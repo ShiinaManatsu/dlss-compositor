@@ -45,6 +45,7 @@ from session_config import (
     EXR_COLOR_DEPTH,
     GUIDES_SUBDIR,
     NR_RESERVED_MESSAGE,
+    QUALITY_SLOTS,
     cycles_policy_for_mode,
     estimate_window_frame_bytes,
     job_token_from_blend,
@@ -232,6 +233,8 @@ def build_blender_cmd(
     if args.engine:
         cmd.extend(["--engine", args.engine])
     cmd.extend(["--mode", args.mode])
+    if getattr(args, "sampling_pattern", None):
+        cmd.extend(["--sampling-pattern", str(args.sampling_pattern)])
     if getattr(args, "output_width", None) is not None:
         cmd.extend(["--output-width", str(args.output_width)])
     if getattr(args, "output_height", None) is not None:
@@ -644,6 +647,41 @@ def run_stage3(args: argparse.Namespace) -> int:
             )
             return code
 
+        # start_job loads dlssconfig immediately. Bake it (and LUTs) onto the
+        # RAM disk before spawning the engine, then skip-config on the render pass.
+        config_cmd = build_blender_cmd(
+            args,
+            blender,
+            ram_dir,
+            frame_start=job_frame_start,
+            frame_end=job_frame_end,
+            dry_run=True,
+            config_frame_start=job_frame_start,
+            config_frame_end=job_frame_end,
+            config_dir=ram_dir,
+        )
+        emit("blender_start", message="写 dlssconfig / LUT，不渲染", cmd=config_cmd)
+        blender_proc = subprocess.Popen(
+            config_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        config_code, _peak_b, _peak_f, _measured = pump_blender(
+            blender_proc, ram_dir, budget_bytes=budget, stop_flag=lambda: stop_requested
+        )
+        blender_proc = None
+        emit("blender_exit", code=config_code, phase="config")
+        if config_code not in (0, None):
+            emit("error", message=f"写 dlssconfig 失败，退出码 {config_code}")
+            return int(config_code or 1)
+        if not (ram_dir / "dlssconfig.json").is_file():
+            emit("error", message="inject 未写出 dlssconfig.json")
+            return 1
+
         stderr_path = export_dir / "cli.stderr.log"
         cli_proc = spawn_cli(cli_path, stderr_path)
         rpc = StdioRpcClient(cli_proc)
@@ -664,17 +702,20 @@ def run_stage3(args: argparse.Namespace) -> int:
             "frame_start": job_frame_start,
             "frame_end": job_frame_end,
             "window": args.window,
-            "delete_consumed": True,
+            "watch": True,
             "wait_for_appearance": True,
+            "delete_consumed": True,
             "native_res_buffers": native,
             "config": str(ram_dir / "dlssconfig.json"),
+            "overwrite_mode": "overwrite",
+            "rr_preset": str(getattr(args, "rr_preset", "F") or "F"),
         }
         if dual:
             job_params["color_dir"] = str(color_dir)
             job_params["guides_dir"] = str(guides_dir)
         fg = parse_fg_multiplier(getattr(args, "fg", None))
         if fg >= 2:
-            job_params["fg"] = f"{fg}x"
+            job_params["fg_multiplier"] = fg
         job = rpc.request("start_job", job_params)
         emit("job_started", message="引擎已启动，等待 EXR", **job)
 
@@ -731,7 +772,7 @@ def run_stage3(args: argparse.Namespace) -> int:
         planned = list(windows)
         index = 0
         windows_incomplete = False
-        wrote_config = False
+        wrote_config = True
         while index < len(planned):
             if stop_requested:
                 break
@@ -983,12 +1024,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--percentage",
         type=int,
         default=None,
-        help="render resolution_percentage; omit to leave the blend. RR+native-res-buffers forces 100.",
+        help="SR render resolution_percentage; omit to leave the blend. Ignored for RR (quality slot only).",
     )
     parser.add_argument(
         "--legacy-scale",
         action="store_true",
-        help="if --percentage is omitted, use the quality-ratio percentage",
+        help="SR: if --percentage is omitted, use the quality-ratio percentage",
     )
     parser.add_argument(
         "--native-res-buffers",
@@ -997,7 +1038,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--frame-start", type=int, default=None)
     parser.add_argument("--frame-end", type=int, default=None)
-    parser.add_argument("--quality", default="BALANCED")
+    parser.add_argument(
+        "--quality",
+        default="BALANCED",
+        choices=QUALITY_SLOTS,
+        help="DLSS quality slot. RR uses this for render scale (no arbitrary %).",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--engine", default=None)
     parser.add_argument("--samples", type=int, default=None)
@@ -1012,6 +1058,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--label", default=VOLUME_LABEL)
     parser.add_argument("--mode", choices=("sr", "rr", "nr"), default="sr")
     parser.add_argument("--fg", default=None, help="Frame Generation multiplier: 2x..6x (SR or RR).")
+    parser.add_argument(
+        "--rr-preset",
+        default="F",
+        choices=("D", "E", "F"),
+        help="DLSS-RR preset. F = RR2 (310.7.128+ / driver ≥580).",
+    )
+    parser.add_argument(
+        "--sampling-pattern",
+        default=None,
+        choices=("AUTOMATIC", "TABULATED_SOBOL", "BLUE_NOISE"),
+        help="Cycles sampling pattern (RR only). TABULATED_SOBOL ≈ white noise (RR §3.5).",
+    )
     parser.add_argument("--export-dir", default="build/stage3-out", help="working-disk output (MOV/sequence)")
     parser.add_argument("--output-format", default="prores_422hq", help="exr | png_16 | prores_422hq")
     parser.add_argument(
@@ -1083,6 +1141,8 @@ def main(argv: list[str] | None = None) -> int:
         pct_msg = "沿用 blend 渲染百分比（质量百分比路径）"
     elif pct_reason == "rr_native_output":
         pct_msg = "RR 原生分辨率缓冲：一趟 100%"
+    elif pct_reason == "rr_quality_scale":
+        pct_msg = f"RR 仅支持质量档：{args.quality} → {pct}%"
     elif pct_reason == "legacy_quality_scale":
         pct_msg = f"按 {args.quality} 降到 {pct}%"
     else:

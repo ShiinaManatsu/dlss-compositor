@@ -32,6 +32,7 @@ DLSS_RATIO: dict[str, float] = {
     "PERFORMANCE": 2.0,
     "ULTRA_PERFORMANCE": 3.0,
 }
+QUALITY_SLOTS = tuple(DLSS_RATIO.keys())
 
 NR_RESERVED_MESSAGE = "DLSS5-NR 模型未到，接口已预留"
 RR_FG_CREATE_FAILED = "RR+FG 创建失败"
@@ -132,14 +133,19 @@ def resolve_render_percentage(
     native_res_buffers: bool = False,
     mode: str = "sr",
 ) -> tuple[int | None, str]:
-    """Default leaves the blend percentage (quality-ratio path).
+    """SR default leaves the blend percentage (quality-ratio path).
 
-    ``native_res_buffers`` + RR forces 100% (one output-res pass).
-    ``legacy_scale`` without an explicit percentage uses the quality table.
+    RR only supports NGX quality slots (not arbitrary percentages). The
+    render scale is always ``recommended_percentage(quality)`` unless
+    ``native_res_buffers`` forces one output-res pass at 100%.
+    ``legacy_scale`` without an explicit percentage uses the quality table
+    for SR.
     """
     key = (mode or "sr").strip().lower()
     if native_res_buffers and key == "rr":
         return 100, "rr_native_output"
+    if key == "rr":
+        return recommended_percentage(quality), "rr_quality_scale"
     if percentage is not None:
         return int(percentage), "explicit"
     if legacy_scale:

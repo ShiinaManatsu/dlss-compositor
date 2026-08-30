@@ -1,0 +1,19 @@
+{
+  "note": "Runtime DLLs used for local testing. Official release must locate these at runtime and must not ship them.",
+  "source": "dlss-swapper",
+  "version": "310.7.129.0",
+  "dlls": {
+    "nvngx_dlss.dll": {
+      "url": "https://dlss-swapper-downloads.beeradmoore.com/dlss/dlss_v310.7.129.0_D54BE95CFD9DF08C6EBA49DA2E1A2B7E.zip",
+      "role": "SR"
+    },
+    "nvngx_dlssd.dll": {
+      "url": "https://dlss-swapper-downloads.beeradmoore.com/dlss_d/dlss_d_v310.7.129.0_C02E1078AB74415BDA338283D08B1160.zip",
+      "role": "RR"
+    },
+    "nvngx_dlssg.dll": {
+      "url": "https://dlss-swapper-downloads.beeradmoore.com/dlss_g/dlss_g_v310.7.129.0_FCE136870CEC8279A6598367E4EA0AF2.zip",
+      "role": "FG"
+    }
+  }
+}
