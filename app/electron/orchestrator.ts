@@ -115,6 +115,8 @@ export type ExportRequest = {
   percentage?: number;
   samples?: number;
   nativeResBuffers?: boolean;
+  /** Export dlssnrbuffer_####.exr (MV+depth guidance) for the NR tool. */
+  nrBuffer?: boolean;
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
@@ -556,6 +558,7 @@ export class PipelineOrchestrator {
         wait_for_appearance: true,
         delete_consumed: true,
         native_res_buffers: native,
+        nr_buffer: Boolean(req.nrBuffer),
         color_dir: dual ? colorDir : undefined,
         guides_dir: dual ? guidesDir : undefined,
         config: path.join(ramDir, 'dlssconfig.json'),

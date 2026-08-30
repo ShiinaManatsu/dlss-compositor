@@ -118,6 +118,8 @@ export type DcpProject = {
   useRamdisk: boolean;
   cachePath: string;
   nativeResBuffers: boolean;
+  /** Export dlssnrbuffer_####.exr (MV+depth) alongside the output for the NR tool. */
+  nrBuffer: boolean;
   /** 0 = off; 2..6 matches CLI `--fg` / RPC `fg` / `fg_multiplier`. */
   fg: number;
   splitters: Splitters;
@@ -416,6 +418,7 @@ export function parseDcp(raw: string): ParseDcpResult {
       useRamdisk: bool(obj.useRamdisk, true),
       cachePath: str(obj.cachePath, ''),
       nativeResBuffers: bool(obj.nativeResBuffers, false),
+      nrBuffer: bool(obj.nrBuffer, false),
       fg: parseFg(obj.fg ?? obj.fg_multiplier),
       splitters: clampSplitters(isRecord(obj.splitters) ? (obj.splitters as Partial<Splitters>) : undefined),
       preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null,
@@ -477,6 +480,7 @@ export function emptyProject(blend: string): DcpProject {
     useRamdisk: true,
     cachePath: '',
     nativeResBuffers: false,
+    nrBuffer: false,
     fg: 0,
     splitters: {...DEFAULT_SPLITTERS},
     preview: null

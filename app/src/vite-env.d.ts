@@ -82,6 +82,7 @@ type ExportRequest = {
   window?: number;
   overrides?: SceneOverrides;
   nativeResBuffers?: boolean;
+  nrBuffer?: boolean;
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;

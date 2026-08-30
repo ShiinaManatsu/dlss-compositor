@@ -18,6 +18,27 @@ export const VOLUME_LABEL = 'DLSSRAM';
 export const NTFS_FORMAT_ERROR =
   '内存盘创建失败：NTFS 快速格式化需要管理员权限（format.com）。请以管理员身份运行，或改用缓存路径模式。';
 
+/** imdisk returns 0 even when the -p format fails; the only truth is the
+ *  volume's filesystem. Allow a short settle window — Get-Volume can lag the
+ *  format completing by a beat on a freshly attached device. */
+async function waitForFilesystem(letter: string, timeoutMs = 6000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let filesystem = '';
+  while (Date.now() < deadline) {
+    const vol = (await listVolumes()).find((v) => v.letter === letter);
+    filesystem = vol?.filesystem ?? '';
+    if (filesystem.toUpperCase() === 'NTFS') break;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return filesystem;
+}
+
+/** Pull the actionable lines (imdisk/format diagnostics) out of raw output. */
+function formatLogTail(result: {stdout: string; stderr: string}): string {
+  const log = `${result.stderr}\n${result.stdout}`.trim();
+  return log.replace(/\s+/g, ' ').slice(-240);
+}
+
 const PREFERRED_LETTERS = 'RSTUVWXYZPQ';
 const NTFS_FORMAT_ARGS = '/fs:ntfs /q /y /v:DLSSRAM';
 const IMDISK_CANDIDATES = [
@@ -272,24 +293,28 @@ export async function createRamdisk(size = '8G', requested?: string): Promise<Ra
       ['-a', '-t', 'vm', '-s', diskSize, '-m', `${letter}:`, '-p', NTFS_FORMAT_ARGS],
       120000
     );
-  const filesystemNow = async (): Promise<string> => {
-    const vol = (await listVolumes()).find((v) => v.letter === letter);
-    return vol?.filesystem ?? '';
-  };
   try {
+    // Clear phantom devices a prior failed run may have left on the letter —
+    // a stale unformatted device otherwise blocks attach + format silently.
+    await forceDetach(imdisk, letter);
     // 64MB probe: proves format.com works before committing to the full disk.
-    await attach('64M');
-    const probeFs = await filesystemNow();
+    const probe = await attach('64M');
+    const probeFs = await waitForFilesystem(letter);
     await forceDetach(imdisk, letter);
     if (probeFs.toUpperCase() !== 'NTFS') {
-      return {ok: false, error: NTFS_FORMAT_ERROR};
+      const tail = formatLogTail(probe);
+      const guidance = /elevated|access denied|privilege/i.test(tail) ? NTFS_FORMAT_ERROR : '';
+      return {
+        ok: false,
+        error: `内存盘 64MB NTFS 格式化探测未通过（${letter}:）。${tail} ${guidance}`.trim(),
+      };
     }
     const result = await attach(size);
-    const filesystem = await filesystemNow();
+    const filesystem = await waitForFilesystem(letter);
     if (result.code !== 0 || filesystem.toUpperCase() !== 'NTFS') {
       await forceDetach(imdisk, letter);
-      const log = (result.stderr || result.stdout || '').trim();
-      return {ok: false, error: `ImDisk 在 ${letter}: 上创建 ${size} 内存盘失败 ${log.slice(-200)}`.trim()};
+      const log = formatLogTail(result);
+      return {ok: false, error: `ImDisk 在 ${letter}: 上创建 ${size} 内存盘失败 ${log}`.trim()};
     }
     const info = (await listVolumes()).find((v) => v.letter === letter);
     return {

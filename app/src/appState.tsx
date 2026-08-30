@@ -141,6 +141,7 @@ export function useAppState() {
   const [cachePath, setCachePath] = useState('');
   const [elevated, setElevated] = useState(false);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
+  const [nrBuffer, setNrBuffer] = useState(false);
   const [fg, setFg] = useState(0);
   const [status, setStatus] = useState<JobStatus>('idle');
   const [currentFrame, setCurrentFrame] = useState(1);
@@ -170,7 +171,8 @@ export function useAppState() {
   const canRR = !hasScene || rrAllowed(scene?.engine);
   const nativeResEnabled = hasScene && nativeResAllowed(scene?.engine, mode);
   const fgEnabled = fgAllowed(mode);
-  const fgMultiplier = fgEnabled ? parseFg(fg) : 0;
+  // dlssnrbuffer guidance is written at input rate — mutually exclusive with FG.
+  const fgMultiplier = fgEnabled && !nrBuffer ? parseFg(fg) : 0;
   const rrLocksDenoise = mode === 'rr';
   const outputFrames = outputFrameCount(frameCount, fgMultiplier);
   const displayFrame = Math.min(frameEnd, Math.max(frameStart, currentFrame));
@@ -319,6 +321,7 @@ export function useAppState() {
       cachePath: useRamdisk && elevated ? '' : cachePath,
       overrides,
       nativeResBuffers: nativeResEnabled && nativeResBuffers,
+      nrBuffer,
       fg: fgMultiplier,
       effectivePercentage: pins.percentage ? percentage : (scene?.resolution_percentage ?? percentage)
     };
@@ -347,6 +350,7 @@ export function useAppState() {
     cachePath,
     nativeResBuffers,
     nativeResEnabled,
+    nrBuffer,
     fgMultiplier,
     scene
   ]);
@@ -380,6 +384,7 @@ export function useAppState() {
       useRamdisk,
       cachePath,
       nativeResBuffers,
+      nrBuffer,
       fg: fgMultiplier,
       splitters: {...DEFAULT_SPLITTERS},
       history: history.length ? history : undefined
@@ -413,6 +418,7 @@ export function useAppState() {
     setUseRamdisk(project.useRamdisk);
     setCachePath(project.cachePath);
     setNativeResBuffers(Boolean(project.nativeResBuffers));
+    setNrBuffer(Boolean(project.nrBuffer));
     setFg(fgAllowed(nextMode) ? parseFg(project.fg) : 0);
     setHistory(project.history ?? []);
     playheadRef.current = project.frameStart;
@@ -732,6 +738,7 @@ export function useAppState() {
     useRamdisk,
     cachePath,
     nativeResBuffers,
+    nrBuffer,
     fg,
     history
   ]);
@@ -1081,6 +1088,8 @@ export function useAppState() {
     nativeResBuffers,
     setNativeResBuffers,
     nativeResEnabled,
+    nrBuffer,
+    setNrBuffer,
     fgEnabled,
     fgMultiplier,
     setFg,
@@ -1136,7 +1145,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.0';
+  return appVersion || '0.4.1';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {
