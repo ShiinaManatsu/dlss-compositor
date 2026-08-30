@@ -249,6 +249,14 @@ FG 输入：
 - 运动向量（同上）
 - Camera matrix（来自 dlssconfig）
 
+### 4.5 NR 独立合成流程（DLSSNR，两段式）
+
+NR 拆成一趟渲染 + 一趟调参两个阶段（类似 Premiere 里加效果），因为 NR 参数需要反复调整，不能绑死在一次性渲染里：
+
+- **Stage A（渲染时导出）**：管线加 `nr_buffer` 开关，在 tonemap 后额外回读 MV/深度并打包 **dlssnrbuffer**——RGB half EXR（R=mv.x G=mv.y B=NDC 深度，DepthInverted 约定），渲染分辨率、zip 无损，命名 `dlssnrbuffer_####.exr`。约束：FG 必须关（引导需在输入帧率）、与 kNR 互斥。色彩照常导出为 display-ready（ProRes/H265/PNG16）。
+- **Stage B（NR 工具）**：`NrToolSession` 读色彩源（FFmpeg 视频或 PNG16 序列）+ dlssnrbuffer，逐帧上传后进 DLSSNR（NGX feature 18），RGBA8 输出用于预览/再导出。时间语义：`frameIndex != last+1` 即置 `DLSSNR.Reset`（拖动/跳帧）。调参面 = Style/Intensity/LocalTone/LocalStructure/UseAutoMask/GuidanceMode（我们喂真实引导，Magpie 的 Depth Inference Interval 等兜底参数一概不加）。
+- **Feature 18 加载**：core `_nvngx.dll` 不路由 feature 18，需直接加载签名 snippet `nvngx_dlssnr.dll`（310.8.0.0）；snippet 校验调用方模块名，Init 会 0xBAD00002——用 IAT hook 把 snippet 的 `GetModuleFileNameW` 指回 `nvngx.dll` + 魔数 app id（Magpie 方案）。该 DLL 仅开发机持有（gitignored `resources/`，`pack-backend.mjs` 固定三 DLL 白名单不带它）。
+
 ---
 
 ## 5. 后端模块
@@ -329,9 +337,9 @@ Electron 36
 
 选型理由：符合"专业简洁"定位，内置 dark/light theme，控件齐全（Picker、NumberField、Switch、ProgressBar、Disclosure、ListView、ActionMenu、CardView、Tabs）。
 
-### 6.2 屏幕结构（rail 四页）
+### 6.2 屏幕结构（rail 五页）
 
-左侧竖排导航（S2 Tabs vertical：项目/导出/Jobs/设置），标题栏 = logo + 面包屑（`项目名 > 页面`）+ 窗口控制；导出页时标题栏右上为 **发起任务**（运行中变 **停止**）。
+左侧竖排导航（S2 ToggleButtonGroup vertical：项目/导出/Jobs/NR 工具/设置），标题栏 = logo + 面包屑（`项目名 > 页面`）+ 窗口控制；导出页时标题栏右上为 **发起任务**（运行中变 **停止**）。
 
 - **项目**（首屏）：最近 `.dcp` 卡片网格（CardView/AssetCard），右上 [打开][新建项目]。
 - **导出**：左侧设置面板，四个 Disclosure 组 ——
@@ -341,6 +349,7 @@ Electron 36
   - ▸ 高级：消费窗口、ImDisk/内存盘状态
   右侧预览：JPEG 预览（512px readback → base64 → objectURL），**底部叠加进度条**（按 Blender 帧数计百分比 + 第 x/y 帧 + 每/帧 + 剩余时间）。
 - **Jobs**：当前项目产出列表（ListView），序列与视频各一条（模板前缀+帧区间 / 单文件），`…` 菜单：打开文件夹 / 打开文件 / 复制路径；序列帧数由 `fs:listDir` 实扫。记录随 `.dcp` 的 `history` 字段持久化。
+- **NR 工具**（不依赖打开的项目）：Premiere 式后处理视口。左栏三组 Disclosure —— 媒体（色彩源 = 导出的视频或 PNG16 序列目录 + dlssnrbuffer 目录，[打开] 建 NR 会话）、NR 设置（风格/强度/局部色调/局部结构/自动遮罩/引导模式，改动防抖 300ms 重评当前帧）、导出（ProRes 422 HQ / H.265 / PNG16 + 输出路径）。右侧视口 = JPEG 预览 + 底部时间轴（播放/暂停、帧滑条、帧计数）；播放按引擎实际速度链式推进（4K ≈ 2.6fps），拖动即暂停并逐帧重评（跳帧自动 InReset）。导出进度条叠在时间轴上方；离开页面即释放 4K NR 会话。
 - **设置**：颜色方案（深/浅/跟随系统）、环境探测（Blender/ImDisk/内存盘）、DLSS DLL 版本（锁定 310.7.129.0）、关于。
 
 状态集中在 `src/appState.tsx`（context）：全部设置、事件流（inspect/progress/preview/export_done→history）、自动保存 .dcp。页面组件在 `src/pages/`。旧 V3 界面留在 `app/ref-v3ui/` 供参考，不参与编译。
@@ -377,13 +386,15 @@ DLSS_EVENT:{"event":"error","message":"..."}
 {"cmd": "ping"}
 ```
 
-### 7.3 Python→CLI（JSON-RPC stdio，复用现有 RpcDispatcher）
+### 7.3 Python→CLI / Electron→CLI（JSON-RPC stdio，复用现有 RpcDispatcher）
 
 ```json
 {"jsonrpc":"2.0","method":"startTask","id":1,"params":{...}}
 {"jsonrpc":"2.0","method":"getStatus","id":2}
 {"jsonrpc":"2.0","method":"stopTask","id":3}
 ```
+
+NR 工具走同一通道：`nrtool_open`（建会话，返回帧数/尺寸/fps）→ `nrtool_preview`（帧号+NR 参数 → RGBA8 回读 JPEG base64 + eval_ms/reset_applied）→ `nrtool_export`（后台线程，进度复用 `progress`，`stop` 可取消）→ `nrtool_close`。Electron 侧由 orchestrator 的 `nr*` 方法包装并轮询成 `nrtool_progress/done/stopped/error` 事件。
 
 ---
 
@@ -453,7 +464,8 @@ blend 未保存。
 | 中 | 最后几帧背景变脏 | 完整序列后再查，高于双趟/HDR |
 | 低 | SR `native_res_buffers` 双趟 | Python 有 `color/`+`guides/`，C++ 只有一个 `inputDir` |
 | 低 | HDR ProRes | 打了 PQ+BT.2020 标签，未跑过 |
-| 预留 | NR / ProRes 4444 | 位和枚举在，不做 |
+| 预留 | ProRes 4444 | 位和枚举在，不做 |
+| 完成 | NR 独立合成流程 | 2026-08-30 落地：dlssnrbuffer 导出 + NR 工具页（§4.5、§6.2） |
 
 前端（Flutter 设置面板、Job 列表、把 JPEG 画到预览窗）等上面三项完成后再开。DESIGN §6 Electron 草案不要当施工图。
 
@@ -467,6 +479,7 @@ blend 未保存。
 | RR-P2 | Blender 5.3 Denoising Specular Motion | inject 已接线，正式测试用过 |
 | SR-P1 | native_res_buffers 双趟 | Python 窗口有，C++ 没接。优先级同 HDR，后做 |
 | FG-P1 | RR→FG 与 SR→FG | 都是 tonemap 后进 FG。已实测 |
+| NR-P1 | DLSSNR（feature 18）加载 | core 不路由，直接载签名 snippet + 调用方 shim；已跑通管线内与 NR 工具全链路（4K 预览 ≈ 0.38s/帧） |
 | DLL-P1 | Release DLL 从哪来 | 随应用（exe 旁），NGX core 来自驱动；开发版锁 310.7.129 |
 | PV-P1 | 预览 JPEG | 回读通路在，编码/RPC 未开。GUI 前必须做 |
 | QA-P1 | 4x 原生片最后几帧背景变脏 | 完整拼完再查 |

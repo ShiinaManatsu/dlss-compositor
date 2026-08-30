@@ -7,13 +7,14 @@ High-signal notes for future OpenCode sessions. Keep this file compact; prefer v
 - `cli/src/`: C++23 Vulkan/NGX engine, `dlss_engine_lib`, and `dlss-compositor-cli.exe`.
 - `cli/tests/`: native Catch2 coverage and focused regression checks.
 - `cli/resources/`: engine-side reference assets; `legacy-luts/` is archival scratch data, not the active Blender-export LUT path.
-- `app/`: Electron + React Spectrum 2 product UI — rail navigation (项目/导出/Jobs/设置). Pre-redesign V3 UI kept read-only under `app/ref-v3ui/` (excluded from tsconfig/vite). CLI subprocess is the backend; do not add a native in-process plugin path. Packaging: electron-builder (`npm run dist`), backend bundle assembled by `app/scripts/pack-backend.mjs`.
+- `app/`: Electron + React Spectrum 2 product UI — rail navigation (项目/导出/Jobs/NR 工具/设置). Pre-redesign V3 UI kept read-only under `app/ref-v3ui/` (excluded from tsconfig/vite). CLI subprocess is the backend; do not add a native in-process plugin path. Packaging: electron-builder (`npm run dist`), backend bundle assembled by `app/scripts/pack-backend.mjs`.
 - `blender-plugin/`: Blender 5.1+ extension that writes multilayer EXR input and `dlssconfig.json`.
 - `docs/dlss-refs/`: local DLSS SDK doc mirrors; cite these before changing NGX calls.
 - `docs/research/`: scratch notes worth keeping around but not treating as source-of-truth docs.
 - `docs/external/`: large third-party reference drops kept outside the active module roots.
 - `DLSS/`: NVIDIA DLSS SDK v310.6.0 submodule (headers + import libs). Initialize submodules before configuring CMake.
 - DLSS feature DLLs (310.7.129.0) ship with the app, next to the exe (DLSS Programming Guide §5.1): CMake POST_BUILD copies `resources/nvngx_dlss.dll` / `nvngx_dlssd.dll` / `nvngx_dlssg.dll` for Debug, and the release zip bundles them the same way. NGX core (`_nvngx.dll`) always comes from the NVIDIA driver — never bundle it.
+- DLSSNR (feature 18) is a signed snippet (`nvngx_dlssnr.dll` 310.8.0.0) loaded directly by `cli/src/dlss/dlss_nr.cpp` — the core DLL does not route it. The snippet verifies its caller module, so `DlssNrPass` IAT-hooks the snippet's `GetModuleFileNameW` import to answer `nvngx.dll` (Magpie approach) or Init fails with 0xBAD00002. That DLL is dev-machine-only: gitignored under `resources/`, and `pack-backend.mjs` keeps its fixed 3-DLL whitelist (installers must not ship it).
 - Root should stay lean: module roots, build entry files, scripts, and top-level docs only.
 
 ## Build and verification flow
@@ -57,8 +58,11 @@ npx electron . --home --screenshot ../build/shot-project.png --quit-on-shot
 npx electron . --dcp <x.dcp> --screenshot ../build/shot-export.png --quit-on-shot
 npx electron . --home --page jobs --screenshot ../build/shot-jobs.png --quit-on-shot
 npx electron . --home --page settings --screenshot ../build/shot-settings.png --quit-on-shot
+npx electron . --home --page nrtool --screenshot ../build/shot-nrtool.png --quit-on-shot
 npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png --quit-on-shot
 ```
+
+- NR standalone workflow regression: `python tools/run_nr_tool_smoke.py` (needs Stage-A exports in `test-frames/rr/pipeline-out-nrbuf` — color PNG16 + `dlssnrbuffer_*.exr`; regenerable via `tools/run_nr_buffer_job.py`). Exercises nrtool_open → preview/scrub → ProRes export → close over JSON-RPC.
 
 - GPU/NGX tests are tagged `[gpu]` and require NVIDIA RTX + drivers; run locally with `ctest -C Release --label-regex gpu` from the configured build dir.
 - `dlss-compositor-cli --self-check` is not yet a real capability probe; trust `NgxContext`/status logs and targeted tests instead.
@@ -74,6 +78,7 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 - Current Blender MV mapping is `DLSS_MV = (Blender.X, -Blender.Y)`. Do not whole-vector negate.
 - `InReset` is only for first frame, frame gaps, or camera cuts; never set it every frame.
 - SR input is scene-linear before tonemap. FG input is display-ready after tonemap/EOTF.
+- NR tool sessions and pipeline jobs are mutually exclusive by design (dispatcher rejects nrtool_open/preview during a job and start_job during an NR export); `stop` cancels whichever is running. NR consumes display-ready color only — scene-linear EXR is rejected as a color source.
 - Guide-buffer dumps are gated by `DLSS_COMPOSITOR_DUMP_GUIDES=1` and write under the output dir.
 
 ## Output formats and schema
@@ -102,8 +107,8 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 
 ## False claims to avoid
 
-- GUI is Electron + React Spectrum 2 (`app/`): rail nav (项目/导出/Jobs/设置)， breadcrumb title bar, Start/停止 in title bar on the Export page; progress overlays the preview. S2 usage follows the component docs (subpath imports for ActionMenu/MenuItem, ToggleButtonGroup for the rail, Disclosure groups in settings). `app/ref-v3ui/` is the retired V3 shell kept for reference only.
+- GUI is Electron + React Spectrum 2 (`app/`): rail nav (项目/导出/Jobs/NR 工具/设置)， breadcrumb title bar, Start/停止 in title bar on the Export page; progress overlays the preview. S2 usage follows the component docs (subpath imports for ActionMenu/MenuItem, ToggleButtonGroup for the rail, Disclosure groups in settings). `app/ref-v3ui/` is the retired V3 shell kept for reference only.
 - Not DX12 output: v2 is Vulkan only.
 - Not NIS: SR is DLSS only.
-- Not general video export yet: ProRes 422 HQ is the only implemented video muxer; ProRes 4444 and other video codecs are not.
+- Not general video export yet: ProRes 422 HQ is the only implemented video muxer; ProRes 4444 and other video codecs are not. The NR tool exports ProRes 422 HQ / H.265 / PNG16 only.
 - FG does not “clamp HDR to 10 nits”; current HDR transport is scene-linear -> display-ready for FG, then inverse for EXR output.
