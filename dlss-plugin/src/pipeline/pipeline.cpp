@@ -17,17 +17,12 @@
 #include "../io/prores_writer.h"
 #include "../io/channel_mapper.h"
 #include "../io/rr_channel_mapper.h"
+#include "../io/file_watcher.h"
 
 #ifndef VK_NO_PROTOTYPES
 #define VK_NO_PROTOTYPES
 #endif
 #include <volk.h>
-
-#include <OpenEXR/ImfChannelList.h>
-#include <OpenEXR/ImfFrameBuffer.h>
-#include <OpenEXR/ImfHeader.h>
-#include <OpenEXR/ImfOutputFile.h>
-#include <OpenEXR/ImfPixelType.h>
 
 #include <algorithm>
 #include <array>
@@ -40,8 +35,10 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -149,35 +146,48 @@ void barrierGeneralToShaderRead(VkCommandBuffer cmd, PooledTextureHandle t) {
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
-// Batch transition: colorOutput UNDEFINED→GENERAL (write), depth+mv GENERAL→SHADER_READ (read).
-// depthNdc and mvDlss are already in GENERAL from the depth/mv conversion passes.
+// DLSS PG §3.4 Resource States:
+//   inputs  = sampled image (VK_IMAGE_USAGE_SAMPLED_BIT, SHADER_READ_ONLY)
+//   output  = storage image (VK_IMAGE_USAGE_STORAGE_BIT, GENERAL)
+// NGX transitions them back to these states after evaluate.
 void transitionForDlssEvaluate(VkCommandBuffer cmd,
                                const PooledTextureHandle& colorOutput,
-                               const PooledTextureHandle& depthNdc,
-                               const PooledTextureHandle& mvDlss) {
-    std::array<VkImageMemoryBarrier2, 3> bs{};
-    for (auto& b : bs) { b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}; }
-    bs[0].srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-    bs[0].dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    bs[0].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    bs[0].oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    bs[0].newLayout     = VK_IMAGE_LAYOUT_GENERAL;
-    bs[0].image         = colorOutput->image;
-    bs[1].srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    bs[1].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    bs[1].dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    bs[1].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    bs[1].oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
-    bs[1].newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    bs[1].image         = depthNdc->image;
-    bs[2]               = bs[1];
-    bs[2].image         = mvDlss->image;
+                               const PooledTextureHandle& depthForNgx,
+                               const PooledTextureHandle& mvDlss,
+                               bool depthMvWrittenThisCb) {
+    VkImageMemoryBarrier2 bs[3]{};
+    uint32_t n = 0;
+    auto init = [&](VkImageMemoryBarrier2& b) {
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    };
+    init(bs[n]);
+    bs[n].srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
+    bs[n].dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    bs[n].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    bs[n].oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+    bs[n].newLayout     = VK_IMAGE_LAYOUT_GENERAL;
+    bs[n].image         = colorOutput->image;
+    ++n;
+    if (depthMvWrittenThisCb) {
+        init(bs[n]);
+        bs[n].srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bs[n].srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        bs[n].dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        bs[n].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        bs[n].oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+        bs[n].newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bs[n].image         = depthForNgx->image;
+        ++n;
+        bs[n] = bs[n-1];
+        bs[n].image = mvDlss->image;
+        ++n;
+    }
     VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = static_cast<uint32_t>(bs.size());
-    dep.pImageMemoryBarriers    = bs.data();
+    dep.imageMemoryBarrierCount = n;
+    dep.pImageMemoryBarriers    = bs;
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
@@ -196,11 +206,12 @@ void transitionForFgEvaluate(VkCommandBuffer cmd,
         b.image = img; b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
         bs.push_back(b);
     };
+    // FG backbuffer is sampled (readWrite=false). DLSS PG §3.4 — inputs SHADER_READ.
     push(display->image,
-         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
+         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
          VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-         VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     for (const auto& h : interps)
         push(h->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
              VK_PIPELINE_STAGE_2_NONE, 0, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
@@ -214,9 +225,10 @@ void transitionDisplayAfterFg(VkCommandBuffer cmd, PooledTextureHandle display,
                               bool forInverseTonemap) {
     VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     b.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    b.oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    // FG sampled the backbuffer; NGX returns inputs to SHADER_READ (DLSS PG §3.4).
+    b.oldLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     if (forInverseTonemap) {
         b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
         b.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -374,13 +386,14 @@ void Pipeline::run(const PipelineConfig& config) {
         if (cb.onRunEvent) cb.onRunEvent(ev, detail);
     };
 
-    LOG_INFO("[Pipeline] Starting: features=0x{:x} {}+{}{} input={} output={} {}x{}->{}x{} fps={}",
+    LOG_INFO("[Pipeline] Starting: features=0x{:x} {}+{}{} input={} output={} {}x{}->{}x{} fps={} rrPreset={}",
              config.features,
              useSR ? "SR" : "RR",
              exrOut ? "Tonemap+InvTonemap" : "Tonemap",
              useFG ? "+FG(" + std::to_string(fgMult) + "x)" : "",
              inputFrames, outputFrames,
-             rW, rH, oW, oH, dlssCfg.fps);
+             rW, rH, oW, oH, dlssCfg.fps,
+             useSR ? "-" : (config.rrPreset == RrPreset::F ? "F" : config.rrPreset == RrPreset::E ? "E" : "D"));
 
     try {
         fireRunEvent(RunEvent::Started);
@@ -458,8 +471,10 @@ void Pipeline::run(const PipelineConfig& config) {
         }
 
         // ── Per-frame texture descriptors ──────────────────────────────────────
+        // DLSS PG §3.4: inputs SAMPLED, output STORAGE.
         const VkImageUsageFlags sampledUpload = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        const VkImageUsageFlags storageRw     = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        const VkImageUsageFlags storageRw     = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                                              | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
         TextureDesc tdColorRender  {rW, rH, VK_FORMAT_R16G16B16A16_SFLOAT, sampledUpload};
         TextureDesc tdColorOutput  {oW, oH, VK_FORMAT_R16G16B16A16_SFLOAT, storageRw};
@@ -548,54 +563,78 @@ void Pipeline::run(const PipelineConfig& config) {
         };
 
         // ── Frame loop ────────────────────────────────────────────────────────
-        // Prefetchers: SR uses FramePrefetcher, RR uses RrFramePrefetcher.
-        // Both are created unconditionally; only one is actually consumed.
+        // Batch mode: prefetchers read the files listed in dlssconfig.
+        // Watch mode: same prefetch threads, but each worker waits for the EXR to
+        // be fully written by Blender before decoding — EXR IO overlaps GPU work
+        // instead of serializing in the frame loop. The pipeline still deletes via
+        // onInputConsumed after CPU decode (RAM-disk watermark).
         const auto framePaths = buildFramePaths(dlssCfg, inputDir);
         const int prefetchDepth = std::max(1, config.prefetchDepth);
+
         std::unique_ptr<FramePrefetcher>   srPrefetcher;
         std::unique_ptr<RrFramePrefetcher> rrPrefetcher;
-        if (useSR) srPrefetcher = std::make_unique<FramePrefetcher>(framePaths, prefetchDepth);
-        else       rrPrefetcher = std::make_unique<RrFramePrefetcher>(framePaths, prefetchDepth);
+        if (useSR) srPrefetcher = std::make_unique<FramePrefetcher>(framePaths, prefetchDepth, config.watchInput, &m_stop);
+        else       rrPrefetcher = std::make_unique<RrFramePrefetcher>(framePaths, prefetchDepth, config.watchInput, &m_stop);
+        if (config.watchInput) {
+            LOG_INFO("[Pipeline] Watch mode on {} (prefetch depth {})", inputDir.string(), prefetchDepth);
+        }
 
         int processedInputs = 0;
 
         for (int fi = 0; fi < inputFrames && !m_stop.load(std::memory_order_acquire); ++fi) {
             Stopwatch frameSw;
+            const auto t0 = std::chrono::steady_clock::now();
 
             // ── [1] Decode EXR ─────────────────────────────────────────────────
             std::filesystem::path sourcePath;
             bool hasGap = false;
 
-            // SR path
             std::optional<MappedBuffers>   srMapped;
             std::optional<RrMappedBuffers> rrMapped;
+            std::optional<DecodedFrame>    srDecoded;
+            std::optional<RrDecodedFrame>  rrDecoded;
 
             if (useSR) {
                 auto result = srPrefetcher->getNext();
-                if (!result) { LOG_WARN("[Pipeline] SR frame {} decode: {}", fi, result.error().message); continue; }
+                if (!result) {
+                    if (m_stop.load(std::memory_order_acquire)) break;
+                    LOG_WARN("[Pipeline] SR frame {} decode: {}", fi, result.error().message);
+                    continue;
+                }
                 sourcePath = result->source_path;
                 hasGap     = result->has_gap_after;
-                auto mapped = ChannelMapper::map(*result);
+                srDecoded  = std::move(*result);
+            } else {
+                auto result = rrPrefetcher->getNext();
+                if (!result) {
+                    if (m_stop.load(std::memory_order_acquire)) break;
+                    LOG_WARN("[Pipeline] RR frame {} decode: {}", fi, result.error().message);
+                    continue;
+                }
+                sourcePath = result->source_path;
+                hasGap     = result->has_gap_after;
+                rrDecoded  = std::move(*result);
+            }
+
+            const auto tDecode = std::chrono::steady_clock::now();
+            if (useSR) {
+                auto mapped = ChannelMapper::map(*srDecoded);
                 if (!mapped) { LOG_WARN("[Pipeline] SR frame {} map: {}", fi, mapped.error().message); continue; }
                 if (mapped->width != rW || mapped->height != rH)
                     throw std::runtime_error("Pipeline: SR frame dimensions mismatch");
                 srMapped = std::move(*mapped);
-                // Fire onInputConsumed *after* CPU decode, before GPU upload.
-                if (cb.onInputConsumed && !keepInput) cb.onInputConsumed(sourcePath);
             } else {
-                auto result = rrPrefetcher->getNext();
-                if (!result) { LOG_WARN("[Pipeline] RR frame {} decode: {}", fi, result.error().message); continue; }
-                sourcePath = result->source_path;
-                hasGap     = result->has_gap_after;
-                auto mapped = RrChannelMapper::map(*result,
+                auto mapped = RrChannelMapper::map(*rrDecoded,
                     config.rrRoughness == RrRoughnessMode::Packed);
                 if (mapped.width == 0)
                     throw std::runtime_error("Pipeline: RrChannelMapper returned empty frame");
                 if (mapped.width != rW || mapped.height != rH)
                     throw std::runtime_error("Pipeline: RR frame dimensions mismatch");
                 rrMapped = std::move(mapped);
-                if (cb.onInputConsumed && !keepInput) cb.onInputConsumed(sourcePath);
             }
+            // Fire onInputConsumed *after* CPU decode, before GPU upload.
+            const auto tMap = std::chrono::steady_clock::now();
+            if (cb.onInputConsumed && !keepInput) cb.onInputConsumed(sourcePath);
 
             // ── [2] Acquire + upload textures ──────────────────────────────────
             PassTextures tex;
@@ -620,7 +659,10 @@ void Pipeline::run(const PipelineConfig& config) {
                                 rrMapped->colorRgba.size() * sizeof(uint16_t));
                 batch.addUpload(tex.depthWorld,       rrMapped->depthLinear.data(),
                                 rrMapped->depthLinear.size() * sizeof(float));
-                batch.addUpload(tex.mvBlender,        rrMapped->motionRg.data(),
+                // Mapper already emits DLSS_MV = (X, -Y) as RG16. Do NOT upload into
+                // the RGBA blender MV target (copy size mismatch → GPU overrun) and
+                // do NOT run mvPass (would flip Y a second time).
+                batch.addUpload(tex.mvDlss,           rrMapped->motionRg.data(),
                                 rrMapped->motionRg.size() * sizeof(uint16_t));
                 // RR guide buffers
                 tex.diffuseAlbedo  = pool.acquire(tdDiffAlbedo);
@@ -636,6 +678,7 @@ void Pipeline::run(const PipelineConfig& config) {
                 for (int j = 0; j < fgMult - 1; ++j)
                     tex.interpFrames.push_back(pool.acquire(tdInterp));
             batch.submit();
+            const auto tUpload = std::chrono::steady_clock::now();
 
             // ── [3] Camera data ────────────────────────────────────────────────
             const std::string& fk  = frameKeys[static_cast<size_t>(fi)].second;
@@ -651,13 +694,24 @@ void Pipeline::run(const PipelineConfig& config) {
 
             // ── [4] GPU: DepthConv + MvConv ────────────────────────────────────
             VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-            barrierUndefinedToGeneral(cmd, tex.depthNdc);
-            depthPass.execute(cmd, tex.depthWorld, tex.depthNdc,
-                              proj,
-                              cam ? cam->near_clip : 0.1f,
-                              cam ? cam->far_clip  : 100.0f);
-            mvPass.execute(cmd, tex.mvBlender, tex.mvDlss);
-            transitionForDlssEvaluate(cmd, tex.sceneColorOutput, tex.depthNdc, tex.mvDlss);
+            // SR wants HW/NDC depth. RR is created with Depth=Linear — pass world Z, skip NDC.
+            // FG still needs NDC even on the RR path.
+            const bool needNdcDepth = useSR || useFG;
+            if (needNdcDepth) {
+                barrierUndefinedToGeneral(cmd, tex.depthNdc);
+                depthPass.execute(cmd, tex.depthWorld, tex.depthNdc,
+                                  proj,
+                                  cam ? cam->near_clip : 0.1f,
+                                  cam ? cam->far_clip  : 100.0f);
+            }
+            if (useSR) {
+                barrierUndefinedToGeneral(cmd, tex.mvDlss);
+                mvPass.execute(cmd, tex.mvBlender, tex.mvDlss);
+            }
+            transitionForDlssEvaluate(cmd, tex.sceneColorOutput,
+                                      needNdcDepth ? tex.depthNdc : tex.depthWorld,
+                                      tex.mvDlss,
+                                      /*depthMvWrittenThisCb=*/useSR);
 
             // ── [5] SR -or- RR ─────────────────────────────────────────────────
             if (useSR) {
@@ -677,21 +731,17 @@ void Pipeline::run(const PipelineConfig& config) {
                 srIn.frameTimeDeltaMs = frameTimeMs;
                 srPass->evaluate(cmd, srIn);
             } else {
-                // RR — also need to transition guide textures to shader-read
-                if (tex.diffuseAlbedo)  barrierGeneralToShaderRead(cmd, tex.diffuseAlbedo);
-                if (tex.specularAlbedo) barrierGeneralToShaderRead(cmd, tex.specularAlbedo);
-                if (tex.normals)        barrierGeneralToShaderRead(cmd, tex.normals);
-                if (tex.roughness)      barrierGeneralToShaderRead(cmd, tex.roughness);
-                if (tex.specularMotion) barrierGeneralToShaderRead(cmd, tex.specularMotion);
+                // Guides were uploaded in GENERAL (NGX required layout). Do not
+                // barrier GENERAL→SHADER_READ — that was a layout lie and DEVICE_LOST.
 
                 RrInputs rrIn{};
                 rrIn.colorRenderRes   = tex.sceneColorRender->view;
                 rrIn.outputRes        = tex.sceneColorOutput->view;
-                rrIn.depthLinear      = tex.depthNdc->view;
+                rrIn.depthLinear      = tex.depthWorld->view;
                 rrIn.motionVectors    = tex.mvDlss->view;
                 rrIn.colorImage       = tex.sceneColorRender->image;
                 rrIn.outputImage      = tex.sceneColorOutput->image;
-                rrIn.depthImage       = tex.depthNdc->image;
+                rrIn.depthImage       = tex.depthWorld->image;
                 rrIn.motionImage      = tex.mvDlss->image;
                 rrIn.diffuseAlbedo    = tex.diffuseAlbedo  ? tex.diffuseAlbedo->view  : VK_NULL_HANDLE;
                 rrIn.specularAlbedo   = tex.specularAlbedo ? tex.specularAlbedo->view : VK_NULL_HANDLE;
@@ -721,6 +771,9 @@ void Pipeline::run(const PipelineConfig& config) {
 
             // ── [7] FG (optional) ──────────────────────────────────────────────
             if (useFG) {
+                // RR path skips NDC conversion into the NGX evaluate barrier; FG still
+                // samples depthNdc so promote it to SHADER_READ before eval.
+                if (!useSR) barrierGeneralToShaderRead(cmd, tex.depthNdc);
                 transitionForFgEvaluate(cmd, tex.displayTex, tex.interpFrames);
 
                 FgInputs fgIn{};
@@ -772,6 +825,12 @@ void Pipeline::run(const PipelineConfig& config) {
             }
 
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+            // Compute and transfer queues may be different families. NGX/RR
+            // writes on compute; PNG/EXR readback uses the transfer queue.
+            // Drain the device so the image is idle before the layout-mismatched
+            // cross-queue copy (otherwise vkQueueSubmit returns DEVICE_LOST).
+            m_ctx->waitIdle();
+            const auto tGpu = std::chrono::steady_clock::now();
 
             // ── [8] Preview (non-generated frames only) ────────────────────────
             const bool wantPreview = cb.wantsPreview && cb.wantsPreview();
@@ -785,6 +844,8 @@ void Pipeline::run(const PipelineConfig& config) {
                 }
             }
 
+            const auto tPreview = std::chrono::steady_clock::now();
+
             // ── [9] Write output frames ────────────────────────────────────────
             const bool writeInterp = useFG && fi > 0 && !reset;
             if (writeInterp) {
@@ -796,14 +857,14 @@ void Pipeline::run(const PipelineConfig& config) {
             }
             enqueueOutput(tex.displayTex,
                 exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                       : VK_IMAGE_LAYOUT_GENERAL, /*isGenerated=*/false);
+                       : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
 
             // ── [10] Fire frame event ──────────────────────────────────────────
             if (cb.onFrame) {
                 FrameEvent ev{};
                 ev.inputIndex   = fi;
                 ev.inputTotal   = inputFrames;
-                ev.outputIndex  = outputFrameIdx;
+                ev.outputIndex  = std::max(0, outputFrameIdx - 1);  // FrameEvent is 0-based
                 ev.outputTotal  = outputFrames;
                 ev.isGenerated  = false;
                 ev.wasReset     = reset;
@@ -840,6 +901,21 @@ void Pipeline::run(const PipelineConfig& config) {
             for (auto& h : tex.interpFrames) pool.release(h);
 
             ++processedInputs;
+            {
+                const auto tWrite = std::chrono::steady_clock::now();
+                const auto ms = [](auto a, auto b) {
+                    return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
+                };
+                LOG_INFO("[Pipeline] timing input {}: decode={}ms map={}ms upload={}ms gpu={}ms preview={}ms write={}ms total={}ms",
+                         fi + 1,
+                         ms(t0, tDecode),
+                         ms(tDecode, tMap),
+                         ms(tMap, tUpload),
+                         ms(tUpload, tGpu),
+                         ms(tGpu, tPreview),
+                         ms(tPreview, tWrite),
+                         ms(t0, tWrite));
+            }
             LOG_INFO("[Pipeline] {}/{} input -> {}/{} output ({}ms)",
                      fi+1, inputFrames, outputFrameIdx, outputFrames,
                      static_cast<int>(frameSw.elapsedMs()));

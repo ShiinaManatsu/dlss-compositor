@@ -12,6 +12,7 @@
 #include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfOutputFile.h>
 #include <OpenEXR/ImfPixelType.h>
+#include <chrono>
 
 #include <algorithm>
 #include <array>
@@ -768,7 +769,9 @@ void SrFgPipeline::run(const SrFgConfig& config) {
         int processedInputs = 0;
         for (int frameIdx = 0; frameIdx < inputFrames && !m_stop.load(); ++frameIdx) {
             // === STAGE 1: Prefetch + Channel Map + Upload + Depth/MV Convert ===
+            const auto tFrame = std::chrono::steady_clock::now();
             const auto frameResult = prefetcher.getNext();
+            const auto tPrefetch = std::chrono::steady_clock::now();
             if (!frameResult.has_value()) {
                 LOG_WARN("[SR+FG] Frame {} prefetch error: {}", frameIdx + 1, frameResult.error().message);
                 continue;
@@ -776,6 +779,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             const DecodedFrame& decodedFrame = frameResult.value();
 
             const auto mapResult = ChannelMapper::map(decodedFrame);
+            const auto tMap = std::chrono::steady_clock::now();
             if (!mapResult.has_value()) {
                 LOG_WARN("[SR+FG] Frame {} channel map error: {}", frameIdx + 1, mapResult.error().message);
                 continue;
@@ -798,6 +802,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
             batch.addUpload(depthWorld, mapped.depth.data(), mapped.depth.size() * sizeof(float));
             batch.addUpload(mvBlender, mapped.motionVector.data(), mapped.motionVector.size() * sizeof(std::uint16_t));
             batch.submit();
+            const auto tUpload = std::chrono::steady_clock::now();
 
             std::vector<PooledTextureHandle> interpHandles;
             for (int j = 0; j < config.fgMultiplier - 1; ++j) {
@@ -904,6 +909,7 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 transitionFgOutputsToTransferSrc(cmd, interpHandles);
             }
             m_ctx->endOneTimeCommands(cmdPool, cmd, m_ctx->computeQueue());
+            const auto tGpu = std::chrono::steady_clock::now();
 
             if (dumpGuides && frameIdx < 3) {
                 dumpGuideBuffers(m_ctx,
@@ -931,6 +937,20 @@ void SrFgPipeline::run(const SrFgConfig& config) {
                 config.outputFormat == OutputFormat::ExrLinear
                     ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                     : VK_IMAGE_LAYOUT_GENERAL);
+            const auto tWrite = std::chrono::steady_clock::now();
+            {
+                const auto ms = [](auto a, auto b) {
+                    return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
+                };
+                LOG_INFO("[SR+FG] timing input {}: prefetch={}ms map={}ms upload={}ms gpu={}ms write={}ms total={}ms",
+                         frameIdx + 1,
+                         ms(tFrame, tPrefetch),
+                         ms(tPrefetch, tMap),
+                         ms(tMap, tUpload),
+                         ms(tUpload, tGpu),
+                         ms(tGpu, tWrite),
+                         ms(tFrame, tWrite));
+            }
             ++processedInputs;
             if (!writeGeneratedFrames && frameIdx > 0) {
                 LOG_WARN("[SR+FG] Skipped generated frames at reset/gap input {}", frameIdx + 1);

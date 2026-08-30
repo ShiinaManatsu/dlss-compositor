@@ -405,6 +405,10 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     }
     m_impl->stream->time_base = m_impl->codec->time_base;
 
+    // Write packets through to the file as they encode. The MOV muxer still
+    // keeps a small interleave window, but the encoded bitstream must not
+    // accumulate in RAM for the whole sequence (4K ProRes 4x FG would OOM).
+    m_impl->format->flags |= AVFMT_FLAG_FLUSH_PACKETS;
     if (!(m_impl->format->oformat->flags & AVFMT_NOFILE)) {
         err = avio_open(&m_impl->format->pb, outputPath.string().c_str(), AVIO_FLAG_WRITE);
         if (err < 0) {
@@ -414,6 +418,16 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     AVDictionary* muxOptions = nullptr;
     if (isHdr) {
         av_dict_set(&muxOptions, "movflags", "+write_colr", 0);
+    }
+    // Fragmented MOV/MP4: minimal moov up front, one moof fragment per keyframe.
+    // Everything written so far stays playable even if the process dies before
+    // the trailer — a stop or crash no longer destroys the whole take.
+    {
+        std::string flags = "+frag_keyframe+empty_moov+default_base_moof";
+        const char* existing = av_dict_get(muxOptions, "movflags", nullptr, 0)
+                                   ? av_dict_get(muxOptions, "movflags", nullptr, 0)->value
+                                   : "";
+        av_dict_set(&muxOptions, "movflags", (std::string(existing) + flags).c_str(), 0);
     }
     err = avformat_write_header(m_impl->format, &muxOptions);
     av_dict_free(&muxOptions);
@@ -533,6 +547,9 @@ void ProResWriter::encodeFrame(void* rawFrame)
         av_packet_unref(m_impl->packet);
         if (err < 0) {
             throw std::runtime_error("ProResWriter: write packet failed: " + fferr(err));
+        }
+        if (m_impl->format->pb) {
+            avio_flush(m_impl->format->pb);
         }
     }
 }

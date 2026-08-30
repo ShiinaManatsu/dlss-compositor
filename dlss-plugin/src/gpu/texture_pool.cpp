@@ -368,7 +368,7 @@ void UploadBatch::submit() {
     // ------------------------------------------------------------------
     // 2. Build ONE command buffer with all copy + barrier work.
     // ------------------------------------------------------------------
-    VkCommandPool pool = m_ctx->createTransferCommandPool();
+    VkCommandPool pool = m_ctx->createComputeCommandPool();
     if (pool == VK_NULL_HANDLE)
         throw std::runtime_error("UploadBatch: failed to create command pool");
 
@@ -442,7 +442,8 @@ void UploadBatch::submit() {
         toFinal.srcAccessMask    = VK_ACCESS_2_TRANSFER_WRITE_BIT;
         toFinal.dstStageMask     = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
                                  | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        toFinal.dstAccessMask    = VK_ACCESS_2_SHADER_READ_BIT;
+        toFinal.dstAccessMask    = VK_ACCESS_2_SHADER_READ_BIT
+                                 | VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
         toFinal.oldLayout        = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         toFinal.newLayout        = job.finalLayout;
         toFinal.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -471,7 +472,7 @@ void UploadBatch::submit() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers    = &cmd;
 
-    VkQueue queue = m_ctx->transferQueue();
+    VkQueue queue = m_ctx->computeQueue();
     VkResult r = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
     if (r != VK_SUCCESS) {
         vkFreeCommandBuffers(m_ctx->device(), pool, 1, &cmd);
@@ -480,7 +481,14 @@ void UploadBatch::submit() {
         m_uploads.clear();
         throw std::runtime_error("UploadBatch: vkQueueSubmit failed: " + std::to_string(r));
     }
-    vkQueueWaitIdle(queue);  // staging buffers are freed below — must be safe to do so
+    r = vkQueueWaitIdle(queue);  // staging buffers are freed below — must be safe to do so
+    if (r != VK_SUCCESS) {
+        vkFreeCommandBuffers(m_ctx->device(), pool, 1, &cmd);
+        vkDestroyCommandPool(m_ctx->device(), pool, nullptr);
+        freeStagingAll();
+        m_uploads.clear();
+        throw std::runtime_error("UploadBatch: vkQueueWaitIdle failed: " + std::to_string(r));
+    }
 
     // ------------------------------------------------------------------
     // 4. Cleanup. Staging is no longer needed; command buffer/pool are

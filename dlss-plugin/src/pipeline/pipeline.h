@@ -164,7 +164,7 @@ struct PipelineConfig {
 
     // ── SR / RR ───────────────────────────────────────────────────────────────
     DlssPreset      srPreset    = DlssPreset::Auto; ///< SR preset (ignored when kRR)
-    RrPreset        rrPreset    = RrPreset::E;      ///< RR preset (ignored when kSR)
+    RrPreset        rrPreset    = RrPreset::F;      ///< RR preset F = RR2 (310.7.128+ / driver ≥580)
     RrRoughnessMode rrRoughness = RrRoughnessMode::Unpacked;
 
     // ── FG ────────────────────────────────────────────────────────────────────
@@ -180,6 +180,12 @@ struct PipelineConfig {
     int prefetchDepth        = 3;   ///< EXR read-ahead depth
     int writerThreads        = 4;
     int writerQueueMultiplier = 3;
+
+    /// Live folder watch (RAM-disk / Blender File Output). When true, run() waits
+    /// for each expected EXR to appear in inputDir, decodes it, then fires
+    /// onInputConsumed so the caller can unlink and keep the disk at low watermark.
+    /// When false (default), prefetchers read the existing files listed in dlssconfig.
+    bool watchInput = false;
 
     // ── Callbacks (frontend communication) ────────────────────────────────────
     PipelineCallbacks callbacks;

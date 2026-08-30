@@ -7,6 +7,7 @@
 // decoupling the watcher thread from the pipeline thread.
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <functional>
@@ -14,6 +15,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <unordered_set>
 
 // HANDLE is void* on Windows; forward-declare to avoid pulling in windows.h here.
 // The .cpp includes windows.h directly.
@@ -74,6 +76,8 @@ private:
     void workerLoop();
     bool isTarget(const std::wstring& name) const;
     void waitForStability(const std::filesystem::path& path) const;
+    bool markSeen(const std::wstring& name);
+    void scanExisting();
 
     FileWatcherConfig    m_cfg;
     FileWatcherCallbacks m_cbs;
@@ -83,6 +87,8 @@ private:
     HANDLE               m_dirHandle  = nullptr;  // set to INVALID_HANDLE_VALUE in .cpp ctor
     HANDLE               m_stopEvent  = nullptr;  // set to INVALID_HANDLE_VALUE in .cpp ctor
     std::thread          m_worker;
+    std::mutex           m_seenMu;
+    std::unordered_set<std::wstring> m_seen;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +125,17 @@ public:
     /// Try to pop without blocking.  Returns empty path if nothing available.
     std::filesystem::path tryPop() {
         std::lock_guard lk(m_mu);
+        if (m_q.empty()) return {};
+        auto p = std::move(m_q.front());
+        m_q.pop();
+        return p;
+    }
+
+    /// Pop with timeout. Empty path on timeout or stop.
+    std::filesystem::path popFor(std::chrono::milliseconds timeout) {
+        std::unique_lock lk(m_mu);
+        if (!m_cv.wait_for(lk, timeout, [&]{ return !m_q.empty() || m_stop.load(); }))
+            return {};
         if (m_q.empty()) return {};
         auto p = std::move(m_q.front());
         m_q.pop();

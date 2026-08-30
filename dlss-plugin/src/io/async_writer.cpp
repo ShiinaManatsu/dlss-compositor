@@ -1,7 +1,7 @@
 // =============================================================================
 // AsyncFrameWriter implementation + globalEncoderRegistry.
 //
-// v2 registers ONLY: ExrLinear and Png16.
+// v2 registers ONLY: ExrLinear and Png16, both via OpenImageIO.
 // Other OutputFormat values are enum placeholders and intentionally NOT
 // registered.
 // =============================================================================
@@ -10,12 +10,7 @@
 
 #include "../core/log.h"
 
-#include <OpenEXR/ImfChannelList.h>
-#include <OpenEXR/ImfCompression.h>
-#include <OpenEXR/ImfFrameBuffer.h>
-#include <OpenEXR/ImfHeader.h>
-#include <OpenEXR/ImfOutputFile.h>
-#include <OpenEXR/ImfPixelType.h>
+#include <OpenImageIO/filesystem.h>
 #include <OpenImageIO/imageio.h>
 
 #include <algorithm>
@@ -76,17 +71,17 @@ int percentToZlibLevel(int percent) noexcept
     return static_cast<int>(std::lround(static_cast<double>(clamped) * 9.0 / 100.0));
 }
 
-Imf::Compression toOpenExrCompression(ExrCompressionMode mode) noexcept
+const char* oiioExrCompression(ExrCompressionMode mode) noexcept
 {
     switch (mode) {
-    case ExrCompressionMode::None: return Imf::NO_COMPRESSION;
-    case ExrCompressionMode::Dwaa: return Imf::DWAA_COMPRESSION;
-    case ExrCompressionMode::Zip:  return Imf::ZIP_COMPRESSION;
+    case ExrCompressionMode::None: return "none";
+    case ExrCompressionMode::Dwaa: return "dwaa";
+    case ExrCompressionMode::Zip:  return "zip";
     }
-    return Imf::ZIP_COMPRESSION;
+    return "zip";
 }
 
-// ---------- EXR (linear, 16-bit half RGBA) ----------------------------------
+// ---------- EXR (linear, 16-bit half RGBA) via OpenImageIO -----------------
 void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputPath)
 {
     if (p.pixels == nullptr || p.width == 0 || p.height == 0) {
@@ -104,34 +99,36 @@ void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputP
         std::filesystem::create_directories(outputPath.parent_path(), ec);
     }
 
-    Imf::Header header(static_cast<int>(p.width), static_cast<int>(p.height));
-    header.compression() = toOpenExrCompression(p.options.exrCompression);
-    header.zipCompressionLevel() = percentToZlibLevel(p.options.exrCompressionLevelPercent);
-    header.dwaCompressionLevel() = static_cast<float>(std::clamp(p.options.exrCompressionLevelPercent, 0, 100));
-    header.channels().insert("R", Imf::Channel(Imf::HALF));
-    header.channels().insert("G", Imf::Channel(Imf::HALF));
-    header.channels().insert("B", Imf::Channel(Imf::HALF));
-    header.channels().insert("A", Imf::Channel(Imf::HALF));
+    OIIO::ImageSpec spec(
+        static_cast<int>(p.width),
+        static_cast<int>(p.height),
+        4,
+        OIIO::TypeDesc::HALF);
+    spec.channelnames = {"R", "G", "B", "A"};
+    spec.attribute("compression", oiioExrCompression(p.options.exrCompression));
+    spec.attribute("openexr:zipCompressionLevel",
+                   percentToZlibLevel(p.options.exrCompressionLevelPercent));
+    spec.attribute("openexr:dwaCompressionLevel",
+                   static_cast<float>(std::clamp(p.options.exrCompressionLevelPercent, 0, 100)));
+    spec.attribute("oiio:ColorSpace", "lin_rec709");
 
-    Imf::OutputFile file(outputPath.string().c_str(), header);
-
-    const std::size_t pixel_stride = 4u * sizeof(std::uint16_t);
-    const std::size_t row_stride   = pixel_stride * static_cast<std::size_t>(p.width);
-
-    // OpenEXR's Slice takes a non-const char*, but writePixels only reads.
-    char* base = const_cast<char*>(reinterpret_cast<const char*>(p.pixels));
-
-    Imf::FrameBuffer fb;
-    const char* const names[4] = {"R", "G", "B", "A"};
-    for (int ch = 0; ch < 4; ++ch) {
-        fb.insert(names[ch],
-                  Imf::Slice(Imf::HALF,
-                             base + ch * static_cast<std::ptrdiff_t>(sizeof(std::uint16_t)),
-                             pixel_stride,
-                             row_stride));
+    auto out = OIIO::ImageOutput::create(outputPath.string());
+    if (!out) {
+        throw std::runtime_error("encodeExrLinear: cannot create OIIO output: " + outputPath.string());
     }
-    file.setFrameBuffer(fb);
-    file.writePixels(static_cast<int>(p.height));
+    if (!out->open(outputPath.string(), spec)) {
+        throw std::runtime_error("encodeExrLinear: cannot open output: " + outputPath.string()
+                                 + ": " + out->geterror());
+    }
+    if (!out->write_image(OIIO::TypeDesc::HALF, p.pixels)) {
+        const std::string err = out->geterror();
+        out->close();
+        throw std::runtime_error("encodeExrLinear: write failed: " + outputPath.string() + ": " + err);
+    }
+    if (!out->close()) {
+        throw std::runtime_error("encodeExrLinear: close failed: " + outputPath.string()
+                                 + ": " + out->geterror());
+    }
 }
 
 float halfToFloat(std::uint16_t bits)
@@ -258,6 +255,50 @@ EncoderRegistry& globalEncoderRegistry()
         return r;
     }();
     return s_registry;
+}
+
+std::vector<uint8_t> encodePreviewJpeg(uint32_t width, uint32_t height,
+                                       const std::vector<uint8_t>& rgba8,
+                                       int quality)
+{
+    if (width == 0 || height == 0) {
+        return {};
+    }
+    const std::size_t pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    if (rgba8.size() < pixels * 4u) {
+        return {};
+    }
+
+    std::vector<unsigned char> rgb(pixels * 3u);
+    for (std::size_t i = 0; i < pixels; ++i) {
+        rgb[i * 3u + 0] = rgba8[i * 4u + 0];
+        rgb[i * 3u + 1] = rgba8[i * 4u + 1];
+        rgb[i * 3u + 2] = rgba8[i * 4u + 2];
+    }
+
+    std::vector<unsigned char> jpeg;
+    OIIO::Filesystem::IOVecOutput proxy(jpeg);
+    auto out = OIIO::ImageOutput::create("jpg");
+    if (!out) {
+        LOG_ERROR("encodePreviewJpeg: OIIO has no JPEG plugin");
+        return {};
+    }
+    OIIO::ImageSpec spec(static_cast<int>(width), static_cast<int>(height), 3, OIIO::TypeDesc::UINT8);
+    spec.attribute("CompressionQuality", std::clamp(quality, 1, 100));
+    if (!out->set_ioproxy(&proxy) || !out->open("preview.jpg", spec)) {
+        LOG_ERROR("encodePreviewJpeg: open failed: {}", out->geterror());
+        return {};
+    }
+    if (!out->write_image(OIIO::TypeDesc::UINT8, rgb.data())) {
+        LOG_ERROR("encodePreviewJpeg: write failed: {}", out->geterror());
+        out->close();
+        return {};
+    }
+    if (!out->close()) {
+        LOG_ERROR("encodePreviewJpeg: close failed: {}", out->geterror());
+        return {};
+    }
+    return {jpeg.begin(), jpeg.end()};
 }
 
 // =============================================================================

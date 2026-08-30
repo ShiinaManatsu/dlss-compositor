@@ -9,12 +9,17 @@
 #include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfInputPart.h>
 #include <OpenEXR/ImfMultiPartInputFile.h>
+#include <OpenEXR/ImfThreading.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <exception>
 #include <limits>
+#include <mutex>
 #include <string>
+#include <system_error>
+#include <thread>
 #include <utility>
 
 namespace dlss {
@@ -27,8 +32,11 @@ constexpr std::size_t kMaxPixels = 16384ull * 16384ull;
 // ---------------------------------------------------------------------------
 // Blender 5.3 RR channel names (inject.py RR_FILE_ITEMS + core buffers).
 // ---------------------------------------------------------------------------
-// Combined
-static constexpr const char* kColorChannels[4]    = {"Image.R","Image.G","Image.B","Image.A"};
+// Combined / beauty. Blender 5 File Output empty-name slot writes R/G/B/A
+// (OIIO) rather than Image.R; older inject used Image.* ; Combined.* also seen.
+static constexpr const char* kColorChannelsImage[4]    = {"Image.R","Image.G","Image.B","Image.A"};
+static constexpr const char* kColorChannelsRGBA[4]     = {"R","G","B","A"};
+static constexpr const char* kColorChannelsCombined[4] = {"Combined.R","Combined.G","Combined.B","Combined.A"};
 // Denoising Depth
 static constexpr const char* kDepthChannel        = "Denoising Depth.V";
 // Vector (motion vectors)
@@ -175,52 +183,61 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
             const Imf::ChannelList& channels = part.header().channels();
 
             Imf::FrameBuffer fb;
+            bool insertedThisPart = false;
 
-            if (!readColor && hasCh(channels, "Image.R")) {
-                insertInterleavedSlices(fb, f.colorRgba.data(), kColorChannels, 4, channels, layout, dw);
-                readColor = true;
+            if (!readColor) {
+                const char* const* cols = nullptr;
+                if (hasCh(channels, kColorChannelsImage[0]))         cols = kColorChannelsImage;
+                else if (hasCh(channels, kColorChannelsRGBA[0]))     cols = kColorChannelsRGBA;
+                else if (hasCh(channels, kColorChannelsCombined[0])) cols = kColorChannelsCombined;
+                if (cols) {
+                    insertInterleavedSlices(fb, f.colorRgba.data(), cols, 4, channels, layout, dw);
+                    readColor = true;
+                    insertedThisPart = true;
+                }
             }
             if (!readDepth && hasCh(channels, kDepthChannel)) {
                 insertScalarSlice(fb, f.depthLinear.data(), kDepthChannel, channels, layout, dw);
                 readDepth = true;
+                insertedThisPart = true;
             }
             if (!readMotion && hasCh(channels, "Vector.X")) {
                 insertInterleavedSlices(fb, f.motionXy.data(), kMotionChannels, 2, channels, layout, dw);
                 readMotion = true;
+                insertedThisPart = true;
             }
             if (!readDiffuse && hasCh(channels, "Denoising Albedo.R")) {
                 insertInterleavedSlices(fb, f.diffuseAlbedoRgba.data(), kDiffChannels, 4, channels, layout, dw);
                 readDiffuse = true;
+                insertedThisPart = true;
             }
             if (!readSpecAlbedo && hasCh(channels, "Denoising Specular Albedo.R")) {
                 insertInterleavedSlices(fb, f.specAlbedoRgba.data(), kSpecChannels, 4, channels, layout, dw);
                 readSpecAlbedo = true;
+                insertedThisPart = true;
             }
             if (!readNormals && hasCh(channels, "Denoising Normal.X")) {
                 insertInterleavedSlices(fb, f.normalsXyz.data(), kNormChannels, 3, channels, layout, dw);
                 readNormals = true;
+                insertedThisPart = true;
             }
             if (!readRoughness && hasCh(channels, kRoughChannel)) {
                 insertScalarSlice(fb, f.roughness.data(), kRoughChannel, channels, layout, dw);
                 readRoughness = true;
+                insertedThisPart = true;
             }
             if (!f.hasSpecularMotion && hasCh(channels, "Denoising Specular Motion.X")) {
                 insertInterleavedSlices(fb, f.specularMotionXy.data(), kSpecMotionChannels, 2, channels, layout, dw);
                 f.hasSpecularMotion = true;
+                insertedThisPart = true;
             }
             if (!f.hasBackwardMotion && hasCh(channels, "Denoising Backward Motion.X")) {
                 insertInterleavedSlices(fb, f.backwardMotionXy.data(), kBackMotionChannels, 2, channels, layout, dw);
                 f.hasBackwardMotion = true;
+                insertedThisPart = true;
             }
 
-            // Only read this part if we inserted at least one slice.
-            // Check by seeing if fb is non-empty (Imf::FrameBuffer doesn't expose size, use flags).
-            bool anySlice = readColor || readDepth || readMotion || readDiffuse ||
-                            readSpecAlbedo || readNormals || readRoughness ||
-                            f.hasSpecularMotion || f.hasBackwardMotion;
-            (void)anySlice;
-            // Always call setFrameBuffer + readPixels for parts where we inserted slices.
-            // Safe: inserting into an empty FrameBuffer is a no-op read.
+            if (!insertedThisPart) continue;
             part.setFrameBuffer(fb);
             part.readPixels(dw.min.y, dw.max.y);
 
@@ -235,7 +252,7 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
                         readDiffuse && readSpecAlbedo && readNormals && readRoughness;
         if (!ok) {
             std::string missing;
-            if (!readColor)      missing += " Image";
+            if (!readColor)      missing += " Image/RGBA";
             if (!readDepth)      missing += " DenoisingDepth";
             if (!readMotion)     missing += " Vector";
             if (!readDiffuse)    missing += " DenoisingAlbedo";
@@ -267,10 +284,23 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
 // =============================================================================
 
 RrFramePrefetcher::RrFramePrefetcher(std::vector<std::filesystem::path> framePaths,
-                                     int prefetchDepth)
+                                     int prefetchDepth,
+                                     bool waitForFiles,
+                                     const std::atomic<bool>* externalStop)
     : m_paths(std::move(framePaths))
     , m_prefetchDepth(std::max(1, prefetchDepth))
+    , m_waitForFiles(waitForFiles)
+    , m_externalStop(externalStop)
 {
+    static std::once_flag exrOnce;
+    std::call_once(exrOnce, [] {
+        const int n = std::max(2, static_cast<int>(std::thread::hardware_concurrency()));
+        Imf::setGlobalThreadCount(n);
+        LOG_INFO("[RrFramePrefetcher] OpenEXR threads={}", n);
+    });
+    if (m_waitForFiles) {
+        LOG_INFO("[RrFramePrefetcher] wait-for-files mode (watch input)");
+    }
     m_worker = std::thread([this] { workerLoop(); });
 }
 
@@ -280,16 +310,41 @@ RrFramePrefetcher::~RrFramePrefetcher() {
     if (m_worker.joinable()) m_worker.join();
 }
 
+void RrFramePrefetcher::waitUntilWritten(const std::filesystem::path& path) const {
+    // Watch mode: Blender streams the EXR to the RAM disk. Wait for existence and
+    // a stable size so a partially-written file is never decoded.
+    constexpr auto kTick        = std::chrono::milliseconds(100);
+    constexpr int  kStableTicks = 3;
+    std::uintmax_t lastSize     = 0;
+    int            stable       = 0;
+    while (!stopRequested()) {
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (!ec && size > 0 && size == lastSize) {
+            if (++stable >= kStableTicks) return;
+        } else {
+            stable   = 0;
+            lastSize = ec ? 0 : size;
+        }
+        std::this_thread::sleep_for(kTick);
+    }
+}
+
 void RrFramePrefetcher::workerLoop() {
     const int total = (int)m_paths.size();
     for (int idx = 0; idx < total; ++idx) {
         {
             std::unique_lock<std::mutex> lk(m_mutex);
             m_cv.wait(lk, [&] {
-                return m_stop.load() ||
+                return stopRequested() ||
                        (m_produced.load() - m_consumed.load()) < m_prefetchDepth;
             });
-            if (m_stop.load()) return;
+            if (stopRequested()) return;
+        }
+
+        if (m_waitForFiles) {
+            waitUntilWritten(m_paths[idx]);
+            if (stopRequested()) return;
         }
 
         RrFrameResult result = decodeRrExr(m_paths[idx]);
@@ -308,9 +363,13 @@ void RrFramePrefetcher::workerLoop() {
     }
 }
 
+RrFrameResult RrFramePrefetcher::decodeFile(const std::filesystem::path& path) {
+    return decodeRrExr(path);
+}
+
 RrFrameResult RrFramePrefetcher::getNext() {
     std::unique_lock<std::mutex> lk(m_mutex);
-    m_cv.wait(lk, [&] { return !m_queue.empty() || m_stop.load(); });
+    m_cv.wait(lk, [&] { return !m_queue.empty() || stopRequested(); });
     if (m_queue.empty()) {
         return std::unexpected(RrReadError{RrReadErrorCode::IoError,
             "Prefetcher queue empty (stopped or no more frames)", {}});

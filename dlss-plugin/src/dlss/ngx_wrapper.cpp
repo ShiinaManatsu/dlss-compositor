@@ -60,18 +60,31 @@ const wchar_t kRrDll[] = L"nvngx_dlssd.dll";
 NgxContext::NgxContext(VkInstance instance, VkPhysicalDevice physicalDevice, VkDevice device)
     : m_device(device)
 {
+    // DLSS Programming Guide §5.1 — feature DLLs next to the exe; pass PathListInfo
+    // so NGX does not depend on process CWD (Electron spawn vs python cwd).
+    wchar_t exePath[MAX_PATH] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring exeDir = (n != 0 && n < MAX_PATH)
+        ? std::filesystem::path(exePath).parent_path().wstring()
+        : std::filesystem::current_path().wstring();
+    wchar_t* pathList[] = {exeDir.data()};
+    NVSDK_NGX_FeatureCommonInfo featureInfo{};
+    featureInfo.PathListInfo.Path = pathList;
+    featureInfo.PathListInfo.Length = 1;
+
     // DLSS SR §3.5 — Init with ProjectID is recommended over legacy Init.
+    // InApplicationDataPath is logs only (§3.19), not the DLL search path.
     NVSDK_NGX_Result result = NVSDK_NGX_VULKAN_Init_with_ProjectID(
         "d4a7ef3e-2d2d-4e9d-b8bb-2d773ef3b2fd",
         NVSDK_NGX_ENGINE_TYPE_CUSTOM,
         "1.0.0",
-        L".",
+        exeDir.c_str(),
         instance,
         physicalDevice,
         device,
         nullptr,
         nullptr,
-        nullptr,
+        &featureInfo,
         NVSDK_NGX_Version_API);
 
     if (NVSDK_NGX_FAILED(result)) { // DLSS SR §3.5

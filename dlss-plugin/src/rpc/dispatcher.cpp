@@ -8,10 +8,12 @@
 
 #include "../core/dlssconfig.h"
 #include "../core/log.h"
-#include "../gpu/vulkan_context.h"
 #include "../dlss/ngx_wrapper.h"
+#include "../gpu/vulkan_context.h"
+#include "../io/encoder_registry.h"
 
 #include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -29,6 +31,32 @@ std::string generateTaskId() {
     std::ostringstream ss;
     ss << "task_" << std::hex << std::setw(8) << std::setfill('0') << dist(rng);
     return ss.str();
+}
+
+/// Parse an int or "2" / "2x" / "off" JSON value. 0 = missing / FG off.
+int parseIntLike(const nlohmann::json& v) {
+    if (v.is_number_integer()) return v.get<int>();
+    if (v.is_number_unsigned()) return static_cast<int>(v.get<unsigned>());
+    if (!v.is_string()) return 0;
+    std::string s = v.get<std::string>();
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (s.empty() || s == "off" || s == "none" || s == "false") return 0;
+    if (s.back() == 'x') s.pop_back();
+    if (s.empty()) return 0;
+    try { return std::stoi(s); } catch (...) { return 0; }
+}
+
+int parseFgMultiplier(const nlohmann::json& p) {
+    if (p.contains("fg_multiplier") && !p["fg_multiplier"].is_null()) {
+        const int n = parseIntLike(p["fg_multiplier"]);
+        if (n != 0) return n;
+    }
+    if (p.contains("fg") && !p["fg"].is_null())
+        return parseIntLike(p["fg"]);
+    return 0;
 }
 
 /// Parse "sr"/"rr"/"rr+fg"/"sr+fg" → PipelineFeatures.
@@ -222,7 +250,8 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
 
     // ── Feature flags ─────────────────────────────────────────────────────────
     const std::string mode = p.value("mode", std::string{"sr"});
-    const bool hasFg = p.value("fg", 0) >= 2 || p.value("fg_multiplier", 0) >= 2;
+    const int parsedFg = parseFgMultiplier(p);
+    const bool hasFg = parsedFg >= 2;
     const PipelineFeatures features = parseFeaturesFromMode(mode, hasFg);
     const std::string err = validateFeatures(features);
     if (!err.empty()) throw std::runtime_error(err);
@@ -233,16 +262,17 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     const std::string owStr   = p.value("overwrite_mode", std::string{"overwrite"});
 
     // ── FG multiplier ─────────────────────────────────────────────────────────
-    int fgMult = p.value("fg_multiplier", 0);
-    if (fgMult == 0) {
-        const auto fgRaw = p.value("fg", 0);
-        fgMult = (fgRaw >= 2) ? fgRaw : 2;
-    }
+    // Default 2x when FG is on via mode ("rr+fg") but no multiplier was sent.
+    int fgMult = parsedFg >= 2 ? parsedFg : 2;
 
-    // ── Prefetch / writers ────────────────────────────────────────────────────
+    // ── Prefetch / writers / watch ────────────────────────────────────────────
     const int prefetch   = p.value("prefetch_depth", 3);
     const int wrThreads  = p.value("writer_threads", 4);
     const int wrQueueMul = p.value("writer_queue_multiplier", 3);
+    const bool watchInput = p.value("watch", false)
+                         || p.value("watch_input", false)
+                         || p.value("wait_for_appearance", false);
+    const bool deleteConsumed = p.value("delete_consumed", watchInput);
 
     // ── Build config ──────────────────────────────────────────────────────────
     PipelineConfig cfg;
@@ -257,11 +287,19 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.prefetchDepth      = std::max(1, prefetch);
     cfg.writerThreads      = std::max(1, wrThreads);
     cfg.writerQueueMultiplier = std::max(1, wrQueueMul);
+    cfg.watchInput         = watchInput;
+
+    const std::string rrPresetStr = p.value("rr_preset", std::string{"F"});
+    if (rrPresetStr == "D" || rrPresetStr == "d")      cfg.rrPreset = RrPreset::D;
+    else if (rrPresetStr == "E" || rrPresetStr == "e") cfg.rrPreset = RrPreset::E;
+    else                                              cfg.rrPreset = RrPreset::F;
 
     // ── Wire callbacks to RenderProgress atomics ──────────────────────────────
     const int totalInput  = static_cast<int>(cfg.dlssConfig.frames.size());
-    const int fgFactor    = (cfg.features & kFG) ? cfg.fgMultiplier : 1;
-    const int totalOutput = totalInput * fgFactor;
+    const bool useFg      = (cfg.features & kFG) != 0;
+    const int fgFactor    = useFg ? cfg.fgMultiplier : 1;
+    // FG emits (N-1)*(mult-1) interpolated frames + N real frames = N*mult - (mult-1).
+    const int totalOutput = useFg ? (fgFactor * totalInput - (fgFactor - 1)) : totalInput;
 
     m_progress.current_frame.store(0);
     m_progress.total_frames.store(totalOutput);
@@ -286,9 +324,20 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     };
 
     cfg.callbacks.onProgress = [this](float prog) {
-        // Fine-grained progress update (0–100 scale from pipeline).
-        m_progress.percent.store(prog);
+        // Pipeline reports 0–1; RPC percent is 0–100.
+        m_progress.percent.store((prog >= 0.f && prog <= 1.f) ? prog * 100.f : prog);
     };
+
+    if (cfg.watchInput && deleteConsumed) {
+        cfg.callbacks.onInputConsumed = [](const std::filesystem::path& path) {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+            if (ec)
+                LOG_WARN("[Pipeline] consume-delete failed {}: {}", path.string(), ec.message());
+            else
+                LOG_INFO("[Pipeline] consumed {}", path.filename().string());
+        };
+    }
 
     cfg.callbacks.onRunEvent = [this](RunEvent ev, const std::string& detail) {
         switch (ev) {
@@ -324,12 +373,14 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
 
     cfg.callbacks.wantsPreview = []() { return true; };
 
-    cfg.callbacks.encodePreview = [](uint32_t /*w*/, uint32_t /*h*/,
-                                     const std::vector<uint8_t>& rgba8) {
-        // Simple JPEG-like stub: just return the raw RGBA bytes wrapped in a
-        // minimal marker so handlePreviewFrame can detect it.
-        // TODO(T37+): replace with a real JPEG encoder (libjpeg-turbo / stb_image_write).
-        return rgba8;
+    cfg.callbacks.encodePreview = [this](uint32_t w, uint32_t h,
+                                         const std::vector<uint8_t>& rgba8) {
+        auto jpeg = encodePreviewJpeg(w, h, rgba8, 80);
+        if (!jpeg.empty()) {
+            m_previewW.store(w);
+            m_previewH.store(h);
+        }
+        return jpeg;
     };
 
     cfg.callbacks.onPreview = [this](std::vector<uint8_t> jpeg) {

@@ -2,7 +2,7 @@
 // =============================================================================
 // EncoderRegistry — extensible map of OutputFormat → encoder function.
 //
-// v2 image sequence encoders implement ONLY: ExrLinear and Png16.
+// v2 image sequence encoders implement ONLY: ExrLinear and Png16, both via OpenImageIO.
 // ProRes422HQ is a sequence-level MOV muxer handled by ProResWriter, not this
 // per-frame registry. Other OutputFormat values remain enum-only placeholders.
 // =============================================================================
@@ -69,5 +69,11 @@ private:
 /// Contains ONLY: ExrLinear and Png16. ProRes422HQ is sequence-level and is not
 /// registered here.
 EncoderRegistry& globalEncoderRegistry();
+
+/// Encode an RGBA8 thumbnail to JPEG bytes (RGB, quality 1–100). Empty on failure.
+/// Used by RpcDispatcher preview_frame — not an EncoderRegistry format.
+std::vector<uint8_t> encodePreviewJpeg(uint32_t width, uint32_t height,
+                                       const std::vector<uint8_t>& rgba8,
+                                       int quality = 80);
 
 } // namespace dlss

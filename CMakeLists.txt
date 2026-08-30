@@ -260,13 +260,21 @@ if(WIN32)
     target_link_libraries(dlss-compositor-cli PRIVATE version.lib)
 endif()
 
-# Copy DLSS runtime DLLs next to the exe so it can launch out-of-box.
-# Debug uses the SDK dev DLLs for DLSS troubleshooting overlays; release builds
-# always package the production DLLs from rel/.
+# Copy DLSS runtime DLLs next to the exe.
+# Prefer resources/ (dlss-swapper 310.7.129.0 pins) over the SDK submodule
+# copies. Official release should locate DLLs at runtime instead of shipping them.
 foreach(_dll_name IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll nvngx_dlssd.dll)
+    set(_res_dll "${DLSS_COMPOSITOR_SOURCE_DIR}/resources/${_dll_name}")
     set(_dev_dll "${DLSS_DLL_DEV_DIR}/${_dll_name}")
     set(_rel_dll "${DLSS_DLL_REL_DIR}/${_dll_name}")
-    if(EXISTS "${_dev_dll}" AND EXISTS "${_rel_dll}")
+    if(EXISTS "${_res_dll}")
+        add_custom_command(TARGET dlss-compositor-cli POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_res_dll}"
+                "$<TARGET_FILE_DIR:dlss-compositor-cli>"
+            COMMENT "Copying DLSS runtime DLL from resources/ (${_dll_name})"
+            VERBATIM)
+    elseif(EXISTS "${_dev_dll}" AND EXISTS "${_rel_dll}")
         add_custom_command(TARGET dlss-compositor-cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<$<CONFIG:Debug>:${_dev_dll}>$<$<NOT:$<CONFIG:Debug>>:${_rel_dll}>"

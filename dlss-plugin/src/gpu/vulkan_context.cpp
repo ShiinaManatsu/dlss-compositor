@@ -348,8 +348,12 @@ void VulkanContext::endOneTimeCommands(VkCommandPool pool, VkCommandBuffer cmd, 
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmd;
 
-    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue);
+    VkResult r = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+    if (r != VK_SUCCESS)
+        throw std::runtime_error("endOneTimeCommands: vkQueueSubmit failed: " + std::to_string(r));
+    r = vkQueueWaitIdle(queue);
+    if (r != VK_SUCCESS)
+        throw std::runtime_error("endOneTimeCommands: vkQueueWaitIdle failed: " + std::to_string(r));
     vkFreeCommandBuffers(m_device, pool, 1, &cmd);
 }
 
@@ -450,7 +454,7 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
         throw std::runtime_error("downloadImageRgba16f: failed to create readback buffer");
     }
 
-    VkCommandPool pool = createTransferCommandPool();
+    VkCommandPool pool = createComputeCommandPool();
     VkCommandBuffer cmd = beginOneTimeCommands(pool);
 
     VkImageMemoryBarrier2 toTransfer{};
@@ -480,7 +484,7 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRgba16f(VkImage image,
     region.imageExtent = {width, height, 1};
     vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
 
-    endOneTimeCommands(pool, cmd, transferQueue());
+    endOneTimeCommands(pool, cmd, computeQueue());
     vkDestroyCommandPool(m_device, pool, nullptr);
 
     if (allocationInfo.pMappedData != nullptr) {
@@ -544,7 +548,7 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,
         throw std::runtime_error("downloadImageRaw: failed to create readback buffer");
     }
 
-    VkCommandPool pool = createTransferCommandPool();
+    VkCommandPool pool = createComputeCommandPool();
     VkCommandBuffer cmd = beginOneTimeCommands(pool);
 
     VkImageMemoryBarrier2 toTransfer{};
@@ -574,7 +578,7 @@ std::vector<std::uint8_t> VulkanContext::downloadImageRaw(VkImage image,
     region.imageExtent = {width, height, 1};
     vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
 
-    endOneTimeCommands(pool, cmd, transferQueue());
+    endOneTimeCommands(pool, cmd, computeQueue());
     vkDestroyCommandPool(m_device, pool, nullptr);
 
     if (allocationInfo.pMappedData != nullptr) {

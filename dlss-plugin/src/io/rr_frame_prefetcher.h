@@ -77,8 +77,15 @@ class RrFramePrefetcher {
 public:
     /// @param framePaths    Ordered EXR paths (all frames in the run).
     /// @param prefetchDepth Frames to read ahead (clamped >= 1).
+    /// @param waitForFiles  Watch mode: block each decode until the file exists
+    ///                      and has a stable size (Blender is still writing it).
+    /// @param externalStop  Optional pipeline stop flag; all waits also wake when
+    ///                      it flips so stop() can cancel mid-wait (e.g. Blender
+    ///                      was killed and the next frame will never appear).
     explicit RrFramePrefetcher(std::vector<std::filesystem::path> framePaths,
-                               int prefetchDepth = 3);
+                               int prefetchDepth = 3,
+                               bool waitForFiles = false,
+                               const std::atomic<bool>* externalStop = nullptr);
 
     ~RrFramePrefetcher();
 
@@ -86,6 +93,9 @@ public:
     RrFramePrefetcher& operator=(const RrFramePrefetcher&) = delete;
     RrFramePrefetcher(RrFramePrefetcher&&)                 = delete;
     RrFramePrefetcher& operator=(RrFramePrefetcher&&)      = delete;
+
+    /// Decode a single RR multilayer EXR (blocking). Used by the FileWatcher input path.
+    static RrFrameResult decodeFile(const std::filesystem::path& path);
 
     /// Blocking — returns next decoded RR frame or RrReadError.
     RrFrameResult getNext();
@@ -99,10 +109,15 @@ public:
 
 private:
     void workerLoop();
-    static RrFrameResult readOne(const std::filesystem::path& path, bool prevWasGap);
+    void waitUntilWritten(const std::filesystem::path& path) const;
+    bool stopRequested() const noexcept {
+        return m_stop.load() || (m_externalStop && m_externalStop->load());
+    }
 
     std::vector<std::filesystem::path> m_paths;
     int                                m_prefetchDepth;
+    bool                               m_waitForFiles;
+    const std::atomic<bool>*           m_externalStop;
 
     mutable std::mutex        m_mutex;
     std::condition_variable   m_cv;

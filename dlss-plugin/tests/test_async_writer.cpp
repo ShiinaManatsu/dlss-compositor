@@ -12,6 +12,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 TEST_CASE("AsyncFrameWriter - format path template ####", "[unit]")
 {
@@ -26,6 +27,23 @@ TEST_CASE("AsyncFrameWriter - format path {frame:04d}", "[unit]")
     using dlss::AsyncFrameWriter;
     REQUIRE(AsyncFrameWriter::formatPath("{frame:04d}.exr", 7)  == "0007.exr");
     REQUIRE(AsyncFrameWriter::formatPath("{frame:04d}.png", 42) == "0042.png");
+}
+
+TEST_CASE("encodePreviewJpeg - RGBA8 becomes JPEG SOI", "[unit]")
+{
+    const uint32_t w = 8;
+    const uint32_t h = 8;
+    std::vector<uint8_t> rgba(static_cast<std::size_t>(w) * h * 4, 0);
+    for (std::size_t i = 0; i < rgba.size(); i += 4) {
+        rgba[i + 0] = 220;
+        rgba[i + 1] = 40;
+        rgba[i + 2] = 40;
+        rgba[i + 3] = 255;
+    }
+    const auto jpeg = dlss::encodePreviewJpeg(w, h, rgba, 80);
+    REQUIRE(jpeg.size() > 4);
+    REQUIRE(jpeg[0] == 0xFF);
+    REQUIRE(jpeg[1] == 0xD8);
 }
 
 TEST_CASE("AsyncFrameWriter - HDR + PNG rejected", "[unit]")

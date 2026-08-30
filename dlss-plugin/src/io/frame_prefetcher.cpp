@@ -14,10 +14,12 @@
 #include <OpenEXR/ImfMultiPartInputFile.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <exception>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace dlss {
@@ -357,10 +359,17 @@ FrameResult decodeExr(const std::filesystem::path& filePath)
 // =============================================================================
 
 FramePrefetcher::FramePrefetcher(std::vector<std::filesystem::path> framePaths,
-                                 int prefetchDepth)
+                                 int prefetchDepth,
+                                 bool waitForFiles,
+                                 const std::atomic<bool>* externalStop)
     : m_paths(std::move(framePaths))
     , m_prefetchDepth(std::max(1, prefetchDepth))
+    , m_waitForFiles(waitForFiles)
+    , m_externalStop(externalStop)
 {
+    if (m_waitForFiles) {
+        LOG_INFO("[FramePrefetcher] wait-for-files mode (watch input)");
+    }
     m_worker = std::thread([this] { workerLoop(); });
 }
 
@@ -384,15 +393,40 @@ void FramePrefetcher::workerLoop()
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait(lock, [&] {
-                return m_stop.load() ||
+                return stopRequested() ||
                        (m_produced.load() - m_consumed.load()) < m_prefetchDepth;
             });
-            if (m_stop.load()) {
+            if (stopRequested()) {
                 return;
             }
         }
 
-        FrameResult result = decodeExr(m_paths[idx]);
+        FrameResult result = [&] {
+            if (m_waitForFiles) {
+                // Watch mode: Blender streams the EXR; wait for existence and a
+                // stable size so a partially-written file is never decoded.
+                constexpr auto kTick        = std::chrono::milliseconds(100);
+                constexpr int  kStableTicks = 3;
+                std::uintmax_t lastSize     = 0;
+                int            stable       = 0;
+                while (!stopRequested()) {
+                    std::error_code ec;
+                    const auto size = std::filesystem::file_size(m_paths[idx], ec);
+                    if (!ec && size > 0 && size == lastSize) {
+                        if (++stable >= kStableTicks) break;
+                    } else {
+                        stable   = 0;
+                        lastSize = ec ? 0 : size;
+                    }
+                    std::this_thread::sleep_for(kTick);
+                }
+                if (stopRequested()) {
+                    return FrameResult(std::unexpected(ReadError{ReadErrorCode::IoError,
+                        "stopped while waiting for file", m_paths[idx]}));
+                }
+            }
+            return decodeExr(m_paths[idx]);
+        }();
 
         // Gap detection — non-sequential numeric stems force a reset on the
         // *current* frame so the next frame can be marked is_first internally.
@@ -413,11 +447,15 @@ void FramePrefetcher::workerLoop()
     }
 }
 
+FrameResult FramePrefetcher::decodeFile(const std::filesystem::path& path) {
+    return decodeExr(path);
+}
+
 FrameResult FramePrefetcher::getNext()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
     m_cv.wait(lock, [&] {
-        return !m_queue.empty() || m_stop.load();
+        return !m_queue.empty() || stopRequested();
     });
 
     if (m_queue.empty()) {

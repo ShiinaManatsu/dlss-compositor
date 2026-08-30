@@ -55,8 +55,14 @@ class FramePrefetcher {
 public:
     /// @param framePaths    Ordered list of EXR file paths (all frames in run).
     /// @param prefetchDepth How many frames to read ahead (clamped to >= 1).
+    /// @param waitForFiles  Watch mode: block each decode until the file exists
+    ///                      and has a stable size (Blender is still writing it).
+    /// @param externalStop  Optional pipeline stop flag; all waits also wake when
+    ///                      it flips so stop() can cancel mid-wait.
     explicit FramePrefetcher(std::vector<std::filesystem::path> framePaths,
-                             int prefetchDepth = 3);
+                             int prefetchDepth = 3,
+                             bool waitForFiles = false,
+                             const std::atomic<bool>* externalStop = nullptr);
 
     ~FramePrefetcher();
 
@@ -64,6 +70,9 @@ public:
     FramePrefetcher& operator=(const FramePrefetcher&) = delete;
     FramePrefetcher(FramePrefetcher&&)                 = delete;
     FramePrefetcher& operator=(FramePrefetcher&&)      = delete;
+
+    /// Decode a single EXR (blocking). Used by the FileWatcher input path.
+    static FrameResult decodeFile(const std::filesystem::path& path);
 
     /// Blocking — returns next decoded frame or ReadError.
     /// Returns IoError if the prefetcher has been stopped with no frames left.
@@ -80,9 +89,15 @@ public:
 
 private:
     void workerLoop();
+    void waitUntilWritten(const std::filesystem::path& path) const;
+    bool stopRequested() const noexcept {
+        return m_stop.load() || (m_externalStop && m_externalStop->load());
+    }
 
     std::vector<std::filesystem::path> m_paths;
     int                                m_prefetchDepth;
+    bool                               m_waitForFiles;
+    const std::atomic<bool>*           m_externalStop;
 
     mutable std::mutex      m_mutex;
     std::condition_variable m_cv;

@@ -66,6 +66,7 @@ FileWatcher::FileWatcher(FileWatcherConfig cfg, FileWatcherCallbacks cbs)
     m_running.store(true, std::memory_order_release);
     m_worker = std::thread([this]{ workerLoop(); });
     LOG_INFO("[FileWatcher] Watching {} for *{}", m_cfg.directory.string(), m_cfg.extension);
+    scanExisting();
 }
 
 FileWatcher::~FileWatcher() {
@@ -90,6 +91,38 @@ bool FileWatcher::isTarget(const std::wstring& name) const {
     WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1, narrow.data(), needed, nullptr, nullptr);
     return narrow.size() >= m_cfg.extension.size() &&
            narrow.substr(narrow.size() - m_cfg.extension.size()) == m_cfg.extension;
+}
+
+bool FileWatcher::markSeen(const std::wstring& name) {
+    std::lock_guard<std::mutex> lk(m_seenMu);
+    return m_seen.insert(name).second;
+}
+
+void FileWatcher::scanExisting() {
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(m_cfg.directory, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        if (m_stop.load(std::memory_order_acquire)) return;
+        if (!it->is_regular_file(ec)) continue;
+        const std::filesystem::path path = it->path();
+        const std::wstring name = path.filename().wstring();
+        if (!isTarget(name)) continue;
+        waitForStability(path);
+        if (m_stop.load(std::memory_order_acquire) || !std::filesystem::exists(path)) continue;
+        if (!markSeen(name)) continue;
+        FileEvent ev;
+        ev.path = path;
+        ev.stem = path.stem().string();
+        ev.deleted = false;
+        if (m_cbs.onFile) m_cbs.onFile(ev);
+        m_delivered.fetch_add(1, std::memory_order_relaxed);
+        if (!m_cfg.keepFiles) {
+            std::error_code rec;
+            std::filesystem::remove(path, rec);
+            if (rec)
+                LOG_WARN("[FileWatcher] Failed to delete {}: {}", path.string(), rec.message());
+        }
+    }
 }
 
 void FileWatcher::waitForStability(const std::filesystem::path& path) const {
@@ -173,7 +206,8 @@ void FileWatcher::workerLoop() {
                     const std::filesystem::path path = m_cfg.directory / name;
                     waitForStability(path);
 
-                    if (!m_stop.load(std::memory_order_acquire) && std::filesystem::exists(path)) {
+                    if (!m_stop.load(std::memory_order_acquire) && std::filesystem::exists(path)
+                        && markSeen(name)) {
                         FileEvent ev;
                         ev.path = path;
                         ev.stem = path.stem().string();
