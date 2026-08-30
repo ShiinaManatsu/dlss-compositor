@@ -2,16 +2,6 @@ export function jobCount(start: number, end: number) {
   return Math.max(1, end - start + 1);
 }
 
-/** Engine reports a 1-based index or an absolute frame. Ignore values outside the job. */
-export function mapEngineFrame(current: number, start: number, end: number): number | null {
-  if (!Number.isFinite(current) || current <= 0) return null;
-  const frame = Math.trunc(current);
-  if (frame >= start && frame <= end) return frame;
-  const count = jobCount(start, end);
-  if (frame >= 1 && frame <= count) return start + frame - 1;
-  return null;
-}
-
 /** Blender `frame_current` only counts if it sits on this job. Hinter / scene playhead is dropped. */
 export function mapBlenderFrame(frame: number, start: number, end: number): number | null {
   if (!Number.isFinite(frame)) return null;

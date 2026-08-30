@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {
   jobCount,
   mapBlenderFrame,
-  mapEngineFrame,
   playheadRatio,
   emptyFrameTiming,
   startFrameTiming,
@@ -13,10 +12,6 @@ import {
 } from '../src/progress.ts';
 
 assert.equal(jobCount(830, 850), 21);
-assert.equal(mapEngineFrame(4, 830, 850), 833);
-assert.equal(mapEngineFrame(833, 830, 850), 833);
-assert.equal(mapEngineFrame(0, 830, 850), null);
-assert.equal(mapEngineFrame(3010, 830, 850), null);
 assert.equal(mapBlenderFrame(4, 830, 850), null);
 assert.equal(mapBlenderFrame(830, 830, 850), 830);
 assert.equal(mapBlenderFrame(3010, 830, 850), null);

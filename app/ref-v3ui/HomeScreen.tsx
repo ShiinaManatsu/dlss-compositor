@@ -59,6 +59,14 @@ export function HomeScreen({
     <div className="home-body">
       <aside className="home-nav">
         <span className={style({font: 'title-xs'})}>最近</span>
+        <ButtonGroup>
+          <Button variant="secondary" size="S" onPress={onPickOpen}>
+            打开
+          </Button>
+          <Button variant="accent" size="S" onPress={onNew}>
+            新建
+          </Button>
+        </ButtonGroup>
       </aside>
       <section className="home-grid">
         <CardView

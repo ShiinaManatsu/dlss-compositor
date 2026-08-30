@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('dlss', {
   listRecent: () => ipcRenderer.invoke('project:recent'),
   rememberRecent: (filePath: string) => ipcRenderer.invoke('project:remember', filePath),
   exists: (filePath: string) => ipcRenderer.invoke('fs:exists', filePath),
+  openPath: (filePath: string) => ipcRenderer.invoke('shell:openPath', filePath),
+  listDir: (dirPath: string) => ipcRenderer.invoke('fs:listDir', dirPath),
   launchFlags: () => ipcRenderer.invoke('app:launchFlags'),
   setTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),

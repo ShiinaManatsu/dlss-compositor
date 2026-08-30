@@ -3,6 +3,60 @@ export const DCP_SCHEMA = 1;
 export const DEFAULT_FILENAME_TEMPLATE = '{job}_{mode}_v{version}';
 export const DEFAULT_SPLITTERS = {queue: 272, inspector: 320} as const;
 
+export const QUALITY_OPTIONS = [
+  {id: 'DLAA', label: 'DLAA'},
+  {id: 'ULTRA_QUALITY', label: '超高质量'},
+  {id: 'QUALITY', label: '高质量'},
+  {id: 'BALANCED', label: '平衡'},
+  {id: 'PERFORMANCE', label: '性能'},
+  {id: 'ULTRA_PERFORMANCE', label: '超高性能'}
+] as const;
+
+/** RR 限定质量档时的内部渲染比例（CLI 侧同名表保持一致）。 */
+export const RECOMMENDED_PERCENT: Record<string, number> = {
+  DLAA: 100,
+  ULTRA_QUALITY: 77,
+  QUALITY: 67,
+  BALANCED: 58,
+  PERFORMANCE: 50,
+  ULTRA_PERFORMANCE: 33
+};
+
+/** 发布 UI 暴露的输出格式（ProRes 4444 与 NR 留在后端，不暴露）。 */
+export const OUTPUT_FORMATS = [
+  {id: 'prores_422hq', label: 'ProRes 422 HQ'},
+  {id: 'exr', label: 'OpenEXR（线性）'},
+  {id: 'png_16', label: 'PNG 16-bit'}
+] as const;
+
+export const FG_OPTIONS = [
+  {id: 'off', label: '关'},
+  {id: '2x', label: '2x'},
+  {id: '3x', label: '3x'},
+  {id: '4x', label: '4x'},
+  {id: '5x', label: '5x'},
+  {id: '6x', label: '6x'}
+] as const;
+
+export function formatLabel(format: string) {
+  return OUTPUT_FORMATS.find((item) => item.id === format)?.label ?? format;
+}
+
+/** 一次导出的产出记录，随 .dcp 持久化，Jobs 页展示。 */
+export type JobRecord = {
+  name: string;
+  mode: string;
+  frameStart: number;
+  frameEnd: number;
+  outputDir: string;
+  template: string;
+  format: string;
+  width: number;
+  height: number;
+  status: 'done' | 'error' | 'cancelled';
+  finishedAt: number;
+};
+
 export const PIN_KEYS = [
   'percentage',
   'frameStart',
@@ -60,11 +114,15 @@ export type DcpProject = {
   filenameTemplate: string;
   outputVersion: number;
   windowSize: number;
+  /** Input buffer: RAM disk (auto-created in packaged builds) or cache dir. */
+  useRamdisk: boolean;
+  cachePath: string;
   nativeResBuffers: boolean;
   /** 0 = off; 2..6 matches CLI `--fg` / RPC `fg` / `fg_multiplier`. */
   fg: number;
   splitters: Splitters;
   preview?: string | null;
+  history?: JobRecord[];
 };
 
 export type RecentProject = {
@@ -212,6 +270,16 @@ export function isSequenceFormat(format: string) {
   return value === 'png' || value === 'png_16' || value === 'exr' || value === 'exr_linear';
 }
 
+/** 序列模板去掉 {frame} 占位后的公共前缀，Jobs 页展示与扫描用。 */
+export function sequenceBase(template: string) {
+  return template.replace(new RegExp(FRAME_TOKEN.source, 'g'), '');
+}
+
+export function joinPath(dir: string, name: string) {
+  if (!dir) return name;
+  return /[\\/]$/.test(dir) ? `${dir}${name}` : `${dir}\\${name}`;
+}
+
 export function extensionForFormat(format: string) {
   const value = format.toLowerCase();
   if (value === 'png' || value === 'png_16') return '.png';
@@ -345,10 +413,13 @@ export function parseDcp(raw: string): ParseDcpResult {
       filenameTemplate: str(obj.filenameTemplate, DEFAULT_FILENAME_TEMPLATE),
       outputVersion: Math.max(1, Math.trunc(num(obj.outputVersion, 1))),
       windowSize: num(obj.windowSize, 6),
+      useRamdisk: bool(obj.useRamdisk, true),
+      cachePath: str(obj.cachePath, ''),
       nativeResBuffers: bool(obj.nativeResBuffers, false),
       fg: parseFg(obj.fg ?? obj.fg_multiplier),
       splitters: clampSplitters(isRecord(obj.splitters) ? (obj.splitters as Partial<Splitters>) : undefined),
-      preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null
+      preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null,
+      history: parseHistory(obj.history)
     }
   };
 }
@@ -364,7 +435,8 @@ export function serializeDcp(project: DcpProject): string {
     filenameTemplate: project.filenameTemplate || DEFAULT_FILENAME_TEMPLATE,
     outputVersion: Math.max(1, Math.trunc(project.outputVersion || 1)),
     fg: parseFg(project.fg),
-    preview: project.preview || null
+    preview: project.preview || null,
+    history: project.history?.length ? project.history : undefined
   };
   return `${JSON.stringify(body, null, 2)}\n`;
 }
@@ -402,6 +474,8 @@ export function emptyProject(blend: string): DcpProject {
     filenameTemplate: DEFAULT_FILENAME_TEMPLATE,
     outputVersion: 1,
     windowSize: 6,
+    useRamdisk: true,
+    cachePath: '',
     nativeResBuffers: false,
     fg: 0,
     splitters: {...DEFAULT_SPLITTERS},
@@ -416,6 +490,32 @@ function parsePins(raw: unknown): Pins {
     if (typeof raw[key] === 'boolean') pins[key] = raw[key];
   }
   return pins;
+}
+
+const JOB_STATUSES = new Set(['done', 'error', 'cancelled']);
+
+function parseHistory(raw: unknown): JobRecord[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const records: JobRecord[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    if (typeof entry.name !== 'string' || typeof entry.outputDir !== 'string') continue;
+    if (typeof entry.status !== 'string' || !JOB_STATUSES.has(entry.status)) continue;
+    records.push({
+      name: entry.name,
+      mode: entry.mode === 'rr' ? 'rr' : 'sr',
+      frameStart: num(entry.frameStart, 1),
+      frameEnd: num(entry.frameEnd, 1),
+      outputDir: entry.outputDir,
+      template: str(entry.template, DEFAULT_FILENAME_TEMPLATE),
+      format: str(entry.format, 'prores_422hq'),
+      width: num(entry.width, 0),
+      height: num(entry.height, 0),
+      status: entry.status as JobRecord['status'],
+      finishedAt: num(entry.finishedAt, 0)
+    });
+  }
+  return records.length ? records : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

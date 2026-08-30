@@ -85,6 +85,9 @@ type ExportRequest = {
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
+  /** Input buffer: RAM disk (auto-created in packaged builds) or cache dir. */
+  useRamdisk: boolean;
+  cachePath: string;
 };
 
 type PipelineEvent = {
@@ -97,6 +100,17 @@ type LaunchFlags = {
   dcp: string | null;
   home: boolean;
   autoExport: boolean;
+  page?: string | null;
+  rail?: string | null;
+  elevated?: boolean;
+  version?: string;
+};
+
+type DirEntry = {
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtime: number;
 };
 
 interface DlssApi {
@@ -113,6 +127,8 @@ interface DlssApi {
   listRecent: () => Promise<import('./dcp').RecentProject[]>;
   rememberRecent: (filePath: string) => Promise<import('./dcp').RecentProject[]>;
   exists: (filePath: string) => Promise<boolean>;
+  openPath: (filePath: string) => Promise<boolean>;
+  listDir: (dirPath: string) => Promise<DirEntry[] | null>;
   launchFlags: () => Promise<LaunchFlags>;
   setTitle: (title: string) => Promise<void>;
   windowMinimize: () => Promise<void>;

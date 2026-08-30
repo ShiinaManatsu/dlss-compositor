@@ -1,9 +1,10 @@
-import {app, BrowserWindow, dialog, ipcMain} from 'electron';
+import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron';
+import {exec} from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {PipelineOrchestrator, parseCliFlags, type ExportRequest, type SceneOverrides} from './orchestrator';
+import {PipelineOrchestrator, configureOrchestratorPaths, parseCliFlags, type ExportRequest, type SceneOverrides} from './orchestrator';
 import {
   ensureDcpExtension,
   fileExists,
@@ -21,9 +22,36 @@ import {
 } from '../src/dcp';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const orchestrator = new PipelineOrchestrator();
+// Packaged builds resolve the bundled backend (cli + pipeline scripts) under
+// resources/ and keep logs in userData; dev builds stay inside the repo.
+const packaged = app.isPackaged;
+const logDir = packaged
+  ? path.join(app.getPath('userData'), 'logs')
+  : path.resolve(__dirname, '../../build/stage4-out');
+if (packaged) {
+  configureOrchestratorPaths({
+    backend: path.join(process.resourcesPath, 'backend'),
+    logs: logDir,
+  });
+}
+const orchestrator = new PipelineOrchestrator(packaged || process.env.DC_RAMDISK_AUTO === '1');
+
+// Elevated token check: only an admin run may offer the RAM-disk option.
+let elevated = false;
+if (process.platform === 'win32') {
+  exec('net session', (err) => {
+    elevated = !err;
+    debug(`elevated=${elevated}`);
+  });
+}
 const flags = parseCliFlags(process.argv);
-const debugLog = path.resolve(__dirname, '../../build/stage4-out/app-debug.log');
+// Installer file association launches as `DLSS Compositor.exe C:\path\job.dcp`
+// — the bare path sits at argv[1], outside parseCliFlags' flag list.
+if (!flags.dcp) {
+  const dcpArg = process.argv.slice(1).find((item) => /\.dcp$/i.test(item));
+  if (dcpArg && fsSync.existsSync(dcpArg)) flags.dcp = dcpArg;
+}
+const debugLog = path.join(logDir, 'app-debug.log');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('in-process-gpu');
 
@@ -39,6 +67,23 @@ function debug(message: string): void {
 debug(`argv=${JSON.stringify(process.argv)}`);
 debug(`flags=${JSON.stringify(flags)}`);
 debug(`dirname=${__dirname}`);
+
+// One instance owns the RAM disk and the CLI; a second launch (e.g. double
+// clicking a .dcp) forwards the path to the running window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    const dcp = [...argv].reverse().find((item) => /\.dcp$/i.test(item));
+    if (dcp && fsSync.existsSync(dcp)) {
+      win.webContents.send('pipeline:event', {type: 'open_dcp', path: dcp});
+    }
+  });
+}
 
 if (typeof flags['user-data'] === 'string' && flags['user-data']) {
   app.setPath('userData', path.resolve(flags['user-data']));
@@ -128,11 +173,47 @@ app.whenReady().then(() => {
   ipcMain.handle('project:recent', () => listRecent());
   ipcMain.handle('project:remember', (_event, filePath: unknown) => rememberRecent(String(filePath || '')));
   ipcMain.handle('fs:exists', (_event, filePath: unknown) => fileExists(String(filePath || '')));
+  ipcMain.handle('shell:openPath', async (_event, filePath: unknown) => {
+    const target = String(filePath || '');
+    if (!target) return false;
+    const error = await shell.openPath(target);
+    return !error;
+  });
+  ipcMain.handle('fs:listDir', async (_event, dirPath: unknown) => {
+    const target = String(dirPath || '');
+    if (!target) return null;
+    try {
+      const dirents = await fs.readdir(target, {withFileTypes: true});
+      const entries = await Promise.all(
+        dirents.map(async (dirent) => {
+          let size = 0;
+          let mtime = 0;
+          if (!dirent.isDirectory()) {
+            try {
+              const stat = await fs.stat(path.join(target, dirent.name));
+              size = stat.size;
+              mtime = stat.mtimeMs;
+            } catch {
+              /* raced delete */
+            }
+          }
+          return {name: dirent.name, isDir: dirent.isDirectory(), size, mtime};
+        })
+      );
+      return entries;
+    } catch {
+      return null;
+    }
+  });
   ipcMain.handle('app:launchFlags', () => ({
     blend: typeof flags.blend === 'string' ? flags.blend : null,
     dcp: typeof flags.dcp === 'string' ? flags.dcp : null,
     home: Boolean(flags.home),
     autoExport: Boolean(flags['auto-export']),
+    page: typeof flags.page === 'string' ? flags.page : null,
+    rail: typeof flags.rail === 'string' ? flags.rail : null,
+    elevated,
+    version: app.getVersion(),
   }));
   ipcMain.handle('window:setTitle', (_event, title: unknown) => {
     win.setTitle(String(title || 'DLSS Compositor'));
@@ -223,6 +304,8 @@ app.whenReady().then(() => {
           nativeResBuffers: Boolean(flags['native-res-buffers']),
           fg: parseFg(flags.fg),
           ramWindowFrames: flags['ram-window-frames'] ? Number(flags['ram-window-frames']) : undefined,
+          useRamdisk: flags['cache-path'] ? false : true,
+          cachePath: flags['cache-path'] ? String(flags['cache-path']) : '',
           effectivePercentage: flags.percentage ? Number(flags.percentage) : undefined,
           window: flags.window ? Number(flags.window) : undefined,
         };
@@ -440,6 +523,50 @@ app.whenReady().then(() => {
         }
       });
     }
+  }
+
+  // Memory harness: spam synthetic full-resolution preview frames and log per-process
+  // metrics, so renderer-side growth is measurable without a real export.
+  // `--demo-preview [--demo-seconds N]` — requires build/demo-preview.jpg.
+  if (flags['demo-preview']) {
+    const demoSeconds = Number(flags['demo-seconds']) > 0 ? Number(flags['demo-seconds']) : 60;
+    win.webContents.once('did-finish-load', () => {
+      void (async () => {
+        const jpegPath = path.resolve(__dirname, '../../build/demo-preview.jpg');
+        let b64 = '';
+        try {
+          b64 = (await fs.readFile(jpegPath)).toString('base64');
+        } catch {
+          debug('demo-preview: build/demo-preview.jpg missing');
+          app.quit();
+          return;
+        }
+        debug(`demo-preview start b64=${b64.length}B seconds=${demoSeconds}`);
+        const sendTimer = setInterval(() => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('pipeline:event', {
+              type: 'preview_frame',
+              jpeg_b64: b64,
+              width: 3840,
+              height: 2160
+            });
+          }
+        }, 200);
+        const memTimer = setInterval(() => {
+          const metrics = app
+            .getAppMetrics()
+            .map((m) => `${m.type}#${m.pid}=${m.memory.workingSetSize}KB`)
+            .join(' ');
+          debug(`mem rss=${Math.round(process.memoryUsage().rss / 1048576)}MB ${metrics}`);
+        }, 3000);
+        setTimeout(() => {
+          clearInterval(sendTimer);
+          clearInterval(memTimer);
+          debug('demo-preview done');
+          app.quit();
+        }, demoSeconds * 1000);
+      })();
+    });
   }
 });
 

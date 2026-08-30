@@ -12,47 +12,84 @@ body,
   min-height: 100%;
 }
 
+.shell,
+.shell *,
+.shell *::before,
+.shell *::after {
+  box-sizing: border-box;
+}
+
 .shell {
-  display: grid;
-  grid-template-rows: 40px minmax(0, 1fr) 32px 22px;
-  grid-template-columns: 272px 6px minmax(0, 1fr) 6px 320px;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-width: 960px;
 }
 
-.shell.home {
-  grid-template-rows: 40px minmax(0, 1fr);
-  grid-template-columns: minmax(0, 1fr);
+.shell-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
-.chrome,
-.timeline,
-.status {
-  grid-column: 1 / -1;
+.page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
+
+/* ---------- title bar ---------- */
 
 .titlebar {
   display: flex;
-  align-items: stretch;
-  height: 40px;
-  background: var(--s2-container-bg, transparent);
+  align-items: center;
+  flex-shrink: 0;
+  height: 48px;
+  padding-inline-start: 14px;
+  gap: 10px;
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
 }
 
-.titlebar-drag {
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.brand-tile {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: conic-gradient(from 210deg, #ff5c87, #ffb156, #7ee06e, #4cc3ff, #b07cff, #ff5c87);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 22%);
+}
+
+.titlebar-title {
   display: flex;
   align-items: center;
   min-width: 0;
-  flex: 1;
-  padding: 0 12px;
+  flex-shrink: 1;
 }
 
-.titlebar-actions {
+.titlebar-mid {
+  flex: 1;
+  min-width: 24px;
+  align-self: stretch;
+}
+
+.titlebar-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
   padding-inline-end: 8px;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -60,14 +97,15 @@ body,
 
 .window-controls {
   display: flex;
-  height: 100%;
+  height: 48px;
+  align-self: stretch;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .window-btn {
   width: 46px;
-  height: 100%;
+  height: 48px;
   border: 0;
   padding: 0;
   background: transparent;
@@ -139,175 +177,144 @@ body,
   transform: rotate(-45deg);
 }
 
-.splitter {
-  cursor: col-resize;
+/* ---------- rail ---------- */
+
+.rail {
+  flex: 0 0 200px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px;
+  gap: 8px;
+  overflow: clip;
+  transition: flex-basis 300ms;
+  border-inline-end: 1px solid color-mix(in srgb, canvastext 8%, transparent);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Collapsed: buttons hug their icon and center in the rail (Adobe responsive rail);
+   the accent button collapses to a circle. */
+.rail.is-collapsed {
+  flex-basis: 76px;
+  align-items: center;
+}
+
+.rail:not(.is-collapsed) > button,
+.rail:not(.is-collapsed) [role='radio'] {
+  width: 100%;
+  justify-content: start;
+}
+
+.rail > button,
+.rail [role='radio'] {
+  overflow: clip;
+  flex-shrink: 0;
+}
+
+.rail [role='radiogroup'] {
+  margin-top: 8px;
+}
+
+.rail [role='radio'][data-selected='true'] {
+  background: transparent;
+  color: inherit;
+}
+
+.rail [role='radio'][data-selected='true']::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+/* Spectrum-like overlay scrollbar (Windows default chrome is out of spec). */
+.export-settings,
+.page-settings,
+.page-jobs,
+.inspector-body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, canvastext 28%, transparent) transparent;
+}
+
+.export-settings::-webkit-scrollbar,
+.page-settings::-webkit-scrollbar,
+.page-jobs::-webkit-scrollbar {
+  width: 8px;
+}
+
+.export-settings::-webkit-scrollbar-track,
+.page-settings::-webkit-scrollbar-track,
+.page-jobs::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.splitter:hover,
-.splitter[data-active='true'] {
-  background: color-mix(in srgb, canvastext 22%, transparent);
+.export-settings::-webkit-scrollbar-thumb,
+.page-settings::-webkit-scrollbar-thumb,
+.page-jobs::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, canvastext 28%, transparent);
+  border-radius: 8px;
 }
 
-.home-body {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+/* ---------- project page ---------- */
+
+.page-project {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: 100%;
 }
 
-.home-nav {
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px 10px;
+}
+
+.project-grid {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px 20px;
+  display: flex;
+}
+
+/* ---------- export page ---------- */
+
+.export-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.export-settings {
+  flex: 0 0 320px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
   gap: 8px;
-  padding: 16px 12px;
   border-inline-end: 1px solid color-mix(in srgb, canvastext 8%, transparent);
 }
 
-.home-grid {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  padding: 12px;
-  display: flex;
-}
-
-.queue,
-.monitor,
-.inspector {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.queue-list {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: auto;
-}
-
-.queue-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 8px;
-  row-gap: 6px;
-  align-items: center;
-  padding: 8px 12px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, canvastext 8%, transparent);
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  font: inherit;
-}
-
-.queue-row .title {
-  grid-column: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.35;
-}
-
-.queue-badge {
-  grid-column: 2;
-  grid-row: 1;
-  white-space: nowrap;
-}
-
-.queue-range,
-.queue-progress {
-  grid-column: 1 / -1;
-}
-
-.monitor-well {
-  display: grid;
-  place-items: center;
-  flex: 1;
-  min-height: 0;
-  container-type: size;
-  background:
-    linear-gradient(180deg, #141414 0%, #0b0b0b 100%);
-}
-
-.monitor-frame {
-  position: relative;
-  width: min(calc(100cqw - 32px), calc((100cqh - 24px) * 16 / 9));
-  aspect-ratio: 16 / 9;
-  background:
-    radial-gradient(90% 70% at 50% 28%, #243044 0%, #141820 42%, #0a0c10 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, canvastext 12%, transparent);
-  overflow: hidden;
-}
-
-.monitor-frame[data-zoom='1:1'] {
-  width: min(960px, calc(100cqw - 24px));
-}
-
-.monitor-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.monitor-caption,
-.monitor-tc {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-  text-shadow: 0 1px 8px #000;
-  z-index: 1;
-}
-
-.monitor-caption {
-  top: 10px;
-}
-
-.monitor-tc {
-  bottom: 10px;
-  text-align: center;
-}
-
-.timeline-track {
-  position: relative;
-  flex: 1;
-  height: 10px;
-  border-radius: 1px;
-  background: color-mix(in srgb, canvastext 12%, transparent);
-  overflow: hidden;
-}
-
-.timeline-fill {
-  height: 100%;
-  background: color-mix(in srgb, canvastext 28%, transparent);
-}
-
-.timeline-playhead {
-  position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 2px;
-  background: #e34850;
-  transform: translateX(-1px);
-}
-
-.inspector-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: auto;
-  padding-bottom: 12px;
-}
-
-.inspector-fields {
+.settings-fields {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-top: 6px;
 }
 
 .field-with-action {
@@ -341,6 +348,106 @@ body,
   gap: 2px;
 }
 
-.timeline-frame {
-  font-variant-numeric: tabular-nums;
+.probe-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preview-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  padding: 14px;
+}
+
+.preview-well {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 0;
+  container-type: size;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #141414 0%, #0b0b0b 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, canvastext 12%, transparent);
+}
+
+.preview-frame {
+  position: relative;
+  width: min(calc(100cqw - 32px), calc((100cqh - 96px) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(90% 70% at 50% 28%, #243044 0%, #141820 42%, #0a0c10 100%);
+  overflow: hidden;
+}
+
+.preview-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.preview-progress {
+  position: absolute;
+  inset-inline: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 62%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.preview-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ---------- jobs page ---------- */
+
+.page-jobs {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 20px;
+  display: flex;
+}
+
+/* ---------- settings page ---------- */
+
+.page-settings {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-group h3 {
+  margin: 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

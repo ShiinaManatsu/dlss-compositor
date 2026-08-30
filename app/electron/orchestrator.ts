@@ -2,14 +2,40 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {fgRpcValue, parseFg} from '../src/dcp';
+import {parseFg} from '../src/dcp';
 import {userErrorMessage} from '../src/errors';
 import {estimateWindowFrameBytes, phaseLabel, planRamWindows, ramWindowBudget} from '../src/ramWindows';
 import {StdioRpcClient} from './rpc';
+import {createRamdisk, discoverRamdisk, findImdisk, IMDISK_MISSING, unmountRamdisk, VOLUME_LABEL} from './ramdisk';
+
+/**
+ * Packaged apps resolve the bundled backend (cli + pipeline scripts) under
+ * resources/ and write logs into userData; dev builds default to the repo.
+ */
+export type OrchestratorPaths = {
+  backend?: string;
+  logs?: string;
+};
+
+let backendDir: string | null = null;
+let logDir: string | null = null;
+
+export function configureOrchestratorPaths(paths: OrchestratorPaths): void {
+  backendDir = paths.backend ?? null;
+  logDir = paths.logs ?? null;
+}
+
+function backendRoot(): string {
+  return backendDir ?? repoRoot();
+}
+
+function logRoot(): string {
+  return logDir ?? path.join(repoRoot(), 'build', 'stage4-out');
+}
 
 function debug(message: string): void {
   try {
-    const log = path.resolve(repoRoot(), 'build', 'stage4-out', 'app-debug.log');
+    const log = path.join(logRoot(), 'app-debug.log');
     fs.mkdirSync(path.dirname(log), {recursive: true});
     fs.appendFileSync(log, `${new Date().toISOString()} ${message}\n`);
   } catch {
@@ -92,6 +118,9 @@ export type ExportRequest = {
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
+  /** Input buffer: RAM disk (auto-created when packaged) or a plain cache dir. */
+  useRamdisk: boolean;
+  cachePath: string;
 };
 
 export type ProbeResult = {
@@ -115,9 +144,16 @@ export type PipelineEvent = {
   [key: string]: unknown;
 };
 
-const IMDISK_MISSING = '请安装 ImDisk Toolkit';
 const NR_RESERVED = 'DLSS5-NR 模型未到，接口已预留';
-const VOLUME_LABEL = 'DLSSRAM';
+
+const QUALITY_PERCENT: Record<string, number> = {
+  DLAA: 100,
+  ULTRA_QUALITY: 77,
+  QUALITY: 67,
+  BALANCED: 58,
+  PERFORMANCE: 50,
+  ULTRA_PERFORMANCE: 33,
+};
 
 const BLENDER_CANDIDATES = [
   path.join('D:', 'Games', 'SteamLibrary', 'steamapps', 'common', 'Blender', 'blender.exe'),
@@ -127,17 +163,22 @@ const BLENDER_CANDIDATES = [
 
 const CLI_CANDIDATES = [
   'build/x64-windows-msvc-release/Release/dlss-compositor-cli.exe',
+  'build/x64-windows-msvc-debug/Debug/dlss-compositor-cli.exe',
   'build/review/Release/dlss-compositor-cli.exe',
   'build/Release/dlss-compositor-cli.exe',
 ];
 
+/** Drive roots like `S:\` already exist; mkdirSync throws EPERM on them. */
+function ensureDir(dir: string): void {
+  const resolved = path.resolve(dir);
+  const root = path.parse(resolved).root;
+  if (!resolved || resolved === root) return;
+  fs.mkdirSync(resolved, {recursive: true});
+}
+
 function repoRoot(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(here, '..', '..');
-}
-
-function pythonBin(): string {
-  return process.env.PYTHON || 'python';
 }
 
 function existsFile(file: string): boolean {
@@ -167,30 +208,21 @@ function findBlender(explicit?: string): string | null {
   return null;
 }
 
-function findCli(explicit?: string): string | null {
+function findCli(explicit?: string, backend?: string): string | null {
   if (explicit && existsFile(explicit)) return explicit;
   const env = process.env.DLSS_COMPOSITOR_CLI;
   if (env && existsFile(env)) return env;
+  if (backend) {
+    // Packaged: exactly the bundled CLI, nothing else.
+    const bundled = path.join(backend, 'cli', 'dlss-compositor-cli.exe');
+    return existsFile(bundled) ? bundled : null;
+  }
   const root = repoRoot();
   for (const candidate of CLI_CANDIDATES) {
     const full = path.isAbsolute(candidate) ? candidate : path.join(root, candidate);
     if (existsFile(full)) return full;
   }
   return null;
-}
-
-function parsePythonJsonLines(stderr: string): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  for (const line of stderr.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) continue;
-    try {
-      rows.push(JSON.parse(trimmed) as Record<string, unknown>);
-    } catch {
-      /* ignore */
-    }
-  }
-  return rows;
 }
 
 function pushOverrideArgs(args: string[], ov: SceneOverrides): void {
@@ -226,11 +258,12 @@ function mergeOverrides(req: ExportRequest): SceneOverrides {
 async function runCommand(
   exe: string,
   args: string[],
-  timeoutMs: number
+  timeoutMs: number,
+  cwd: string = backendRoot()
 ): Promise<{code: number; stdout: string; stderr: string}> {
   return new Promise((resolve, reject) => {
     const proc = spawn(exe, args, {
-      cwd: repoRoot(),
+      cwd,
       windowsHide: true,
     });
     let stdout = '';
@@ -256,11 +289,14 @@ async function runCommand(
   });
 }
 
-async function runPython(args: string[], timeoutMs = 15000): Promise<{code: number; stdout: string; stderr: string}> {
-  return runCommand(pythonBin(), args, timeoutMs);
-}
-
 export class PipelineOrchestrator {
+  /**
+   * @param autoRamdisk packaged builds auto-create/unmount the DLSSRAM disk
+   * around exports; dev builds expect a manually mounted disk (no admin needed).
+   * Override with DC_RAMDISK_AUTO=1 / =0.
+   */
+  constructor(private autoRamdisk = false) {}
+
   private listeners = new Set<(event: PipelineEvent) => void>();
   private blender: ChildProcess | null = null;
   private cli: ChildProcess | null = null;
@@ -273,6 +309,9 @@ export class PipelineOrchestrator {
   private session = 0;
   private pollInFlight = false;
   private exportSettled = false;
+  private ramDir: string | null = null;
+  private ramdiskManaged = false;
+  private lastRamdiskBytes = 0;
 
   onEvent(listener: (event: PipelineEvent) => void): () => void {
     this.listeners.add(listener);
@@ -285,58 +324,33 @@ export class PipelineOrchestrator {
 
   async probe(): Promise<ProbeResult> {
     const blender = findBlender();
-    const cli = findCli();
-    let imdisk: ProbeResult['imdisk'] = {ok: false, message: IMDISK_MISSING};
+    const cli = findCli(undefined, backendDir ?? undefined);
+    const imdiskPath = await findImdisk();
+    const imdisk: ProbeResult['imdisk'] = imdiskPath
+      ? {ok: true, path: imdiskPath}
+      : {ok: false, message: IMDISK_MISSING};
     let ramdisk: ProbeResult['ramdisk'] = {ok: false, message: `未找到卷标 ${VOLUME_LABEL} 的 RAM 盘`};
-
-    try {
-      const status = await runPython(['pipeline/ramdisk.py', 'status']);
-      if (status.code === 2 || status.stderr.includes(IMDISK_MISSING) || status.stdout.includes(IMDISK_MISSING)) {
-        imdisk = {ok: false, message: IMDISK_MISSING};
-      } else if (status.code === 0) {
-        imdisk = {ok: true, path: status.stdout.trim() || undefined};
-      } else {
-        const events = parsePythonJsonLines(status.stderr);
-        const missing = events.find((row) => row.event === 'imdisk_missing' || row.event === 'error');
-        imdisk = {
-          ok: false,
-          message: userErrorMessage(String(missing?.message ?? (status.stderr.trim() || IMDISK_MISSING))),
-        };
+    if (imdiskPath) {
+      try {
+        const discovered = await discoverRamdisk(this.ramLetter ?? undefined);
+        if (discovered.ok) {
+          const disk = discovered.value;
+          ramdisk = {
+            ok: true,
+            letter: disk.letter,
+            root: disk.root,
+            label: disk.label,
+            filesystem: disk.filesystem,
+            totalBytes: disk.totalBytes || undefined,
+            freeBytes: disk.freeBytes || undefined,
+          };
+          this.ramLetter = disk.letter;
+        } else {
+          ramdisk = {ok: false, message: userErrorMessage(discovered.error)};
+        }
+      } catch (err) {
+        ramdisk = {ok: false, message: userErrorMessage(err instanceof Error ? err.message : `未找到 ${VOLUME_LABEL}`)};
       }
-    } catch (err) {
-      imdisk = {ok: false, message: userErrorMessage(err instanceof Error ? err.message : IMDISK_MISSING)};
-    }
-
-    try {
-      const discovered = await runPython(['pipeline/ramdisk.py', 'discover', '--letter', 'R']);
-      const events = parsePythonJsonLines(discovered.stderr);
-      const ready = events.find((row) => row.event === 'ramdisk_discovered');
-      if (discovered.code === 0 && ready) {
-        ramdisk = {
-          ok: true,
-          letter: String(ready.letter ?? 'R'),
-          root: String(ready.root ?? 'R:\\'),
-          label: String(ready.label ?? VOLUME_LABEL),
-          filesystem: String(ready.filesystem ?? ''),
-          totalBytes: Number(ready.total_bytes ?? 0) || undefined,
-          freeBytes: Number(ready.free_bytes ?? 0) || undefined,
-        };
-        this.ramLetter = ramdisk.letter ?? 'R';
-      } else {
-        const errEvent = events.find((row) => row.event === 'error');
-        ramdisk = {
-          ok: false,
-          message: userErrorMessage(
-            String(errEvent?.message ?? (discovered.stderr.trim() || discovered.stdout.trim() || `未找到 ${VOLUME_LABEL}`)),
-            'R'
-          ),
-        };
-      }
-    } catch (err) {
-      ramdisk = {
-        ok: false,
-        message: userErrorMessage(err instanceof Error ? err.message : `未找到 ${VOLUME_LABEL}`, 'R'),
-      };
     }
 
     return {
@@ -360,10 +374,10 @@ export class PipelineOrchestrator {
       this.emit({type: 'inspect_error', error});
       return {ok: false, error};
     }
-    const outDir = path.join(repoRoot(), 'build', 'stage4-out');
+    const outDir = logRoot();
     fs.mkdirSync(outDir, {recursive: true});
     const jsonOut = path.join(outDir, `inspect-${process.pid}-${Date.now()}.json`);
-    const inspectPy = path.join(repoRoot(), 'pipeline', 'inspect_blend.py');
+    const inspectPy = path.join(backendRoot(), 'pipeline', 'inspect_blend.py');
     try {
       const result = await runCommand(
         blender,
@@ -418,29 +432,58 @@ export class PipelineOrchestrator {
     if (!outputTemplate) {
       return {ok: false, error: '文件名模板无法解析'};
     }
-    const probe = await this.probe();
-    if (!probe.ramdisk.ok) {
-      const message = userErrorMessage(
-        probe.imdisk.ok
-          ? probe.ramdisk.message || `未找到 ${VOLUME_LABEL}`
-          : probe.imdisk.message || IMDISK_MISSING,
-        String(probe.ramdisk.letter || 'R')
-      );
-      return {ok: false, error: message};
-    }
     const blender = findBlender(req.blender);
-    const cli = findCli(req.cli);
+    const cli = findCli(req.cli, backendDir ?? undefined);
     if (!blender) return {ok: false, error: '找不到 blender.exe'};
     if (!cli) return {ok: false, error: '找不到 dlss-compositor-cli.exe'};
 
-    const letter = (probe.ramdisk.letter || 'R').replace(':', '');
-    const ramDir = path.join(`${letter}:\\`, 'dlss');
     const exportDir = path.resolve(req.exportDir);
-    if (path.parse(exportDir).root.toUpperCase().startsWith(`${letter}:`)) {
-      return {ok: false, error: '导出目录必须在工作盘，不能写到 RAM 盘'};
+    try {
+      ensureDir(exportDir);
+    } catch (err) {
+      const code = err && typeof err === 'object' && 'code' in err ? String((err as {code?: string}).code) : '';
+      if (code === 'EPERM' || code === 'EACCES') {
+        return {ok: false, error: `无法创建导出目录 ${exportDir}（不能选盘符根目录，请选一个子文件夹）`};
+      }
+      throw err;
     }
-    fs.mkdirSync(ramDir, {recursive: true});
-    fs.mkdirSync(exportDir, {recursive: true});
+
+    // Input buffer: a RAM disk (auto-created in packaged builds when missing) or
+    // any user-chosen cache directory — the CLI just receives a path.
+    const rpc = await this.ensureCli(cli, exportDir);
+    let ramDir: string;
+    if (req.useRamdisk) {
+      const prepared = await this.prepareRamdisk();
+      if (!prepared.ok) return {ok: false, error: prepared.error};
+      const letter = (prepared.letter ?? 'R').replace(':', '');
+      this.ramLetter = letter;
+      ramDir = path.join(`${letter}:\\`, 'dlss');
+      ensureDir(ramDir);
+      this.ramDir = ramDir;
+      const probe = await this.probe();
+      if (!probe.ramdisk.ok) {
+        const message = userErrorMessage(
+          probe.imdisk.ok
+            ? probe.ramdisk.message || `未找到 ${VOLUME_LABEL}`
+            : probe.imdisk.message || IMDISK_MISSING,
+          String(probe.ramdisk.letter || letter)
+        );
+        return {ok: false, error: message};
+      }
+      if (path.parse(exportDir).root.toUpperCase().startsWith(`${letter}:`)) {
+        return {ok: false, error: '导出目录不能写在内存盘上'};
+      }
+    } else {
+      const cacheRoot = path.resolve((req.cachePath || '').trim());
+      if (!cacheRoot || cacheRoot === path.parse(cacheRoot).root.replace(/\\$/, '')) {
+        return {ok: false, error: '请先在 高级 → 缓存路径 里选择缓存目录'};
+      }
+      this.ramdiskManaged = false;
+      this.lastRamdiskBytes = 0;
+      ramDir = path.join(cacheRoot, 'dlss-cache');
+      ensureDir(ramDir);
+      this.ramDir = ramDir;
+    }
     for (const name of fs.readdirSync(ramDir)) {
       const lower = name.toLowerCase();
       if (lower.endsWith('.exr') || lower.startsWith('dlssconfig') || lower.startsWith('preview_')) {
@@ -471,10 +514,20 @@ export class PipelineOrchestrator {
     debug(`start blender=${blender} cli=${cli} ram=${ramDir} export=${exportDir} template=${outputTemplate}`);
 
     try {
-      const rpc = await this.ensureCli(cli, exportDir);
+      let ngx: Record<string, unknown> = {};
+      try {
+        ngx = await rpc.request('getStatus', {}, 15000);
+        this.emit({type: 'ngx_status', ...ngx, cli});
+      } catch (err) {
+        debug(`getStatus: ${err instanceof Error ? err.message : String(err)}`);
+      }
       const native = Boolean(req.nativeResBuffers);
       let pct = req.effectivePercentage ?? mergeOverrides(req).percentage ?? req.percentage ?? 100;
-      if (native && req.mode === 'rr') pct = 100;
+      if (native && req.mode === 'rr') {
+        pct = 100;
+      } else if (req.mode === 'rr') {
+        pct = QUALITY_PERCENT[req.quality.toUpperCase()] ?? 58;
+      }
       const dual = native && req.mode === 'sr' && pct < 100;
       const colorDir = path.join(ramDir, 'color');
       const guidesDir = path.join(ramDir, 'guides');
@@ -482,6 +535,11 @@ export class PipelineOrchestrator {
         fs.mkdirSync(colorDir, {recursive: true});
         fs.mkdirSync(guidesDir, {recursive: true});
       }
+      await this.bakeConfig(blender, req, ramDir, pct);
+      if (!existsFile(path.join(ramDir, 'dlssconfig.json'))) {
+        throw new Error('inject 未写出 dlssconfig.json');
+      }
+
       const jobParams: Record<string, unknown> = {
         mode: req.mode,
         input_dir: ramDir,
@@ -491,15 +549,17 @@ export class PipelineOrchestrator {
         frame_start: req.frameStart,
         frame_end: req.frameEnd,
         window: req.window ?? 6,
-        delete_consumed: true,
+        watch: true,
         wait_for_appearance: true,
+        delete_consumed: true,
         native_res_buffers: native,
         color_dir: dual ? colorDir : undefined,
         guides_dir: dual ? guidesDir : undefined,
         config: path.join(ramDir, 'dlssconfig.json'),
+        rr_preset: 'F',
+        overwrite_mode: 'overwrite',
       };
-      const fgFlag = fgRpcValue(fg);
-      if (fgFlag) jobParams.fg = fgFlag;
+      if (fg >= 2) jobParams.fg_multiplier = fg;
       const job = await this.startJob(rpc, jobParams);
       debug(`start_job ${JSON.stringify(job)}`);
       this.emit({type: 'job_started', ...job, native_res_buffers: native, dual_pass: dual, fg});
@@ -518,10 +578,18 @@ export class PipelineOrchestrator {
           guidesDir,
           dual,
           pct,
-          Number(probe.ramdisk.totalBytes ?? 0)
+          this.lastRamdiskBytes
         );
       } else {
-        this.spawnBlender(blender, this.buildInjectArgs(req, ramDir, 'combined', pct));
+        this.spawnBlender(
+          blender,
+          this.buildInjectArgs(req, ramDir, 'combined', pct, {
+            frameStart: req.frameStart,
+            frameEnd: req.frameEnd,
+            skipConfig: true,
+            configDir: ramDir,
+          })
+        );
       }
       return {ok: true};
     } catch (err) {
@@ -557,14 +625,78 @@ export class PipelineOrchestrator {
     this.running = false;
     if (hadWork) {
       this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
+      void this.sweepRamDir();
     }
     return {ok: true, unmounted: false};
   }
 
+  /**
+   * Delete leftover input frames once a job settles. Anything the pipeline did not
+   * consume (failed decodes, tail frames written after the engine stopped) is
+   * garbage; on a fixed-size RAM disk it must not sit there until the next run.
+   */
+  private async sweepRamDir(): Promise<void> {
+    const dir = this.ramDir;
+    if (!dir) return;
+    try {
+      const names = await fs.promises.readdir(dir);
+      const stale = names.filter((name) => /\.exr$/i.test(name) || /^preview_/i.test(name));
+      await Promise.all(
+        stale.map((name) => fs.promises.rm(path.join(dir, name), {force: true}).catch(() => {}))
+      );
+      if (stale.length) debug(`swept ${stale.length} stale file(s) from ${dir}`);
+    } catch {
+      /* ram dir already gone */
+    }
+  }
+
   async shutdown(): Promise<{ok: boolean; unmounted: false}> {
     const result = await this.stop();
+    await this.releaseRamdisk();
     this.discardCli();
     return result;
+  }
+
+  /** Find an existing DLSSRAM disk; in packaged builds create one when missing
+   *  (imdisk needs an elevated token). Dev builds never create. */
+  private async prepareRamdisk(): Promise<{ok: boolean; letter?: string; error?: string}> {
+    try {
+      const discovered = await discoverRamdisk(this.ramLetter ?? undefined);
+      if (discovered.ok) {
+        const letter = discovered.value.letter;
+        this.ramdiskManaged = false;
+        debug(`ramdisk: reusing existing ${letter}:`);
+        return {ok: true, letter};
+      }
+    } catch (err) {
+      debug(`ramdisk discover: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!this.autoRamdisk) {
+      return {
+        ok: false,
+        error: '未找到内存盘（DLSSRAM）。开发环境请用 ImDisk Toolkit 手动挂载，或改用导出页的缓存路径模式。',
+      };
+    }
+    const created = await createRamdisk('8G');
+    if (created.ok) {
+      const letter = created.value.letter;
+      this.ramdiskManaged = true;
+      debug(`ramdisk: created ${letter}: (${created.value.filesystem})`);
+      return {ok: true, letter};
+    }
+    return {ok: false, error: userErrorMessage(created.error)};
+  }
+
+  private async releaseRamdisk(): Promise<void> {
+    if (!this.ramdiskManaged || !this.ramLetter) return;
+    try {
+      const released = await unmountRamdisk(this.ramLetter);
+      if (released.ok) debug(`ramdisk ${this.ramLetter}: unmounted`);
+      else debug(`ramdisk unmount: ${released.error}`);
+    } catch (err) {
+      debug(`ramdisk unmount: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    this.ramdiskManaged = false;
   }
 
   private blenderLineBuf = '';
@@ -574,9 +706,15 @@ export class PipelineOrchestrator {
     outputDir: string,
     bufferPass: 'combined' | 'beauty' | 'guides',
     percentage: number | undefined,
-    extra?: {frameStart: number; frameEnd: number; skipConfig?: boolean; configDir?: string}
+    extra?: {
+      frameStart: number;
+      frameEnd: number;
+      skipConfig?: boolean;
+      dryRun?: boolean;
+      configDir?: string;
+    }
   ): string[] {
-    const inject = path.join(repoRoot(), 'pipeline', 'inject.py');
+    const inject = path.join(backendRoot(), 'pipeline', 'inject.py');
     const args = [
       '-b',
       req.blend,
@@ -603,12 +741,19 @@ export class PipelineOrchestrator {
       ov.useDenoising = false;
     }
     pushOverrideArgs(args, ov);
-    if (req.mode === 'rr') args.push('--engine', 'CYCLES');
+    if (req.mode === 'rr') {
+      // DLSS-RR §3.5: white-noise-like sampling; BLUE_NOISE correlates pixels and
+      // is tuned for Blender's own temporal accumulation.
+      args.push('--engine', 'CYCLES', '--sampling-pattern', 'TABULATED_SOBOL');
+    }
     if (req.outputWidth) args.push('--output-width', String(req.outputWidth));
     if (req.outputHeight) args.push('--output-height', String(req.outputHeight));
     if (bufferPass !== 'combined') args.push('--pass', bufferPass);
+    if (extra?.dryRun) args.push('--dry-run');
     if (extra?.skipConfig) args.push('--skip-config');
     if (extra?.configDir) args.push('--config-dir', extra.configDir);
+    if (extra?.frameStart != null) args.push('--config-frame-start', String(extra.frameStart));
+    if (extra?.frameEnd != null) args.push('--config-frame-end', String(extra.frameEnd));
     return args;
   }
 
@@ -616,7 +761,7 @@ export class PipelineOrchestrator {
     debug(`inject ${JSON.stringify(blenderArgs)}`);
     this.abandonBlender();
     this.blender = spawn(blender, blenderArgs, {
-      cwd: repoRoot(),
+      cwd: backendRoot(),
       windowsHide: true,
     });
     this.emit({type: 'blender_pid', pid: this.blender.pid, cmd: blenderArgs});
@@ -626,6 +771,30 @@ export class PipelineOrchestrator {
       this.emit({type: 'blender_exit', code});
     });
     return this.blender;
+  }
+
+  private async bakeConfig(
+    blender: string,
+    req: ExportRequest,
+    ramDir: string,
+    percentage: number
+  ): Promise<void> {
+    const args = this.buildInjectArgs(req, ramDir, 'combined', percentage, {
+      frameStart: req.frameStart,
+      frameEnd: req.frameEnd,
+      dryRun: true,
+      configDir: ramDir,
+    });
+    debug(`bake ${JSON.stringify(args)}`);
+    const proc = spawn(blender, args, {cwd: backendRoot(), windowsHide: true});
+    proc.stdout?.on('data', (chunk: Buffer) => this.onBlenderChunk(chunk.toString('utf8')));
+    proc.stderr?.on('data', (chunk: Buffer) => this.onBlenderChunk(chunk.toString('utf8')));
+    this.emit({type: 'blender_start', message: '写 dlssconfig / LUT，不渲染', cmd: args});
+    const code = await this.waitBlender(proc);
+    this.emit({type: 'blender_exit', code, phase: 'config'});
+    if (code !== 0) {
+      throw new Error(`bake dlssconfig 失败（${code}）`);
+    }
   }
 
   private waitBlender(proc: ChildProcess): Promise<number> {
@@ -674,7 +843,7 @@ export class PipelineOrchestrator {
       ram_budget_bytes: budget,
       estimated_exr_bytes: perFrame,
     });
-    let wroteConfig = false;
+    let wroteConfig = true;
     for (let i = 0; i < windows.length; i++) {
       if (session !== this.session || !this.running) return;
       const [winStart, winEnd] = windows[i];
@@ -789,6 +958,11 @@ export class PipelineOrchestrator {
       cwd: path.dirname(cli),
       stdio: ['pipe', 'pipe', this.stderrFd],
       windowsHide: true,
+      env: {
+        ...process.env,
+        // Release CLI defaults logs to off; keep stderr useful for GUI jobs.
+        DLSS_COMPOSITOR_LOG: process.env.DLSS_COMPOSITOR_LOG || 'info',
+      },
     });
     this.cliPath = cli;
     const child = this.cli;
@@ -852,21 +1026,26 @@ export class PipelineOrchestrator {
       this.emit({type: 'engine_progress', ...progress});
       const preview = await this.rpc.request('preview_frame', {}, 5000);
       if (session !== this.session) return;
-      if (preview && (preview.path || preview.generation)) {
-        this.emit({type: 'preview_frame', ...preview});
+      if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
+        this.emit({type: 'preview_frame', jpeg_b64: preview.jpeg_b64, width: preview.width, height: preview.height});
       }
       const state = progress.state;
+      const failed = state === 3 || state === 'error';
+      const finished = state === 2 || state === 'done';
       const blenderDone = this.blender == null || this.blender.exitCode !== null;
-      if (blenderDone && (state === 2 || state === 3 || state === 'done' || state === 'error')) {
+      if (failed || (blenderDone && finished)) {
         if (this.pollTimer) {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
         }
         this.running = false;
+        if (failed) this.abandonBlender();
+        void this.sweepRamDir();
         if (!this.exportSettled) {
           this.exportSettled = true;
           this.emit({
-            type: state === 3 || state === 'error' ? 'export_error' : 'export_done',
+            type: failed ? 'export_error' : 'export_done',
+            message: failed ? 'DLSS 引擎失败（见导出目录 cli.stderr.log）' : undefined,
             ...progress,
           });
         }
@@ -882,11 +1061,20 @@ export class PipelineOrchestrator {
 
 export function parseCliFlags(argv: string[]): Record<string, string | boolean> {
   const out: Record<string, string | boolean> = {};
-  const start = argv.findIndex((item) => item === '--');
-  const list = start >= 0 ? argv.slice(start + 1) : argv.slice(2);
+  // Works in both dev (`electron . --flag`) and packaged (`App.exe --flag`):
+  // anchor on the first `--` passthrough marker or the first flag itself.
+  const marker = argv.findIndex((item) => item === '--');
+  const firstFlag = marker >= 0 ? marker + 1 : argv.findIndex((item) => item.startsWith('--'));
+  const list = firstFlag >= 0 ? argv.slice(firstFlag) : [];
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     if (!item.startsWith('--')) continue;
+    const eq = item.indexOf('=');
+    if (eq > 2) {
+      // `--screenshot=path` / `--dcp=path` form (installer association, shortcuts)
+      out[item.slice(2, eq)] = item.slice(eq + 1);
+      continue;
+    }
     const key = item.slice(2);
     const next = list[i + 1];
     if (!next || next.startsWith('--')) {

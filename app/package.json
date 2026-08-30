@@ -2,12 +2,19 @@
   "name": "dlss-compositor-app",
   "private": true,
   "version": "0.3.0",
+  "description": "DLSS SR/RR/FG compositor GUI",
+  "author": {
+    "name": "dlss-compositor"
+  },
   "type": "module",
   "main": "out/main.js",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build && node scripts/build-main.mjs",
     "start": "electron .",
+    "pack:backend": "node scripts/pack-backend.mjs",
+    "dist:dir": "npm run build && npm run pack:backend && electron-builder --win --dir",
+    "dist": "npm run build && npm run pack:backend && electron-builder --win nsis zip",
     "test:rpc": "node --experimental-strip-types scripts/test-rpc.mjs",
     "test:progress": "node --experimental-strip-types scripts/test-progress.mjs",
     "test:dcp": "node --experimental-strip-types scripts/test-dcp.mjs",
@@ -25,10 +32,64 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^36.4.0",
+    "electron-builder": "^26.0.12",
     "esbuild": "^0.25.5",
     "lightningcss": "^1.30.0",
     "typescript": "^5.8.0",
     "unplugin-parcel-macros": "latest",
     "vite": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.dlsscompositor.app",
+    "productName": "DLSS Compositor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "dist/**/*",
+      "!**/node_modules/**"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "pack/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "artifactName": "DLSS-Compositor-Setup-${version}.${ext}"
+    },
+    "fileAssociations": [
+      {
+        "ext": "dcp",
+        "name": "DLSS Compositor Project",
+        "description": "DLSS Compositor 工程文件",
+        "role": "Editor"
+      }
+    ]
   }
 }

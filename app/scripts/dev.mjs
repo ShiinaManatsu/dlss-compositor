@@ -29,23 +29,37 @@ await build({
   sourcemap: true,
 });
 
-const vite = spawn('npx', ['vite', '--port', '5173', '--strictPort'], {
+const vite = spawn('npx', ['vite', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
   cwd: root,
   stdio: 'inherit',
   shell: true,
 });
 
+function tryConnect(port, host, timeoutMs) {
+  return new Promise((resolve) => {
+    const sock = net.connect({port, host});
+    const timer = setTimeout(() => {
+      sock.destroy();
+      resolve(false);
+    }, timeoutMs);
+    sock.on('connect', () => {
+      clearTimeout(timer);
+      sock.end();
+      resolve(true);
+    });
+    sock.on('error', () => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+
 async function waitUntilListening(port, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const ok = await new Promise((resolve) => {
-      const sock = net.connect(port, '127.0.0.1', () => {
-        sock.end();
-        resolve(true);
-      });
-      sock.on('error', () => resolve(false));
-    });
-    if (ok) return;
+    if (await tryConnect(port, '127.0.0.1', 400)) return;
+    if (await tryConnect(port, '::1', 400)) return;
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error('vite port did not open');
