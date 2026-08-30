@@ -47,12 +47,12 @@ export function SettingsPage() {
             value={
               ramOk
                 ? `${probe?.ramdisk.letter}: ${probe?.ramdisk.label || 'DLSSRAM'}`
-                : userErrorMessage(probe?.ramdisk.message ?? '未找到 DLSSRAM')
+                : '未挂载'
             }
           />
-          <StatusLight size="S" variant={ramOk ? 'positive' : 'negative'}>
-            {ramOk ? '就绪' : '未挂载'}
-          </StatusLight>
+          {ramOk ? (
+            <StatusLight size="S" variant="positive">就绪</StatusLight>
+          ) : null}
         </div>
         <span className={style({font: 'detail-sm', color: 'gray-600'})}>
           输入缓冲二选一：勾选「使用内存盘」时，安装版自动创建/卸载 DLSSRAM（需管理员），开发版手动挂载；不勾选则使用导出页的「缓存路径」（本地或网络目录均可）。
@@ -64,9 +64,6 @@ export function SettingsPage() {
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>DLSS</h3>
         <LabeledValue label="SR / RR / FG DLL" value="310.7.129.0（锁定）" />
-        <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-          Debug / Release 都用 resources/ 里锁死的 310.7.129.0，拷到 cli.exe 旁。NGX core 由驱动提供。不需要在 GUI 里切 debug 后端。
-        </span>
       </section>
 
       <Divider size="S" />

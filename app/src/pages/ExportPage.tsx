@@ -461,15 +461,10 @@ export function ExportPage() {
                   <Refresh />
                 </ActionButton>
               </div>
-              <span
-                className={
-                  ramOk
-                    ? style({font: 'detail-sm', color: 'gray-600'})
-                    : style({font: 'detail-sm', color: 'red-700'})
-                }>
+              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
                 {ramOk
                   ? `${probe?.ramdisk.letter}: ${probe?.ramdisk.label || 'DLSSRAM'}`
-                  : userErrorMessage(probe?.ramdisk.message ?? '未找到 DLSSRAM')}
+                  : '未挂载'}
               </span>
             </>
           ) : (

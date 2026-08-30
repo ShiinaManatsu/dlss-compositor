@@ -68,6 +68,13 @@ debug(`argv=${JSON.stringify(process.argv)}`);
 debug(`flags=${JSON.stringify(flags)}`);
 debug(`dirname=${__dirname}`);
 
+// --user-data must be applied BEFORE requestSingleInstanceLock: the lock is
+// keyed on the userData path, so a dev instance running alongside the
+// installed app needs a different userData to get its own lock.
+if (typeof flags['user-data'] === 'string' && flags['user-data']) {
+  app.setPath('userData', path.resolve(flags['user-data']));
+}
+
 // One instance owns the RAM disk and the CLI; a second launch (e.g. double
 // clicking a .dcp) forwards the path to the running window instead.
 if (!app.requestSingleInstanceLock()) {
@@ -83,10 +90,6 @@ if (!app.requestSingleInstanceLock()) {
       win.webContents.send('pipeline:event', {type: 'open_dcp', path: dcp});
     }
   });
-}
-
-if (typeof flags['user-data'] === 'string' && flags['user-data']) {
-  app.setPath('userData', path.resolve(flags['user-data']));
 }
 
 function createWindow(): BrowserWindow {
