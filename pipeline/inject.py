@@ -280,7 +280,9 @@ def insert_file_output(
     fo = tree.nodes.new("CompositorNodeOutputFile")
     fo.label = OUTPUT_LABEL
     fo.location = (400, 0)
-    fo.directory = str(output_dir) + "\\"
+    # Blender treats paths without a "//" prefix as absolute; a relative
+    # --output-dir would be an invalid drive-less path and writes fail silently.
+    fo.directory = str(Path(output_dir).resolve()) + "\\"
     fo.file_name = file_name
 
     fmt = fo.format
