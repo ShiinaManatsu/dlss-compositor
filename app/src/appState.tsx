@@ -1200,7 +1200,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.8';
+  return appVersion || '0.4.9';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {

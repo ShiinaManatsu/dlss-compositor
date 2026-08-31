@@ -36,9 +36,44 @@ if (packaged) {
 }
 const orchestrator = new PipelineOrchestrator(packaged || process.env.DC_RAMDISK_AUTO === '1');
 
-// Elevated token check: only an admin run may offer the RAM-disk option.
-// Synchronous on purpose — the elevate-on-start decision below needs the
-// answer before the window exists.
+const flags = parseCliFlags(process.argv);
+// Installer file association launches as `DLSS Compositor.exe C:\path\job.dcp`
+// — the bare path sits at argv[1], outside parseCliFlags' flag list.
+if (!flags.dcp) {
+  const dcpArg = process.argv.slice(1).find((item) => /\.dcp$/i.test(item));
+  if (dcpArg && fsSync.existsSync(dcpArg)) flags.dcp = dcpArg;
+}
+const debugLog = path.join(logDir, 'app-debug.log');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('in-process-gpu');
+
+function debug(message: string): void {
+  try {
+    fsSync.mkdirSync(path.dirname(debugLog), {recursive: true});
+    fsSync.appendFileSync(debugLog, `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
+debug(`argv=${JSON.stringify(process.argv)}`);
+debug(`flags=${JSON.stringify(flags)}`);
+debug(`dirname=${__dirname}`);
+
+// --user-data must be applied BEFORE anything that reads userData (settings,
+// single-instance lock): the lock is keyed on the userData path, so a dev
+// instance running alongside the installed app needs a different userData to
+// get its own lock.
+if (typeof flags['user-data'] === 'string' && flags['user-data']) {
+  app.setPath('userData', path.resolve(flags['user-data']));
+}
+
+// ── Elevation + app-level settings (userData/settings.json) ─────────────────
+// Both must be settled before the window exists; the elevate preference is
+// read main-side because the relaunch decision happens before the renderer
+// boots (unlike color scheme, which only the renderer needs).
+
+// Synchronous probe: the elevate-on-start decision below needs the answer now.
 let elevated = false;
 if (process.platform === 'win32') {
   try {
@@ -50,9 +85,6 @@ if (process.platform === 'win32') {
   debug(`elevated=${elevated}`);
 }
 
-// ── App-level settings (userData/settings.json) ─────────────────────────────
-// The elevate preference must be readable before the renderer boots, so it
-// lives main-side (unlike color scheme, which only the renderer needs).
 type AppSettings = {elevate?: boolean};
 
 function readAppSettings(): AppSettings {
@@ -89,6 +121,7 @@ function relaunchElevated(): boolean {
   const argList = process.argv
     .slice(1)
     .map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))
+    .filter((arg) => arg !== '--elevate-relaunch')
     .join(' ');
   const cmd =
     `Start-Process -FilePath '${psPath}' -Verb RunAs` +
@@ -100,9 +133,9 @@ function relaunchElevated(): boolean {
   child.on('exit', (code) => {
     debug(`relaunchElevated exit=${code}`);
     if (code === 0) {
-      // Grace period so the elevated instance can take the single-instance
-      // lock before this one releases it.
-      setTimeout(() => app.exit(0), 800);
+      // Short grace so this instance's own debug writes flush; the relaunched
+      // instance polls for the single-instance lock in case it boots first.
+      setTimeout(() => app.exit(0), 400);
     }
     // non-zero = UAC declined or launch failed: stay non-elevated
   });
@@ -114,40 +147,23 @@ function relaunchElevated(): boolean {
 if (appSettings.elevate && !elevated) {
   relaunchElevated();
 }
-const flags = parseCliFlags(process.argv);
-// Installer file association launches as `DLSS Compositor.exe C:\path\job.dcp`
-// — the bare path sits at argv[1], outside parseCliFlags' flag list.
-if (!flags.dcp) {
-  const dcpArg = process.argv.slice(1).find((item) => /\.dcp$/i.test(item));
-  if (dcpArg && fsSync.existsSync(dcpArg)) flags.dcp = dcpArg;
-}
-const debugLog = path.join(logDir, 'app-debug.log');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('in-process-gpu');
-
-function debug(message: string): void {
-  try {
-    fsSync.mkdirSync(path.dirname(debugLog), {recursive: true});
-    fsSync.appendFileSync(debugLog, `${new Date().toISOString()} ${message}\n`);
-  } catch {
-    /* ignore */
-  }
-}
-
-debug(`argv=${JSON.stringify(process.argv)}`);
-debug(`flags=${JSON.stringify(flags)}`);
-debug(`dirname=${__dirname}`);
-
-// --user-data must be applied BEFORE requestSingleInstanceLock: the lock is
-// keyed on the userData path, so a dev instance running alongside the
-// installed app needs a different userData to get its own lock.
-if (typeof flags['user-data'] === 'string' && flags['user-data']) {
-  app.setPath('userData', path.resolve(flags['user-data']));
-}
 
 // One instance owns the RAM disk and the CLI; a second launch (e.g. double
 // clicking a .dcp) forwards the path to the running window instead.
-if (!app.requestSingleInstanceLock()) {
+//
+// An elevated relaunch (`--elevate-relaunch`, set by relaunchElevated) can
+// reach this point while the pre-elevation instance is still alive — it only
+// exits ~400ms after spawning us. Poll for the lock instead of quitting, or
+// every UAC handoff would silently kill the fresh instance.
+const elevateRelaunch = process.argv.includes('--elevate-relaunch');
+let instanceLock = app.requestSingleInstanceLock();
+if (!instanceLock && elevateRelaunch) {
+  for (let attempt = 0; attempt < 40 && !instanceLock; attempt++) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    instanceLock = app.requestSingleInstanceLock();
+  }
+}
+if (!instanceLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
