@@ -5,6 +5,7 @@ No bpy import — safe for unit tests.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -295,9 +296,11 @@ def ngx_min_render_size(output_w: int, output_h: int, quality: str) -> tuple[int
     1080p Balanced SR min is 960×540 (DC-18 / DLSS SR §3.7). That is half of
     1920×1080. Ultra Performance allows 1/3; other modes allow 1/2.
     25% of 1080p (480×270) is below the floor and must be rejected.
+    NGX reports a CEILed floor for odd sizes (1215→608, measured 2026-08-31),
+    so ceil here — floor() would let a 1-px-too-small render through.
     """
     scale = 3.0 if quality.upper() == "ULTRA_PERFORMANCE" else 2.0
-    return max(1, int(output_w / scale)), max(1, int(output_h / scale))
+    return max(1, math.ceil(output_w / scale)), max(1, math.ceil(output_h / scale))
 
 
 def validate_render_percentage(
@@ -305,9 +308,21 @@ def validate_render_percentage(
     output_h: int,
     percentage: int,
     quality: str,
+    *,
+    mode: str = "sr",
 ) -> str | None:
     if percentage < 1 or percentage > 100:
         return f"渲染百分比 {percentage}% 无效"
+    if (mode or "sr").strip().lower() == "rr":
+        if quality.upper() == "ULTRA_QUALITY":
+            return "RR 不支持超高质量档：请选 DLAA / 高质量 / 平衡 / 性能"
+        if quality.upper() == "ULTRA_PERFORMANCE":
+            third_w, third_h = output_w // 3, output_h // 3
+            if third_w * 3 != output_w or third_h * 3 != output_h:
+                return (
+                    f"RR 超高性能要求渲染分辨率恰好为输出的 1/3，"
+                    f"而 {output_w}x{output_h} 无法整除 3"
+                )
     render_w = max(1, int(output_w * percentage / 100.0))
     render_h = max(1, int(output_h * percentage / 100.0))
     min_w, min_h = ngx_min_render_size(output_w, output_h, quality)

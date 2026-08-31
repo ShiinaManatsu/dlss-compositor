@@ -90,7 +90,8 @@ export function engineLabel(engine: string) {
 
 function ngxMinSize(outputW: number, outputH: number, quality: string) {
   const scale = quality === 'ULTRA_PERFORMANCE' ? 3 : 2;
-  return [Math.max(1, Math.floor(outputW / scale)), Math.max(1, Math.floor(outputH / scale))] as const;
+  // NGX reports a CEILed floor for odd sizes (1215→608, measured 2026-08-31).
+  return [Math.max(1, Math.ceil(outputW / scale)), Math.max(1, Math.ceil(outputH / scale))] as const;
 }
 
 export function percentError(outputW: number, outputH: number, percentage: number, quality: string) {
@@ -1153,7 +1154,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.2';
+  return appVersion || '0.4.3';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {

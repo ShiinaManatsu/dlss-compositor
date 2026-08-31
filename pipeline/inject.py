@@ -634,6 +634,7 @@ def main() -> int:
         int(render.resolution_y),
         int(render.resolution_percentage),
         args.quality,
+        mode=args.mode,
     )
     if percent_error:
         emit("error", message=percent_error)

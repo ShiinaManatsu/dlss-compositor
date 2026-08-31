@@ -121,6 +121,16 @@ void DlssRrPass::create(uint32_t   renderW,
     if (NVSDK_NGX_FAILED(r)) {
         throw std::runtime_error("NGX_DLSSD_GET_OPTIMAL_SETTINGS failed: " + std::to_string(r));
     }
+    // The callback no-ops (success, all-zero outputs) for quality modes the RR
+    // DLL does not implement — e.g. UltraQuality, which NGX RR does not offer.
+    // GetUI leaves the outputs at 0 for missing labels, so an empty range means
+    // the quality was silently rejected, not a genuinely degenerate resolution.
+    if (maxW == 0 || maxH == 0 || minW == 0 || minH == 0) {
+        throw std::runtime_error(
+            "NGX_DLSSD_GET_OPTIMAL_SETTINGS returned an empty render range — this "
+            "DLSS RR DLL does not support the requested quality mode "
+            "(RR has no UltraQuality slot)");
+    }
     if (renderW < minW || renderW > maxW || renderH < minH || renderH > maxH) {
         throw std::runtime_error(
             "RR render resolution " + std::to_string(renderW) + "x" + std::to_string(renderH) +

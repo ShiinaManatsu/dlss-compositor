@@ -111,10 +111,10 @@ void runJsonRpcStdio(RpcDispatcher& dispatcher) {
         const std::string method = request.value("method", std::string{});
         const nlohmann::json id = request.contains("id") ? request["id"] : nlohmann::json(nullptr);
         const nlohmann::json params = request.value("params", nlohmann::json::object());
-        LOG_INFO("[JSON-RPC] dispatch begin method={}", method);
+        LOG_DEBUG("[JSON-RPC] dispatch begin method={}", method);
 
         nlohmann::json result = dispatcher.dispatch(method, params);
-        LOG_INFO("[JSON-RPC] dispatch complete method={}", method);
+        LOG_DEBUG("[JSON-RPC] dispatch complete method={}", method);
 
         writeJsonRpcResponse({
             {"jsonrpc", "2.0"},

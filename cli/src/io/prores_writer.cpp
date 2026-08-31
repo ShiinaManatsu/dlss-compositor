@@ -541,6 +541,15 @@ void ProResWriter::encodeFrame(void* rawFrame)
         if (err < 0) {
             throw std::runtime_error("ProResWriter: receive packet failed: " + fferr(err));
         }
+        // The ProRes encoders do not propagate AVFrame.duration into the
+        // packet (measured FFmpeg 8: packets written with duration N/A → mov
+        // stream duration ends at the last PTS → avformat derives a bogus
+        // avg_frame_rate → VideoReader CFR index math breaks). Stamp one
+        // frame period in CODEC time_base; av_packet_rescale_ts below carries
+        // it into the stream time_base.
+        if (m_impl->packet->duration <= 0) {
+            m_impl->packet->duration = 1;
+        }
         av_packet_rescale_ts(m_impl->packet, m_impl->codec->time_base, m_impl->stream->time_base);
         m_impl->packet->stream_index = m_impl->stream->index;
         err = av_interleaved_write_frame(m_impl->format, m_impl->packet);
@@ -719,6 +728,10 @@ void ProResWriter::writeFrameImpl(const std::vector<std::uint8_t>& rgba16f)
         std::chrono::steady_clock::now() - convertStart);
 
     m_impl->frame->pts = m_impl->nextPts++;
+    // Duration + frame time_base: see writePackedFrameImpl — mov packet
+    // durations keep stream duration/avg_frame_rate honest for VideoReader.
+    m_impl->frame->time_base = m_impl->codec->time_base;
+    m_impl->frame->duration = 1;
     const auto encodeStart = std::chrono::steady_clock::now();
     encodeFrame(m_impl->frame);
     m_impl->encodeTime += std::chrono::duration_cast<std::chrono::microseconds>(
@@ -804,6 +817,13 @@ void ProResWriter::writePackedFrameImpl(const std::vector<std::uint8_t>& packedW
         std::chrono::steady_clock::now() - convertStart);
 
     m_impl->frame->pts = m_impl->nextPts++;
+    // Per-frame duration is REQUIRED: without it the mov muxer stores packets
+    // with duration N/A, the stream duration ends at the last PTS (dropping one
+    // frame period), and avformat derives a wrong avg_frame_rate — which broke
+    // VideoReader's CFR index math ("skipped past frame 1"). One tick of
+    // codec time_base (1/fps) per frame.
+    m_impl->frame->time_base = m_impl->codec->time_base;
+    m_impl->frame->duration = 1;
     const auto encodeStart = std::chrono::steady_clock::now();
     encodeFrame(m_impl->frame);
     m_impl->encodeTime += std::chrono::duration_cast<std::chrono::microseconds>(

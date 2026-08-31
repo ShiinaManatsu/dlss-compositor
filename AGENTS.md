@@ -15,6 +15,7 @@ High-signal notes for future OpenCode sessions. Keep this file compact; prefer v
 - `DLSS/`: NVIDIA DLSS SDK v310.6.0 submodule (headers + import libs). Initialize submodules before configuring CMake.
 - DLSS feature DLLs (310.7.129.0) ship with the app, next to the exe (DLSS Programming Guide §5.1): CMake POST_BUILD copies `resources/nvngx_dlss.dll` / `nvngx_dlssd.dll` / `nvngx_dlssg.dll` for Debug, and the release zip bundles them the same way. NGX core (`_nvngx.dll`) always comes from the NVIDIA driver — never bundle it.
 - DLSSNR (feature 18) is a signed snippet (`nvngx_dlssnr.dll` 310.8.0.0) loaded directly by `cli/src/dlss/dlss_nr.cpp` — the core DLL does not route it. The snippet verifies its caller module, so `DlssNrPass` IAT-hooks the snippet's `GetModuleFileNameW` import to answer `nvngx.dll` (Magpie approach) or Init fails with 0xBAD00002. That DLL is dev-machine-only: gitignored under `resources/`, and `pack-backend.mjs` keeps its fixed 3-DLL whitelist (installers must not ship it).
+- NGX DLSS RR has no UltraQuality slot: the OptimalSettings callback silently no-ops (success, all-zero range) for `PerfQuality_UltraQuality`, and UltraPerformance accepts only an exact 1/3 render scale. Valid RR quality slots: DLAA / Quality / Balanced / Performance. CLI dispatcher rejects `ultra_quality` for RR; the GUI RR quality picker filters to `RR_QUALITY_IDS` (dcp.ts) and the orchestrator re-checks at start(). NGX range floors are CEILed for odd sizes (1215→608) — mirror in `ngx_min_render_size` (session_config.py) and `ngxMinSize` (appState).
 - Root should stay lean: module roots, build entry files, scripts, and top-level docs only.
 
 ## Build and verification flow
@@ -63,6 +64,8 @@ npx electron . --dcp <x.dcp> --demo-progress --screenshot ../build/shot-run.png 
 ```
 
 - NR standalone workflow regression: `python tools/run_nr_tool_smoke.py` (needs Stage-A exports in `test-frames/rr/pipeline-out-nrbuf` — color PNG16 + `dlssnrbuffer_*.exr`; regenerable via `tools/run_nr_buffer_job.py`). Exercises nrtool_open → preview/scrub → ProRes export → close over JSON-RPC.
+- Full R:→S: disk flow regression: `python tools/run_e2e_rs_smoke.py [--stages abc]` — seeds `test-frames/rr` into the RAM disk, then RR+nr_buffer watch export (ProRes + dlssnrbuffer + preview_frame) → NR tool consume/export → SR watch export. Stage A consumes input frames; the tool reseeds before C. Requires the RAM disks mounted (R:, S:).
+- ProRes packets must carry per-frame durations: `prores_writer.cpp` stamps `packet->duration = 1` (codec time_base) because the encoders don't propagate `AVFrame.duration` — without it the mov's stream duration ends at the last PTS and avformat derives a bogus `avg_frame_rate`, which breaks `VideoReader`'s CFR index math ("skipped past frame N"). VideoReader prefers `r_frame_rate` when `avg_frame_rate` disagrees by >1% as defense against foreign files.
 
 - GPU/NGX tests are tagged `[gpu]` and require NVIDIA RTX + drivers; run locally with `ctest -C Release --label-regex gpu` from the configured build dir.
 - `dlss-compositor-cli --self-check` is not yet a real capability probe; trust `NgxContext`/status logs and targeted tests instead.

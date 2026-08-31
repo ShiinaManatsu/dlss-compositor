@@ -62,6 +62,27 @@ def test_ultra_performance_allows_third() -> None:
     assert validate_render_percentage(1920, 1080, 34, "ULTRA_PERFORMANCE") is None
 
 
+def test_rr_rejects_ultra_quality() -> None:
+    # NGX DLSS RR has no UltraQuality slot: the OptimalSettings callback no-ops
+    # with an all-zero range (measured 2026-08-31, nvngx_dlssd 310.7.129.0).
+    assert validate_render_percentage(1215, 2160, 77, "ULTRA_QUALITY", mode="rr") is not None
+    assert validate_render_percentage(1215, 2160, 77, "ULTRA_QUALITY", mode="sr") is None
+
+
+def test_rr_odd_output_min_is_ceiled() -> None:
+    # 1215x2160 at 50% floors to 607x1080 but NGX reports min 608x1080.
+    assert ngx_min_render_size(1215, 2160, "BALANCED") == (608, 1080)
+    assert validate_render_percentage(1215, 2160, 50, "BALANCED", mode="rr") is not None
+
+
+def test_rr_ultra_performance_needs_exact_third() -> None:
+    assert validate_render_percentage(1215, 2160, 33, "ULTRA_PERFORMANCE", mode="rr") is not None
+    assert validate_render_percentage(1920, 1080, 34, "ULTRA_PERFORMANCE", mode="rr") is not None
+    # 1920x1080 is exactly 3x 640x360, but percentage 34 renders 652x367 — not 1/3.
+    # Only an exact 1/3 render passes; 33% of 1920 floors to 633x356, also not 1/3.
+    assert validate_render_percentage(1920, 1080, 33, "ULTRA_PERFORMANCE", mode="rr") is not None
+
+
 def test_parse_fg_multiplier() -> None:
     assert parse_fg_multiplier(None) == 0
     assert parse_fg_multiplier("2x") == 2

@@ -1,6 +1,9 @@
 export const DEFAULT_RAM_FILL_PERCENT = 90;
 export const DEFAULT_RAM_RESERVE_BYTES = 1024 ** 3;
-const EST_ZIP_RATIO = 0.35;
+// Scene-linear half-float path-traced data is nearly incompressible: the user's
+// RR multilayer EXRs measured ~45 B/px on disk (70 MB at 935×1663, 2026-08-31),
+// i.e. ~0.9 of the raw half-float payload. 0.35 under-planned windows 2.5x.
+const EST_ZIP_RATIO = 0.85;
 const EXR_HALF_BYTES = 2;
 const BEAUTY_CHANNELS = 4;
 const GUIDES_CHANNELS = 5;

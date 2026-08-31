@@ -150,14 +150,17 @@ export type PipelineEvent = {
 
 const NR_RESERVED = 'DLSS5-NR 模型未到，接口已预留';
 
-const QUALITY_PERCENT: Record<string, number> = {
+/** RR 渲染比例（dcp.ts RR_RECOMMENDED_PERCENT 同步）：性能档 51% 避开
+ *  Blender floor(50%) 比 NGX ceil 下限低 1px；超高质量/超高性能不为 RR 提供百分
+ *  比 —— start() 直接拒绝。 */
+const RR_QUALITY_PERCENT: Record<string, number> = {
   DLAA: 100,
-  ULTRA_QUALITY: 77,
   QUALITY: 67,
   BALANCED: 58,
-  PERFORMANCE: 50,
-  ULTRA_PERFORMANCE: 33,
+  PERFORMANCE: 51,
 };
+
+const RR_QUALITY_IDS = new Set(Object.keys(RR_QUALITY_PERCENT));
 
 const BLENDER_CANDIDATES = [
   path.join('D:', 'Games', 'SteamLibrary', 'steamapps', 'common', 'Blender', 'blender.exe'),
@@ -535,7 +538,13 @@ export class PipelineOrchestrator {
       if (native && req.mode === 'rr') {
         pct = 100;
       } else if (req.mode === 'rr') {
-        pct = QUALITY_PERCENT[req.quality.toUpperCase()] ?? 58;
+        const rrQuality = req.quality.toUpperCase();
+        if (!RR_QUALITY_IDS.has(rrQuality)) {
+          throw new Error(
+            `RR 不支持质量档 ${req.quality}（NGX RR 仅提供 DLAA/高质量/平衡/性能），请回导出页重选`,
+          );
+        }
+        pct = RR_QUALITY_PERCENT[rrQuality] ?? 58;
       }
       const dual = native && req.mode === 'sr' && pct < 100;
       const colorDir = path.join(ramDir, 'color');
@@ -1124,31 +1133,49 @@ export class PipelineOrchestrator {
       const progress = await this.rpc.request('progress', {}, 5000);
       if (session !== this.session) return;
       this.emit({type: 'engine_progress', ...progress});
-      const preview = await this.rpc.request('preview_frame', {}, 5000);
-      if (session !== this.session) return;
-      if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
-        this.emit({type: 'preview_frame', jpeg_b64: preview.jpeg_b64, width: preview.width, height: preview.height});
-      }
       const state = progress.state;
       const failed = state === 3 || state === 'error';
       const finished = state === 2 || state === 'done';
       const blenderDone = this.blender == null || this.blender.exitCode !== null;
-      if (failed || (blenderDone && finished)) {
-        if (this.pollTimer) {
-          clearInterval(this.pollTimer);
-          this.pollTimer = null;
+      const settled = failed || (blenderDone && finished);
+      if (!settled) {
+        // Preview pull only while the job is alive. It must not sit between
+        // the progress read and the state check: a dead engine makes EVERY
+        // preview_frame throw, which previously skipped the failed-branch on
+        // every poll and left the GUI "running" forever (2026-08-31 user run).
+        try {
+          const preview = await this.rpc.request('preview_frame', {}, 5000);
+          if (session !== this.session) return;
+          if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
+            this.emit({type: 'preview_frame', jpeg_b64: preview.jpeg_b64, width: preview.width, height: preview.height});
+          }
+        } catch (err) {
+          if (session !== this.session) return;
+          this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
         }
-        this.running = false;
-        if (failed) this.abandonBlender();
-        void this.sweepRamDir();
-        if (!this.exportSettled) {
-          this.exportSettled = true;
-          this.emit({
-            type: failed ? 'export_error' : 'export_done',
-            message: failed ? 'DLSS 引擎失败（见导出目录 cli.stderr.log）' : undefined,
-            ...progress,
-          });
-        }
+        return;
+      }
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+      this.running = false;
+      if (failed) this.abandonBlender();
+      void this.sweepRamDir();
+      if (!this.exportSettled) {
+        this.exportSettled = true;
+        const engineDetail = typeof progress.error === 'string' && progress.error
+          ? String(progress.error)
+          : '';
+        this.emit({
+          type: failed ? 'export_error' : 'export_done',
+          message: failed
+            ? engineDetail
+              ? `DLSS 引擎失败：${engineDetail}（详见导出目录 cli.stderr.log）`
+              : 'DLSS 引擎失败（见导出目录 cli.stderr.log）'
+            : undefined,
+          ...progress,
+        });
       }
     } catch (err) {
       if (session !== this.session) return;

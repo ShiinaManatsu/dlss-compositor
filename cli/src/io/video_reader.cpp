@@ -70,9 +70,21 @@ void VideoReader::open(const std::filesystem::path& file) {
         fail("VideoReader: zero dimensions: " + file.string());
     }
 
-    // CFR assumption: prefer avg_frame_rate, fall back to r_frame_rate.
-    AVRational fr = st->avg_frame_rate.num > 0 ? st->avg_frame_rate : st->r_frame_rate;
-    m_fps = fr.num > 0 ? static_cast<double>(fr.num) / static_cast<double>(fr.den) : 0.0;
+    // CFR assumption. avg_frame_rate is DERIVED (frames / stream duration) and
+    // comes out wrong when the muxer stored packets without durations (stream
+    // duration then ends at the last PTS — measured 45/1 on a 30/1 3-frame
+    // ProRes, 2026-08-31). r_frame_rate is the codec timing and is the honest
+    // rate for CFR sources; keep avg only when the two agree within 1%.
+    {
+        const AVRational avg = st->avg_frame_rate;
+        const AVRational r   = st->r_frame_rate;
+        const double avgFps  = avg.num > 0 ? static_cast<double>(avg.num) / avg.den : 0.0;
+        const double rFps    = r.num > 0 ? static_cast<double>(r.num) / r.den : 0.0;
+        const bool agree = avgFps > 0.0 && rFps > 0.0 &&
+                           std::fabs(avgFps - rFps) <= 0.01 * rFps;
+        const AVRational fr = agree ? avg : (r.num > 0 ? r : avg);
+        m_fps = fr.num > 0 ? static_cast<double>(fr.num) / static_cast<double>(fr.den) : 0.0;
+    }
     if (m_fps <= 0.0) fail("VideoReader: unknown frame rate: " + file.string());
     m_tbNum = st->time_base.num;
     m_tbDen = st->time_base.den;

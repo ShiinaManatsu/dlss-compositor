@@ -209,7 +209,7 @@ nlohmann::json RpcDispatcher::handleStop(const nlohmann::json& /*p*/) {
 
 nlohmann::json RpcDispatcher::handleProgress(const nlohmann::json& /*p*/) {
     // Identical to getProgress — single lock-free read path used by run.py.
-    return {
+    nlohmann::json out = {
         {"current_frame",      m_progress.current_frame.load()},
         {"total_frames",       m_progress.total_frames.load()},
         {"percent",            m_progress.percent.load()},
@@ -218,6 +218,11 @@ nlohmann::json RpcDispatcher::handleProgress(const nlohmann::json& /*p*/) {
         {"dlss_percent",       m_progress.dlss_percent.load()},
         {"state",              m_progress.state.load()},
     };
+    const std::string lastError = progressError();
+    if (!lastError.empty()) {
+        out["error"] = lastError;
+    }
+    return out;
 }
 
 nlohmann::json RpcDispatcher::handlePreviewFrame(const nlohmann::json& /*p*/) {
@@ -495,6 +500,17 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
             "would not align with interpolated output");
     }
 
+    // NGX DLSS RR has no UltraQuality slot: the OptimalSettings callback no-ops
+    // for NVSDK_NGX_PerfQuality_Value_UltraQuality (success with an all-zero
+    // range), which would fail deep inside DlssRrPass::create as
+    // "outside NGX range 0x0..0x0". Reject it here with an actionable message.
+    if ((cfg.features & kRR) && cfg.dlssConfig.quality == QualityMode::UltraQuality) {
+        throw std::runtime_error(
+            "quality_mode ultra_quality is not supported by DLSS RR — NGX RR offers "
+            "dlaa / quality / balanced / performance (and ultra_performance at an "
+            "exact 1/3 render scale)");
+    }
+
     const std::string rrPresetStr = p.value("rr_preset", std::string{"F"});
     if (rrPresetStr == "D" || rrPresetStr == "d")      cfg.rrPreset = RrPreset::D;
     else if (rrPresetStr == "E" || rrPresetStr == "e") cfg.rrPreset = RrPreset::E;
@@ -514,6 +530,7 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     m_progress.dlss_total_frames.store(totalInput);
     m_progress.dlss_percent.store(0.0f);
     m_progress.state.store(0);
+    setProgressError({});
 
     cfg.callbacks.onFrame = [this, totalOutput](const FrameEvent& ev) {
         m_progress.dlss_current_frame.store(ev.inputIndex + 1);
@@ -627,6 +644,7 @@ std::string RpcDispatcher::launchPipeline(PipelineConfig cfg) {
         } catch (const std::exception& e) {
             const std::string what = e.what();
             LOG_ERROR("[Pipeline worker] uncaught exception: {}", what);
+            setProgressError(what);
             m_progress.state.store(3);
             m_jobRunning.store(false, std::memory_order_release);
             if (m_eventCb) {

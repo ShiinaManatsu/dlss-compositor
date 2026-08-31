@@ -22,6 +22,25 @@ export const RECOMMENDED_PERCENT: Record<string, number> = {
   ULTRA_PERFORMANCE: 33
 };
 
+/**
+ * NGX DLSS RR 质量档约束（2026-08-31 实测 nvngx_dlssd 310.7.129.0）：
+ * - 超高质量：NGX RR 无此档，OptimalSettings callback 静默返回零范围 → CLI 拒绝。
+ * - 超高性能：NGX RR 仅接受精确 1/3 渲染分辨率，Blender 百分比取整无法保证。
+ * 性能档取 51%：Blender floor(50%) 在奇数宽度输出时比 NGX ceil 下限低 1px。
+ */
+export const RR_QUALITY_IDS = ['DLAA', 'QUALITY', 'BALANCED', 'PERFORMANCE'] as const;
+
+export function rrQualityAllowed(quality: string) {
+  return (RR_QUALITY_IDS as readonly string[]).includes(String(quality).toUpperCase());
+}
+
+export const RR_RECOMMENDED_PERCENT: Record<string, number> = {
+  DLAA: 100,
+  QUALITY: 67,
+  BALANCED: 58,
+  PERFORMANCE: 51
+};
+
 /** 发布 UI 暴露的输出格式（ProRes 4444 与 NR 留在后端，不暴露）。 */
 export const OUTPUT_FORMATS = [
   {id: 'prores_422hq', label: 'ProRes 422 HQ'},

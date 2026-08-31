@@ -23,9 +23,12 @@ import {
   OUTPUT_FORMATS,
   QUALITY_OPTIONS,
   RECOMMENDED_PERCENT,
+  RR_QUALITY_IDS,
+  RR_RECOMMENDED_PERCENT,
   cyclesDenoiseMeta,
   cyclesDeviceMeta,
   formatLabel,
+  rrQualityAllowed,
 } from '../dcp';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
@@ -179,6 +182,8 @@ export function ExportPage() {
 
   const ramOk = probe?.ramdisk.ok;
   const imdiskOk = probe?.imdisk.ok;
+  const qualityOkForMode = mode !== 'rr' || rrQualityAllowed(quality);
+  const rrRecPercent = RR_RECOMMENDED_PERCENT[quality] ?? RECOMMENDED_PERCENT[quality] ?? 58;
   const denoiseSummary = rrLocksDenoise
     ? 'RR · 关'
     : scene?.cycles
@@ -360,16 +365,24 @@ export function ExportPage() {
             onChange={(value) => setQuality(String(value))}
             isDisabled={busy}
             styles={style({width: 'full'})}>
-            {QUALITY_OPTIONS.map((item) => (
+            {QUALITY_OPTIONS.filter(
+              (item) => mode !== 'rr' || (RR_QUALITY_IDS as readonly string[]).includes(item.id),
+            ).map((item) => (
               <PickerItem key={item.id} id={item.id}>
                 {item.label}
               </PickerItem>
             ))}
           </Picker>
           {mode === 'rr' ? (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-              RR 仅支持质量档：{quality} → {RECOMMENDED_PERCENT[quality] ?? 58}%
-            </span>
+            qualityOkForMode ? (
+              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+                RR 仅支持质量档：{quality} → {rrRecPercent}%（NGX RR 无超高质量/超高性能）
+              </span>
+            ) : (
+              <span className={style({font: 'detail-sm', color: 'red-700'})}>
+                {quality} 不被 RR 支持（NGX RR 无此档），请改选 DLAA / 高质量 / 平衡 / 性能
+              </span>
+            )
           ) : (
             <>
               <OverrideNumber

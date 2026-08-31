@@ -82,6 +82,16 @@ public:
     const RenderProgress& progress() const { return m_progress; }
     RenderProgress& progress() { return m_progress; }
 
+    /// Last engine error detail (shown in the GUI's export_error message).
+    void setProgressError(const std::string& what) {
+        std::lock_guard<std::mutex> lk(m_lastErrorMu);
+        m_lastError = what;
+    }
+    std::string progressError() const {
+        std::lock_guard<std::mutex> lk(m_lastErrorMu);
+        return m_lastError;
+    }
+
     /// Push event to registered listener (called from render worker thread).
     using EventCallback = std::function<void(const nlohmann::json&)>;
     void setEventCallback(EventCallback cb) { m_eventCb = std::move(cb); }
@@ -122,6 +132,10 @@ private:
     // ── State ─────────────────────────────────────────────────────────────────
     RenderProgress m_progress;
     EventCallback  m_eventCb;
+
+    /// Engine error detail from the worker catch (progress RPC carries it).
+    mutable std::mutex m_lastErrorMu;
+    std::string        m_lastError;
 
     VulkanContext* m_ctx = nullptr;
     NgxContext*    m_ngx = nullptr;

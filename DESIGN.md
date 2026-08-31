@@ -451,6 +451,24 @@ dlss-compositor/
 
 blend 未保存。
 
+### NGX RR 质量档约束（2026-08-31 实测，nvngx_dlssd 310.7.129.0）
+
+- **NGX DLSS RR 没有 UltraQuality 档**：OptimalSettings callback 对
+  `PerfQuality_UltraQuality` 静默成功且全部输出为零（`0x0..0x0`）。
+  CLI dispatcher 直接拒绝（`quality_mode ultra_quality is not supported by
+  DLSS RR`），GUI RR 模式的质量 Picker 过滤掉超高质量/超高性能，
+  orchestrator start() 对旧 .dcp 的非法组合 fail loud。
+- **ULTRA_PERFORMANCE 只接受精确 1/3 渲染分辨率**（实测 range 405x720..405x720
+  @ 输出 1215x2160），Blender 百分比取整无法保证 → RR 不提供该档。
+- NGX 范围下限按 ceil 计算（1215→608 而非 607）：`ngx_min_render_size` /
+  GUI `ngxMinSize` 对齐；RR 性能档推荐百分比 51%（Blender floor(50%) 在奇数
+  宽度输出时比 NGX 下限低 1px）。
+- 引擎 worker 异常的详情现在随 progress RPC 的 `error` 字段透传，
+  GUI export_error 显示具体消息（此前只有 cli.stderr.log 有）。
+- GUI 卡死根因修复：pollOnce 曾把 preview_frame 放在 state 结算之前，
+  引擎死亡时每次预览请求都抛错 → 失败分支永远不可达 → 一直"导出中"。
+  现在先结算 state，预览只在存活时拉取且失败不阻断。
+
 ### 下一会话先做（GUI 之前必须落地）— 已全部完成（2026-08-30）
 
 1. **预览 JPEG 回读**：`preview_frame` 走 RPC base64；GUI 侧 latest-wins 解码到 canvas。
