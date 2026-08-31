@@ -1,5 +1,5 @@
 import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron';
-import {exec} from 'node:child_process';
+import {execSync, spawn} from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -37,12 +37,82 @@ if (packaged) {
 const orchestrator = new PipelineOrchestrator(packaged || process.env.DC_RAMDISK_AUTO === '1');
 
 // Elevated token check: only an admin run may offer the RAM-disk option.
+// Synchronous on purpose — the elevate-on-start decision below needs the
+// answer before the window exists.
 let elevated = false;
 if (process.platform === 'win32') {
-  exec('net session', (err) => {
-    elevated = !err;
-    debug(`elevated=${elevated}`);
+  try {
+    execSync('net session', {stdio: 'ignore'});
+    elevated = true;
+  } catch {
+    elevated = false;
+  }
+  debug(`elevated=${elevated}`);
+}
+
+// ── App-level settings (userData/settings.json) ─────────────────────────────
+// The elevate preference must be readable before the renderer boots, so it
+// lives main-side (unlike color scheme, which only the renderer needs).
+type AppSettings = {elevate?: boolean};
+
+function readAppSettings(): AppSettings {
+  try {
+    return JSON.parse(fsSync.readFileSync(path.join(app.getPath('userData'), 'settings.json'), 'utf8')) as AppSettings;
+  } catch {
+    return {};
+  }
+}
+
+function writeAppSettings(patch: AppSettings): void {
+  try {
+    fsSync.mkdirSync(app.getPath('userData'), {recursive: true});
+    const next = {...readAppSettings(), ...patch};
+    fsSync.writeFileSync(path.join(app.getPath('userData'), 'settings.json'), JSON.stringify(next, null, 2));
+  } catch {
+    /* ignore */
+  }
+}
+
+const appSettings = readAppSettings();
+
+let elevateRelaunchAttempted = false;
+/**
+ * Re-launch this app elevated (PowerShell Start-Process -Verb RunAs — one UAC
+ * prompt). Returns false when already attempted / not applicable. On UAC
+ * accept the new instance starts and this one exits; on decline we simply
+ * stay non-elevated and never retry (no loops).
+ */
+function relaunchElevated(): boolean {
+  if (elevateRelaunchAttempted || process.platform !== 'win32') return false;
+  elevateRelaunchAttempted = true;
+  const psPath = process.execPath.replace(/'/g, "''");
+  const argList = process.argv
+    .slice(1)
+    .map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))
+    .join(' ');
+  const cmd =
+    `Start-Process -FilePath '${psPath}' -Verb RunAs` +
+    (argList ? ` -ArgumentList '${argList.replace(/'/g, "''")}'` : '');
+  const child = spawn('powershell.exe', ['-NoProfile', '-Command', cmd], {
+    stdio: 'ignore',
+    windowsHide: true,
   });
+  child.on('exit', (code) => {
+    debug(`relaunchElevated exit=${code}`);
+    if (code === 0) {
+      // Grace period so the elevated instance can take the single-instance
+      // lock before this one releases it.
+      setTimeout(() => app.exit(0), 800);
+    }
+    // non-zero = UAC declined or launch failed: stay non-elevated
+  });
+  child.on('error', () => debug('relaunchElevated spawn error'));
+  return true;
+}
+
+// Launch preference: restart elevated once at startup when enabled.
+if (appSettings.elevate && !elevated) {
+  relaunchElevated();
 }
 const flags = parseCliFlags(process.argv);
 // Installer file association launches as `DLSS Compositor.exe C:\path\job.dcp`
@@ -270,10 +340,18 @@ app.whenReady().then(() => {
     rail: typeof flags.rail === 'string' ? flags.rail : null,
     elevated,
     packaged,
+    elevatePref: Boolean(appSettings.elevate),
     version: app.getVersion(),
   }));
   ipcMain.handle('app:setCliLog', (_event, enabled: unknown) => {
     orchestrator.setCliLog(Boolean(enabled));
+  });
+  ipcMain.handle('app:setElevate', (_event, enabled: unknown) => {
+    const next = Boolean(enabled);
+    writeAppSettings({elevate: next});
+    // Turning it on in a non-elevated session elevates right away; turning it
+    // off just affects the next launch (this session stays elevated).
+    if (next && !elevated) relaunchElevated();
   });
   ipcMain.handle('window:setTitle', (_event, title: unknown) => {
     win.setTitle(String(title || 'DLSS Compositor'));

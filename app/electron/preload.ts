@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('dlss', {
   listDir: (dirPath: string) => ipcRenderer.invoke('fs:listDir', dirPath),
   launchFlags: () => ipcRenderer.invoke('app:launchFlags'),
   setCliLog: (enabled: boolean) => ipcRenderer.invoke('app:setCliLog', enabled),
+  setElevate: (enabled: boolean) => ipcRenderer.invoke('app:setElevate', enabled),
   setTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),

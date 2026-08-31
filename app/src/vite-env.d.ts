@@ -106,6 +106,7 @@ type LaunchFlags = {
   rail?: string | null;
   elevated?: boolean;
   packaged?: boolean;
+  elevatePref?: boolean;
   version?: string;
 };
 
@@ -167,6 +168,7 @@ interface DlssApi {
   listDir: (dirPath: string) => Promise<DirEntry[] | null>;
   launchFlags: () => Promise<LaunchFlags>;
   setCliLog: (enabled: boolean) => Promise<void>;
+  setElevate: (enabled: boolean) => Promise<void>;
   setTitle: (title: string) => Promise<void>;
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;

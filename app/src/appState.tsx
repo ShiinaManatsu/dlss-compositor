@@ -144,6 +144,7 @@ export function useAppState() {
   const [ramdiskGb, setRamdiskGb] = useState(2);
   const [cachePath, setCachePath] = useState('');
   const [elevated, setElevated] = useState(false);
+  const [elevatePref, setElevatePrefState] = useState(false);
   const [cliLog, setCliLogState] = useState(true);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
   const [nrBuffer, setNrBuffer] = useState(false);
@@ -209,6 +210,13 @@ export function useAppState() {
       /* private mode etc. */
     }
     void window.dlss.setCliLog(next);
+  }
+
+  /** 以管理员身份运行：偏好持久化在 main 侧（userData/settings.json）。
+   *  在未提权会话里打开会立即走 UAC 重启；关闭只影响下次启动。 */
+  function setElevatePref(next: boolean) {
+    setElevatePrefState(next);
+    void window.dlss.setElevate(next);
   }
 
   function setPlayhead(next: number) {
@@ -665,6 +673,7 @@ export function useAppState() {
       setMaximized(isMax);
       if (launch.version) setAppVersion(launch.version);
       setElevated(Boolean(launch.elevated));
+      setElevatePrefState(Boolean(launch.elevatePref));
       let storedLog: string | null = null;
       try {
         storedLog = window.localStorage.getItem(CLI_LOG_KEY);
@@ -1127,6 +1136,8 @@ export function useAppState() {
     cachePath,
     setCachePath,
     elevated,
+    elevatePref,
+    setElevatePref,
     cliLog,
     setCliLog,
     nativeResBuffers,
@@ -1189,7 +1200,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.7';
+  return appVersion || '0.4.8';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {

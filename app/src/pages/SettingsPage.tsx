@@ -60,6 +60,9 @@ export function SettingsPage() {
             <Link href="https://github.com/LTRData/ImDisk">ImDisk</Link>。
           </Content>
         </InlineAlert>
+        <Switch size="S" isSelected={app.elevatePref} onChange={app.setElevatePref}>
+          以管理员身份运行
+        </Switch>
         <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog}>
           CLI 调试日志
         </Switch>
