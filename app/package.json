@@ -81,6 +81,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
+      "include": "scripts/installer.nsh",
       "artifactName": "DLSS-Compositor-Setup-${version}.${ext}"
     },
     "fileAssociations": [

@@ -4,8 +4,11 @@ import {fileURLToPath} from 'node:url';
 
 /**
  * Seeds the dev-only NR feature DLL (nvngx_dlssnr.dll, gitignored resources/)
- * into every local CLI bundle it can find — win-unpacked and any installed
- * copy. Packaging deliberately excludes it (never ship to other machines),
+ * into every local CLI bundle it can find — win-unpacked, any installed copy,
+ * and next to the Setup exe (the NSIS script build/installer.nsh picks it up
+ * from $EXEDIR at install time, so installing a new version re-seeds itself
+ * instead of wiping the previously seeded DLL).
+ * Packaging deliberately excludes it (never ship to other machines),
  * so this runs after electron-builder to restore it on THIS machine.
  * No-op when the source DLL is absent (clean checkouts).
  */
@@ -32,4 +35,6 @@ for (const dir of targets) {
   console.log(`seed-nr: ${dir}`);
   seeded++;
 }
+copyFileSync(src, path.join(appDir, 'release', 'nvngx_dlssnr.dll'));
+console.log(`seed-nr: ${path.join(appDir, 'release', 'nvngx_dlssnr.dll')}（供安装器 $EXEDIR 拾取）`);
 if (seeded === 0) console.log('seed-nr: 没找到可播种的 CLI 目录（先跑 dist）');
