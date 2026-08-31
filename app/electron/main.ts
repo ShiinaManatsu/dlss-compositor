@@ -116,6 +116,19 @@ function createWindow(): BrowserWindow {
   win.setMenuBarVisibility(false);
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  // External links (settings tips, future help links) open in the system
+  // browser — never navigate the app window.
+  const appOrigin = rendererUrl ? new URL(rendererUrl).origin : '';
+  win.webContents.setWindowOpenHandler(({url}) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return {action: 'deny'};
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (/^https?:\/\//i.test(url) && url !== appOrigin) {
+      event.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
   if (rendererUrl) {
     void win.loadURL(rendererUrl);
   } else {
@@ -345,6 +358,7 @@ app.whenReady().then(() => {
           outputTemplate: resolved.template,
           overrides,
           nativeResBuffers: Boolean(flags['native-res-buffers']),
+          nrBuffer: Boolean(flags['nr-buffer']),
           fg: parseFg(flags.fg),
           ramWindowFrames: flags['ram-window-frames'] ? Number(flags['ram-window-frames']) : undefined,
           useRamdisk: flags['cache-path'] ? false : true,
@@ -614,10 +628,21 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  void orchestrator.shutdown();
   app.quit();
 });
 
-app.on('before-quit', () => {
-  void orchestrator.shutdown();
+// Quit must WAIT for orchestrator teardown: stop jobs/CLI, then unmount the
+// RAM disk this process auto-created. `void shutdown(); app.quit()` raced the
+// async imdisk detach against process exit, so the disk stayed mounted.
+let quitTeardownStarted = false;
+app.on('before-quit', (event) => {
+  if (quitTeardownStarted) return;  // our own app.exit() path — let it through
+  quitTeardownStarted = true;
+  event.preventDefault();
+  // Never wedge the app on a hung RPC/imdisk call.
+  const force = setTimeout(() => app.exit(0), 10000);
+  void orchestrator.shutdown().finally(() => {
+    clearTimeout(force);
+    app.exit(0);
+  });
 });

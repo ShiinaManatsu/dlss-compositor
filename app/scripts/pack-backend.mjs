@@ -52,6 +52,58 @@ for (const dll of ['nvngx_dlss.dll', 'nvngx_dlssd.dll', 'nvngx_dlssg.dll']) {
   copyTo(path.join(repoRoot, 'resources', dll), cliDest);
 }
 
+// --- VC++ runtime: the CLI is /MD, Electron is not — a clean Windows box has
+// no msvcp140/vcruntime140, so ship the redist DLLs app-local next to the exe
+// (Microsoft-supported deployment; app dir wins over System32 at load time).
+const crtDlls = [
+  'msvcp140.dll',
+  'msvcp140_1.dll',
+  'msvcp140_2.dll',
+  'msvcp140_atomic_wait.dll',
+  'msvcp140_codecvt_ids.dll',
+  'vcruntime140.dll',
+  'vcruntime140_1.dll',
+];
+const vsRoot = 'C:/Program Files/Microsoft Visual Studio';
+let crtDir = null;
+try {
+  const findRedist = (redistRoot) => {
+    if (!existsSync(redistRoot)) return null;
+    const versions = readdirSync(redistRoot)
+      .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
+      .sort((a, b) => a.localeCompare(b))
+      .reverse();
+    for (const v of versions) {
+      const candidate = path.join(redistRoot, v, 'x64', 'Microsoft.VC143.CRT');
+      if (existsSync(path.join(candidate, 'msvcp140.dll'))) return candidate;
+    }
+    return null;
+  };
+  for (const entry of readdirSync(vsRoot)) {
+    const base = path.join(vsRoot, entry);
+    // VS2019/2022 layout: <edition>/VC/Redist/MSVC — VS2026 nests once more:
+    // <year>/<edition>/VC/Redist/MSVC.
+    crtDir = findRedist(path.join(base, 'VC', 'Redist', 'MSVC')) ??
+      (() => {
+        if (!statSync(base).isDirectory()) return null;
+        for (const sub of readdirSync(base)) {
+          const found = findRedist(path.join(base, sub, 'VC', 'Redist', 'MSVC'));
+          if (found) return found;
+        }
+        return null;
+      })();
+    if (crtDir) break;
+  }
+} catch {
+  /* fall through to the loud failure below */
+}
+if (!crtDir) {
+  fail('找不到 VC++ 运行库（VC/Redist/MSVC/*/x64/Microsoft.VC143.CRT）——装好 VS 或手动指定');
+}
+for (const dll of crtDlls) {
+  copyTo(path.join(crtDir, dll), cliDest);
+}
+
 // --- pipeline python (imported by inject.py) ---
 const pipelineDest = path.join(dest, 'pipeline');
 for (const script of [

@@ -770,12 +770,23 @@ export class PipelineOrchestrator {
     }
   }
 
-  async shutdown(): Promise<{ok: boolean; unmounted: false}> {
-    this.stopNrPoll();
-    const result = await this.stop();
-    await this.releaseRamdisk();
-    this.discardCli();
-    return result;
+  /** Idempotent teardown: stop jobs + CLI, then unmount a RAM disk this
+   *  process auto-created. The promise is cached so window-all-closed and
+   *  before-quit (and any later caller) share one teardown run. */
+  private shutdownPromise: Promise<void> | null = null;
+
+  shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shutdownPromise = (async () => {
+        this.stopNrPoll();
+        await this.stop();
+        // Kill the CLI before unmounting: its RAM-disk watcher/file handles
+        // would make the graceful imdisk detach fail.
+        this.discardCli();
+        await this.releaseRamdisk();
+      })();
+    }
+    return this.shutdownPromise;
   }
 
   /** Find an existing DLSSRAM disk; in packaged builds create one when missing

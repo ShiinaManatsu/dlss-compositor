@@ -1,4 +1,4 @@
-import {Divider, LabeledValue, Picker, PickerItem, StatusLight} from '@react-spectrum/s2';
+import {Content, Divider, InlineAlert, LabeledValue, Link, Picker, PickerItem, StatusLight} from '@react-spectrum/s2';
 import {getAppVersion, useApp, type ColorSchemePref} from '../appState';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
@@ -54,9 +54,12 @@ export function SettingsPage() {
             <StatusLight size="S" variant="positive">就绪</StatusLight>
           ) : null}
         </div>
-        <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-          输入缓冲二选一：勾选「使用内存盘」时，安装版自动创建/卸载 DLSSRAM（需管理员），开发版手动挂载；不勾选则使用导出页的「缓存路径」（本地或网络目录均可）。
-        </span>
+        <InlineAlert variant="informative" styles={style({width: 'full'})}>
+          <Content>
+            渲染帧的高速中转缓冲：任务开始自动创建、软件退出自动卸载。依赖{' '}
+            <Link href="https://github.com/LTRData/ImDisk">ImDisk</Link>。
+          </Content>
+        </InlineAlert>
       </section>
 
       <Divider size="S" />
