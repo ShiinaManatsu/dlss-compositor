@@ -24,11 +24,9 @@ import {
   QUALITY_OPTIONS,
   RECOMMENDED_PERCENT,
   RR_QUALITY_IDS,
-  RR_RECOMMENDED_PERCENT,
   cyclesDenoiseMeta,
   cyclesDeviceMeta,
   formatLabel,
-  rrQualityAllowed,
 } from '../dcp';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
@@ -182,8 +180,6 @@ export function ExportPage() {
 
   const ramOk = probe?.ramdisk.ok;
   const imdiskOk = probe?.imdisk.ok;
-  const qualityOkForMode = mode !== 'rr' || rrQualityAllowed(quality);
-  const rrRecPercent = RR_RECOMMENDED_PERCENT[quality] ?? RECOMMENDED_PERCENT[quality] ?? 58;
   const denoiseSummary = rrLocksDenoise
     ? 'RR · 关'
     : scene?.cycles
@@ -373,17 +369,7 @@ export function ExportPage() {
               </PickerItem>
             ))}
           </Picker>
-          {mode === 'rr' ? (
-            qualityOkForMode ? (
-              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-                RR 仅支持质量档：{quality} → {rrRecPercent}%（NGX RR 无超高质量/超高性能）
-              </span>
-            ) : (
-              <span className={style({font: 'detail-sm', color: 'red-700'})}>
-                {quality} 不被 RR 支持（NGX RR 无此档），请改选 DLAA / 高质量 / 平衡 / 性能
-              </span>
-            )
-          ) : (
+          {mode !== 'rr' ? (
             <>
               <OverrideNumber
                 label="渲染百分比"
@@ -402,7 +388,7 @@ export function ExportPage() {
                 <span className={style({font: 'detail-sm', color: 'red-700'})}>{ngxWarning}</span>
               ) : null}
             </>
-          )}
+          ) : null}
           {nativeResEnabled ? (
             <Checkbox
               size="S"
@@ -432,11 +418,6 @@ export function ExportPage() {
             isDisabled={busy}>
             导出 NR 引导缓冲
           </Switch>
-          <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-            {nrBuffer
-              ? 'dlssnrbuffer_####.exr（运动+深度）将写入输出目录下以视频命名的子文件夹，帧生成已强制关闭；导出后到 NR 工具页调参'
-              : '供 NR 工具页使用的运动+深度数据（开启时帧生成关闭）'}
-          </span>
           <span className={style({font: 'detail-sm', color: 'gray-600'})}>
             色彩 {hasScene ? scene?.view_transform || '—' : '—'}
           </span>

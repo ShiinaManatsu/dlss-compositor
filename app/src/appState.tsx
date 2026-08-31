@@ -25,6 +25,7 @@ import {
   projectTitle,
   resolveFilenameTemplate,
   rrAllowed,
+  rrQualityAllowed,
   type DcpProject,
   type JobRecord,
   type PinKey,
@@ -700,6 +701,11 @@ export function useAppState() {
     if (!nativeResEnabled && nativeResBuffers) setNativeResBuffers(false);
   }, [nativeResEnabled, nativeResBuffers]);
 
+  // NGX RR 无超高质量/超高性能档：切到 RR 时直接改选，不给提示文案。
+  useEffect(() => {
+    if (mode === 'rr' && !rrQualityAllowed(quality)) setQuality('QUALITY');
+  }, [mode, quality]);
+
   useEffect(() => {
     if (!fgEnabled && fg !== 0) setFg(0);
   }, [fgEnabled, fg]);
@@ -1157,7 +1163,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.5';
+  return appVersion || '0.4.6';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {
