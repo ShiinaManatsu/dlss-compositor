@@ -195,7 +195,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--preview-dir",
         default=None,
-        help="If set, write JPEG previews here (scene render output) instead of //NUL",
+        help="If set, keep scene output on and write JPEG previews here",
     )
     parser.add_argument(
         "--preview-jpeg-quality",
@@ -640,15 +640,17 @@ def main() -> int:
         emit("error", message=percent_error)
         return 1
 
-    # Session-only: disable the scene-level animation output entirely.
-    # Blender writes scene.render.filepath (e.g. preview_####.jpg) in addition
-    # to File Output nodes; on a RAM disk this wastes precious space.
-    # Default: dump the scene render to NUL so only the File Output EXR is kept
-    # (RAM-disk low watermark). Optional --preview-dir writes tiny JPEGs instead.
+    # Session-only: disable the scene-level animation output entirely. Blender
+    # writes scene.render.filepath (e.g. preview_####.jpg) in addition to File
+    # Output nodes; save_output=False skips that writer (and its encode) while
+    # compositor File Output nodes keep writing — this is its designed use
+    # (animation render just requires an active File Output node, which we
+    # insert below). Optional --preview-dir keeps scene output on for tiny JPEGs.
     render.use_sequencer = False
     render.use_overwrite = True
     preview_dir = getattr(args, "preview_dir", None)
     if preview_dir:
+        render.save_output = True
         prev = Path(preview_dir)
         prev.mkdir(parents=True, exist_ok=True)
         render.filepath = str(prev / "####")
@@ -657,7 +659,7 @@ def main() -> int:
         q = int(getattr(args, "preview_jpeg_quality", 5) or 5)
         render.image_settings.quality = max(1, min(100, q))
     else:
-        render.filepath = "//NUL"  # Windows null device; forward-slash form avoids escape warnings
+        render.save_output = False
 
     frame_start = int(scene.frame_start)
     frame_end = int(scene.frame_end)

@@ -3,6 +3,7 @@ import type {ReactNode} from 'react';
 import {Button, Provider, Text} from '@react-spectrum/s2';
 import StopProcessing from '@react-spectrum/s2/icons/StopProcessing';
 import {AppStateProvider, ROUTE_LABELS, useApp} from './appState';
+import {NrSessionProvider, useNrSession} from './nrSession';
 import {projectTitle} from './dcp';
 import {Rail} from './Rail';
 import {TitleBar} from './TitleBar';
@@ -15,6 +16,7 @@ import './shell.css';
 
 function Shell() {
   const app = useApp();
+  const nr = useNrSession();
   const crumbs =
     app.route === 'project'
       ? ['项目']
@@ -22,9 +24,9 @@ function Shell() {
         ? ['NR 工具']
         : [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]];
 
-  let startAction: ReactNode = null;
+  let titleAction: ReactNode = null;
   if (app.route === 'export' && app.hasProject) {
-    startAction = app.busy ? (
+    titleAction = app.busy ? (
       <Button variant="secondary" size="S" onPress={() => void app.stopExport()}>
         <StopProcessing />
         <Text>停止</Text>
@@ -38,6 +40,16 @@ function Shell() {
         <Text>发起任务</Text>
       </Button>
     );
+  } else if (app.route === 'nrtool') {
+    titleAction = (
+      <Button
+        variant="accent"
+        size="S"
+        isDisabled={nr.opening || nr.exporting}
+        onPress={() => void nr.openSession()}>
+        <Text>{nr.opening ? '打开中…' : nr.info ? '重新打开' : '打开'}</Text>
+      </Button>
+    );
   }
 
   return (
@@ -48,7 +60,7 @@ function Shell() {
         onMinimize={app.windowMinimize}
         onMaximize={app.windowMaximize}
         onClose={app.windowClose}>
-        {startAction}
+        {titleAction}
       </TitleBar>
       <div className="shell-body">
         <Rail />
@@ -77,7 +89,9 @@ function ThemedShell() {
       colorScheme={app.colorScheme === 'system' ? undefined : app.colorScheme}
       locale="zh-CN"
       background="base">
-      <Shell />
+      <NrSessionProvider>
+        <Shell />
+      </NrSessionProvider>
     </Provider>
   );
 }

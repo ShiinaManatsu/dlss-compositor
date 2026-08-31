@@ -20,13 +20,11 @@ import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Pause from '@react-spectrum/s2/icons/Pause';
 import Play from '@react-spectrum/s2/icons/Play';
 import StopProcessing from '@react-spectrum/s2/icons/StopProcessing';
+import {useNrSession} from '../nrSession';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
 
-const PATHS_KEY = 'dc-nr-paths';
 const SETTINGS_KEY = 'dc-nr-settings';
-
-type StoredPaths = {colorSource: string; bufferDir: string};
 
 type StoredSettings = {
   style: number;
@@ -46,13 +44,13 @@ const DEFAULT_SETTINGS: StoredSettings = {
   guidance: 0,
 };
 
-function loadJson<T>(key: string, fallback: T): T {
+function loadSettings(): StoredSettings {
   try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return fallback;
-    return {...fallback, ...(JSON.parse(raw) as Partial<T>)};
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    return {...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<StoredSettings>)};
   } catch {
-    return fallback;
+    return DEFAULT_SETTINGS;
   }
 }
 
@@ -102,10 +100,8 @@ function SettingsSection({
 }
 
 export function NrToolPage() {
-  // ── media sources ──────────────────────────────────────────────────────────
-  const [paths, setPaths] = useState<StoredPaths>(() => loadJson(PATHS_KEY, {colorSource: '', bufferDir: ''}));
-  const [info, setInfo] = useState<NrToolInfo | null>(null);
-  const [opening, setOpening] = useState(false);
+  const nr = useNrSession();
+  const {paths, info, opening, exporting, exportPercent, setError} = nr;
 
   // ── viewport / timeline ────────────────────────────────────────────────────
   const [frame, setFrame] = useState(0);
@@ -113,17 +109,11 @@ export function NrToolPage() {
   const [evalMs, setEvalMs] = useState(0);
 
   // ── NR settings ────────────────────────────────────────────────────────────
-  const [settings, setSettings] = useState<StoredSettings>(() => loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
+  const [settings, setSettings] = useState<StoredSettings>(loadSettings);
   const [nrFormat, setNrFormat] = useState('prores_422hq');
   const [outputPath, setOutputPath] = useState('');
   const [outputDir, setOutputDir] = useState('');
   const [template, setTemplate] = useState('nr_####.png');
-
-  // ── export / feedback ──────────────────────────────────────────────────────
-  const [exporting, setExporting] = useState(false);
-  const [exportPercent, setExportPercent] = useState(0);
-  const [message, setMessage] = useState('打开已导出的视频或序列帧 + dlssnrbuffer，预览调整 NR');
-  const [error, setError] = useState(null as string | null);
 
   // Latest-wins preview pump — mirrors the appState preview discipline: one
   // request in flight, only the newest requested frame survives a scrub.
@@ -215,7 +205,7 @@ export function NrToolPage() {
       inFlightRef.current = false;
       if (pendingRef.current) void pump();
     }
-  }, [drawJpeg, settingsParams]);
+  }, [drawJpeg, settingsParams, setError]);
 
   const requestPreview = useCallback(
     (next: number) => {
@@ -226,24 +216,39 @@ export function NrToolPage() {
   );
 
   // Leaving the page releases the 4K NR session (feature + textures) in the CLI.
+  // closeSession is useCallback([])-stable in the store, so this is unmount-only.
+  const {closeSession} = nr;
   useEffect(
     () => () => {
       playingRef.current = false;
       pendingRef.current = null;
-      void window.dlss.nrClose();
+      void closeSession();
     },
-    []
+    [closeSession]
   );
 
-  // Persist paths + tuning so re-entering the tool restores the workspace.
+  // Persist tuning so re-entering the tool restores the workspace (paths live
+  // in the session store).
   useEffect(() => {
     try {
-      window.localStorage.setItem(PATHS_KEY, JSON.stringify(paths));
       window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch {
       /* private mode */
     }
-  }, [paths, settings]);
+  }, [settings]);
+
+  // A fresh session (打开/重新打开): rewind, suggest the output video, kick the
+  // first preview.
+  useEffect(() => {
+    if (!info) return;
+    playingRef.current = false;
+    setPlaying(false);
+    setFrame(0);
+    setEvalMs(0);
+    if (!outputPath) setOutputPath(suggestVideoOut(paths.colorSource.trim()));
+    requestPreview(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info]);
 
   // Retune without scrubbing: re-evaluate the current frame (debounced while
   // the user drags a slider).
@@ -262,61 +267,13 @@ export function NrToolPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsKey, requestPreview]);
 
-  // NR export progress arrives over the shared orchestrator event channel.
-  useEffect(
-    () =>
-      window.dlss.onEvent((event) => {
-        if (event.type === 'nrtool_progress' && typeof event.percent === 'number') {
-          setExportPercent(Math.min(100, Math.round(event.percent * 100)));
-        } else if (event.type === 'nrtool_export_done') {
-          setExporting(false);
-          setExportPercent(100);
-          setMessage('NR 导出完成');
-        } else if (event.type === 'nrtool_export_stopped') {
-          setExporting(false);
-          setMessage('已停止');
-        } else if (event.type === 'nrtool_export_error') {
-          setExporting(false);
-          setError(userErrorMessage(String(event.message ?? 'NR 导出失败')));
-        }
-      }),
-    []
-  );
-
-  async function openSession() {
-    if (!paths.colorSource.trim() || !paths.bufferDir.trim()) {
-      setError('请选择色彩源和 dlssnrbuffer 目录');
-      return;
+  // 引导数据来自 dlssnrbuffer：没给目录就只有「无」可选。
+  const hasBuffer = Boolean(paths.bufferDir.trim());
+  useEffect(() => {
+    if (!hasBuffer && settings.guidance !== 1) {
+      setSettings((prev) => ({...prev, guidance: 1}));
     }
-    setOpening(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const result = await window.dlss.nrOpen({
-        color_source: paths.colorSource.trim(),
-        buffer_dir: paths.bufferDir.trim()
-      });
-      if (!result.ok) {
-        setError(userErrorMessage(result.error ?? '打开失败'));
-        return;
-      }
-      playingRef.current = false;
-      setPlaying(false);
-      setInfo(result);
-      setFrame(0);
-      setMessage(
-        `${result.frames} 帧 · ${result.width}×${result.height} · ${
-          result.color_kind === 'video' ? '视频' : 'PNG 序列'
-        }`
-      );
-      if (!outputPath) setOutputPath(suggestVideoOut(paths.colorSource.trim()));
-      requestPreview(0);
-    } catch (err) {
-      setError(userErrorMessage(err instanceof Error ? err.message : '打开失败'));
-    } finally {
-      setOpening(false);
-    }
-  }
+  }, [hasBuffer, settings.guidance]);
 
   function scrub(next: number) {
     playingRef.current = false;
@@ -341,18 +298,18 @@ export function NrToolPage() {
   async function startExport() {
     const session = infoRef.current;
     if (!session) return;
-    setError(null);
+    nr.setError(null);
     const params: Record<string, unknown> = {output_format: nrFormat, ...settingsParams(settings)};
     if (nrFormat === 'png_16') {
       if (!outputDir.trim()) {
-        setError('请选择 PNG 输出目录');
+        nr.setError('请选择 PNG 输出目录');
         return;
       }
       params.output_dir = outputDir.trim();
       params.output_template = template.trim() || 'nr_####.png';
     } else {
       if (!outputPath.trim()) {
-        setError('请选择输出视频路径');
+        nr.setError('请选择输出视频路径');
         return;
       }
       params.output_path = outputPath.trim();
@@ -360,16 +317,14 @@ export function NrToolPage() {
     try {
       const started = await window.dlss.nrExport(params);
       if (!started.ok) {
-        setError(userErrorMessage(started.error ?? '导出失败'));
+        nr.setError(userErrorMessage(started.error ?? '导出失败'));
         return;
       }
       playingRef.current = false;
       setPlaying(false);
-      setExporting(true);
-      setExportPercent(0);
-      setMessage(`NR 导出中 · ${session.frames} 帧 · ${settingsRef.current.intensity.toFixed(2)}`);
+      nr.setMessage(`NR 导出中 · ${session.frames} 帧 · ${settingsRef.current.intensity.toFixed(2)}`);
     } catch (err) {
-      setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
+      nr.setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
     }
   }
 
@@ -377,7 +332,7 @@ export function NrToolPage() {
     try {
       await window.dlss.nrStop();
     } catch (err) {
-      setError(userErrorMessage(err instanceof Error ? err.message : '停止失败'));
+      nr.setError(userErrorMessage(err instanceof Error ? err.message : '停止失败'));
     }
   }
 
@@ -396,7 +351,7 @@ export function NrToolPage() {
             label="色彩源（视频或 PNG 序列目录）"
             size="S"
             value={paths.colorSource}
-            onChange={(next) => setPaths((prev) => ({...prev, colorSource: next}))}
+            onChange={(next) => nr.setPaths((prev) => ({...prev, colorSource: next}))}
             isDisabled={opening || exporting}
           />
           <div className="row-2">
@@ -408,7 +363,7 @@ export function NrToolPage() {
                   if (picked) {
                     // The buffer subfolder is named after the video — suggest it
                     // alongside the color source.
-                    setPaths((prev) => ({
+                    nr.setPaths((prev) => ({
                       ...prev,
                       colorSource: picked,
                       bufferDir: suggestBufferDir(picked) || prev.bufferDir
@@ -424,7 +379,7 @@ export function NrToolPage() {
               isDisabled={opening || exporting}
               onPress={() => {
                 void window.dlss.chooseDir('选择 PNG 序列目录').then((picked) => {
-                  if (picked) setPaths((prev) => ({...prev, colorSource: picked}));
+                  if (picked) nr.setPaths((prev) => ({...prev, colorSource: picked}));
                 });
               }}>
               <FolderOpen />
@@ -436,7 +391,7 @@ export function NrToolPage() {
               label="dlssnrbuffer 目录"
               size="S"
               value={paths.bufferDir}
-              onChange={(next) => setPaths((prev) => ({...prev, bufferDir: next}))}
+              onChange={(next) => nr.setPaths((prev) => ({...prev, bufferDir: next}))}
               isDisabled={opening || exporting}
             />
             <ActionButton
@@ -444,29 +399,22 @@ export function NrToolPage() {
               isDisabled={opening || exporting}
               onPress={() => {
                 void window.dlss.chooseDir('选择 dlssnrbuffer 目录').then((picked) => {
-                  if (picked) setPaths((prev) => ({...prev, bufferDir: picked}));
+                  if (picked) nr.setPaths((prev) => ({...prev, bufferDir: picked}));
                 });
               }}>
               <FolderOpen />
               <Text>选择</Text>
             </ActionButton>
           </div>
-          <Button
-            variant="accent"
-            size="S"
-            isDisabled={opening || exporting}
-            onPress={() => void openSession()}>
-            <Text>{opening ? '打开中…' : info ? '重新打开' : '打开'}</Text>
-          </Button>
           {info ? (
             <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-              {message}
+              {nr.message}
               {info.buffer_width !== info.width || info.buffer_height !== info.height
                 ? ` · 缓冲 ${info.buffer_width}×${info.buffer_height}`
                 : ''}
             </span>
           ) : (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>{message}</span>
+            <span className={style({font: 'detail-sm', color: 'gray-600'})}>{nr.message}</span>
           )}
         </SettingsSection>
         <Divider size="S" />
@@ -532,13 +480,13 @@ export function NrToolPage() {
               if (next != null) setSettings((prev) => ({...prev, guidance: Number(next)}));
             }}
             styles={style({width: 'full'})}>
-            <ToggleButton id="0">
+            <ToggleButton id="0" isDisabled={!hasBuffer}>
               <Text>全部</Text>
             </ToggleButton>
-            <ToggleButton id="2">
+            <ToggleButton id="2" isDisabled={!hasBuffer}>
               <Text>运动</Text>
             </ToggleButton>
-            <ToggleButton id="3">
+            <ToggleButton id="3" isDisabled={!hasBuffer}>
               <Text>深度</Text>
             </ToggleButton>
             <ToggleButton id="1">
@@ -627,8 +575,8 @@ export function NrToolPage() {
               <Text>导出</Text>
             </Button>
           )}
-          {error ? (
-            <span className={style({font: 'detail-sm', color: 'red-700'})}>{error}</span>
+          {nr.error ? (
+            <span className={style({font: 'detail-sm', color: 'red-700'})}>{nr.error}</span>
           ) : null}
         </SettingsSection>
       </aside>
