@@ -60,10 +60,10 @@ export function SettingsPage() {
             <Link href="https://github.com/LTRData/ImDisk">ImDisk</Link>。
           </Content>
         </InlineAlert>
-        <Switch size="S" isSelected={app.elevatePref} onChange={app.setElevatePref}>
+        <Switch size="S" isSelected={app.elevatePref} onChange={app.setElevatePref} isDisabled={app.busy}>
           以管理员身份运行
         </Switch>
-        <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog}>
+        <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog} isDisabled={app.busy}>
           CLI 调试日志
         </Switch>
       </section>

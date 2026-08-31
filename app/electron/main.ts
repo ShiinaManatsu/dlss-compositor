@@ -118,10 +118,13 @@ function relaunchElevated(): boolean {
   if (elevateRelaunchAttempted || process.platform !== 'win32') return false;
   elevateRelaunchAttempted = true;
   const psPath = process.execPath.replace(/'/g, "''");
+  // The child polls for the single-instance lock (--elevate-relaunch) because
+  // this instance is still holding it when the child boots.
   const argList = process.argv
     .slice(1)
     .map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))
     .filter((arg) => arg !== '--elevate-relaunch')
+    .concat('--elevate-relaunch')
     .join(' ');
   const cmd =
     `Start-Process -FilePath '${psPath}' -Verb RunAs` +
