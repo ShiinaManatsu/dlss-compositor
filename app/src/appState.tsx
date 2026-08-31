@@ -611,6 +611,9 @@ export function useAppState() {
     setFilenameTemplate(DEFAULT_FILENAME_TEMPLATE);
     setOutputVersion(1);
     setHistory([]);
+    // New projects start without NR buffer export — don't inherit the toggle
+    // from whatever was open before (the inspect reset doesn't touch it).
+    setNrBuffer(false);
     await window.dlss.setTitle(projectTitle(target));
     const stub = await window.dlss.saveDcp(target, emptyProject(picked));
     if (stub.ok) setRecents(await window.dlss.rememberRecent(target));
@@ -1154,7 +1157,7 @@ export function setAppVersion(version: string) {
 }
 
 export function getAppVersion() {
-  return appVersion || '0.4.3';
+  return appVersion || '0.4.4';
 }
 
 export function AppStateProvider({children}: {children: ReactNode}) {

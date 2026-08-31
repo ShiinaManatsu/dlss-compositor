@@ -434,7 +434,7 @@ export function ExportPage() {
           </Switch>
           <span className={style({font: 'detail-sm', color: 'gray-600'})}>
             {nrBuffer
-              ? 'dlssnrbuffer_####.exr（运动+深度）将写入输出目录，帧生成已强制关闭；导出后到 NR 工具页调参'
+              ? 'dlssnrbuffer_####.exr（运动+深度）将写入输出目录下以视频命名的子文件夹，帧生成已强制关闭；导出后到 NR 工具页调参'
               : '供 NR 工具页使用的运动+深度数据（开启时帧生成关闭）'}
           </span>
           <span className={style({font: 'detail-sm', color: 'gray-600'})}>

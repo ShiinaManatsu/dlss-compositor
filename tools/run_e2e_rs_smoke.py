@@ -1,8 +1,11 @@
 """End-to-end R:→S: smoke over CLI JSON-RPC (2026-08-31).
 
 Mirrors the packaged-GUI flow at RPC level:
-  A. RR watch-mode export from the RAM disk (ProRes + dlssnrbuffer + live preview)
-  B. NR tool consumes the mov + dlssnrbuffer → previews → png_16 export
+  A. RR watch-mode export from the RAM disk (ProRes + dlssnrbuffer in a
+     per-video subfolder + live preview)
+  B. NR tool consumes the mov + subfolder buffers → previews → png_16 export
+     (previews AND exports are pixel-checked — byte counts once shipped a
+     silently black VideoReader sws path)
   C. SR watch-mode export (ProRes)
 
 Usage: python tools/run_e2e_rs_smoke.py [--cli EXE] [--input R:\\dlss] [--out-root S:\\e2e] [--stages abc]
@@ -10,6 +13,8 @@ Usage: python tools/run_e2e_rs_smoke.py [--cli EXE] [--input R:\\dlss] [--out-ro
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import os
 import shutil
@@ -25,6 +30,17 @@ from rpc_client import StdioRpcClient  # noqa: E402
 EXE = ROOT / "build/x64-windows-msvc-release/Release/dlss-compositor-cli.exe"
 FRAMES_SRC = ROOT / "test-frames/rr"
 FRAME_NAMES = ("0300.exr", "0301.exr", "0302.exr")
+VIDEO_BASE = "e2e_rr_v1"
+
+
+def jpeg_stats(jpeg_b64: str) -> tuple[int, float, float]:
+    """(pixel_count, mean_luma, std) — used to fail loud on black previews."""
+    from PIL import Image  # noqa: PLC0415 — needs Pillow only when pixel checks run
+    import numpy as np  # noqa: PLC0415
+
+    raw = base64.b64decode(jpeg_b64)
+    arr = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"), dtype=np.float32)
+    return int(arr.shape[0] * arr.shape[1]), float(arr.mean()), float(arr.std())
 
 
 def seed_input(input_dir: Path) -> None:
@@ -86,8 +102,9 @@ def shutdown(client: StdioRpcClient, proc: subprocess.Popen[bytes]) -> None:
 
 
 def stage_a_rr_nrbuffer(cli: Path, input_dir: Path, out_dir: Path) -> bool:
-    print("=== Stage A: RR + nr_buffer + preview (watch, delete_consumed) ===")
+    print("=== Stage A: RR + nr_buffer (per-video subfolder) + preview (watch) ===")
     log = out_dir / "cli.stderr.log"
+    buffer_dir = out_dir / VIDEO_BASE
     proc = spawn_cli(cli, log)
     client = StdioRpcClient(proc)
     ok = False
@@ -98,12 +115,13 @@ def stage_a_rr_nrbuffer(cli: Path, input_dir: Path, out_dir: Path) -> bool:
             "output_dir": str(out_dir),
             "mode": "rr",
             "output_format": "prores_422hq",
-            "output_template": "e2e_rr_v1.mov",
+            "output_template": f"{VIDEO_BASE}.mov",
             "rr_preset": "F",
             "watch": True,
             "wait_for_appearance": True,
             "delete_consumed": True,
             "nr_buffer": True,
+            "nr_buffer_dir": str(buffer_dir),
             "window": 4,
             "overwrite_mode": "overwrite",
         }, timeout=120.0)
@@ -115,8 +133,8 @@ def stage_a_rr_nrbuffer(cli: Path, input_dir: Path, out_dir: Path) -> bool:
         print(f"  final -> {json.dumps(final)[:200]}")
         produced = sorted(p.name for p in out_dir.iterdir() if p.is_file())
         mov = [f for f in produced if f.endswith(".mov")]
-        buffers = [f for f in produced if f.startswith("dlssnrbuffer_")]
-        print(f"  output: {produced}")
+        buffers = sorted(buffer_dir.glob("dlssnrbuffer_*.exr")) if buffer_dir.is_dir() else []
+        print(f"  output: {produced} | buffer subfolder: {[b.name for b in buffers]}")
         ok = (final.get("state") == 2 and bool(mov) and len(buffers) == len(FRAME_NAMES)
               and preview.get("ok") and len(jpeg) > 1000)
         for ln in log_tail(log, ("error", "Pipeline", "DLSS RR")):
@@ -128,15 +146,16 @@ def stage_a_rr_nrbuffer(cli: Path, input_dir: Path, out_dir: Path) -> bool:
 
 
 def stage_b_nrtool(cli: Path, rr_out: Path, nr_out: Path) -> bool:
-    print("=== Stage B: NR tool consumes mov + dlssnrbuffer ===")
+    print("=== Stage B: NR tool consumes mov + per-video buffer subfolder ===")
     log = nr_out / "cli.stderr.log"
+    buffer_dir = rr_out / VIDEO_BASE
     proc = spawn_cli(cli, log)
     client = StdioRpcClient(proc)
     ok = False
     try:
         info = client.request("nrtool_open", {
-            "color_source": str(rr_out / "e2e_rr_v1.mov"),
-            "buffer_dir": str(rr_out),
+            "color_source": str(rr_out / f"{VIDEO_BASE}.mov"),
+            "buffer_dir": str(buffer_dir),
         }, timeout=120.0)
         print(f"  nrtool_open ok={info.get('ok')} frames={info.get('frames')} "
               f"{info.get('width')}x{info.get('height')} err={info.get('error')}")
@@ -149,9 +168,17 @@ def stage_b_nrtool(cli: Path, rr_out: Path, nr_out: Path) -> bool:
                 "nr_automask": False, "nr_guidance": 0,
             }, timeout=120.0)
             jpeg = prev.get("jpeg_b64") or ""
-            print(f"  preview frame={frame} ok={prev.get('ok')} eval_ms={prev.get('eval_ms')} "
-                  f"reset={prev.get('reset_applied')} jpeg_bytes={len(jpeg) * 3 // 4}")
-            all_previews = all_previews and prev.get("ok") and len(jpeg) > 1000
+            if prev.get("ok") and jpeg:
+                count, mean, std = jpeg_stats(jpeg)
+                print(f"  preview frame={frame} ok={prev.get('ok')} eval_ms={prev.get('eval_ms')} "
+                      f"reset={prev.get('reset_applied')} pixels mean={mean:.1f} std={std:.1f}")
+                # Black-output regression guard: the 2026-08-31 sws
+                # contrast=0 bug produced mean≈0 frames that passed a
+                # byte-count check. Denoised content is never near-black.
+                all_previews = all_previews and mean > 10.0 and std > 5.0
+            else:
+                print(f"  preview frame={frame} FAILED err={prev.get('error')}")
+                all_previews = False
         client.request("nrtool_export", {
             "output_format": "png_16",
             "output_dir": str(nr_out),
@@ -159,9 +186,22 @@ def stage_b_nrtool(cli: Path, rr_out: Path, nr_out: Path) -> bool:
         }, timeout=30.0)
         final = settle(client)
         print(f"  final -> {json.dumps(final)[:200]}")
-        produced = sorted(p.name for p in nr_out.glob("nr_*.png"))
-        print(f"  nr pngs: {produced}")
-        ok = (all_previews and final.get("state") == 2 and len(produced) == info.get("frames", 0))
+        produced = sorted(nr_out.glob("nr_*.png"))
+        print(f"  nr pngs: {[p.name for p in produced]}")
+        exports_nonblack = True
+        try:
+            from PIL import Image  # noqa: PLC0415
+            import numpy as np  # noqa: PLC0415
+
+            for png in produced:
+                arr = np.asarray(Image.open(png).convert("RGB"), dtype=np.float32)
+                if arr.mean() <= 1.0:
+                    print(f"  EXPORT IS BLACK: {png.name}")
+                    exports_nonblack = False
+        except ImportError:
+            print("  (Pillow/numpy unavailable — skipping export pixel check)")
+        ok = (all_previews and exports_nonblack and final.get("state") == 2
+              and len(produced) == info.get("frames", 0))
         for ln in log_tail(log, ("NR", "error")):
             print(f"    {ln}")
     finally:

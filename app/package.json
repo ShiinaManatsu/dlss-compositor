@@ -1,7 +1,7 @@
 {
   "name": "dlss-compositor-app",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "DLSS SR/RR/FG compositor GUI",
   "author": {
     "name": "dlss-compositor"
@@ -87,7 +87,7 @@
       {
         "ext": "dcp",
         "name": "DLSS Compositor Project",
-        "description": "DLSS Compositor 工程文件",
+        "description": "DLSS Compositor \u5de5\u7a0b\u6587\u4ef6",
         "role": "Editor"
       }
     ]

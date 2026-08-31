@@ -553,6 +553,17 @@ export class PipelineOrchestrator {
         fs.mkdirSync(colorDir, {recursive: true});
         fs.mkdirSync(guidesDir, {recursive: true});
       }
+      // dlssnrbuffer goes into a per-video subfolder (template minus the frame
+      // token = the video's base name) so exports don't mix guidance buffers.
+      let nrBufferDir: string | undefined;
+      if (req.nrBuffer) {
+        const baseName = outputTemplate
+          .replace(/\{frame[^}]*\}/gi, '')
+          .replace(/[._\s]+$/, '')
+          .trim();
+        nrBufferDir = path.join(exportDir, baseName || 'dlssnrbuffer');
+        fs.mkdirSync(nrBufferDir, {recursive: true});
+      }
       await this.bakeConfig(blender, req, ramDir, pct);
       if (!existsFile(path.join(ramDir, 'dlssconfig.json'))) {
         throw new Error('inject 未写出 dlssconfig.json');
@@ -572,6 +583,7 @@ export class PipelineOrchestrator {
         delete_consumed: true,
         native_res_buffers: native,
         nr_buffer: Boolean(req.nrBuffer),
+        nr_buffer_dir: nrBufferDir,
         color_dir: dual ? colorDir : undefined,
         guides_dir: dual ? guidesDir : undefined,
         config: path.join(ramDir, 'dlssconfig.json'),

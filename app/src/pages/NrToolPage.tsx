@@ -12,7 +12,9 @@ import {
   Slider,
   Switch,
   Text,
-  TextField
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@react-spectrum/s2';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Pause from '@react-spectrum/s2/icons/Pause';
@@ -63,6 +65,16 @@ function suggestVideoOut(source: string): string {
     ? norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
     : norm.split('/').filter(Boolean).pop() || 'nr';
   return `${dir}/${stem}_nr.mov`;
+}
+
+/** Suggest the dlssnrbuffer folder for a picked video: exports now write the
+ * guidance sequence into `<video dir>/<video name>/` (no extension). */
+function suggestBufferDir(source: string): string {
+  const norm = source.replace(/\\/g, '/');
+  if (!/\.[a-z0-9]+$/i.test(norm)) return '';
+  const dir = norm.slice(0, norm.lastIndexOf('/'));
+  const stem = norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+  return `${dir}/${stem}`;
 }
 
 function SettingsSection({
@@ -393,7 +405,15 @@ export function NrToolPage() {
               isDisabled={opening || exporting}
               onPress={() => {
                 void window.dlss.chooseNrVideo().then((picked) => {
-                  if (picked) setPaths((prev) => ({...prev, colorSource: picked}));
+                  if (picked) {
+                    // The buffer subfolder is named after the video — suggest it
+                    // alongside the color source.
+                    setPaths((prev) => ({
+                      ...prev,
+                      colorSource: picked,
+                      bufferDir: suggestBufferDir(picked) || prev.bufferDir
+                    }));
+                  }
                 });
               }}>
               <FolderOpen />
@@ -499,18 +519,32 @@ export function NrToolPage() {
             isDisabled={exporting}>
             自动遮罩
           </Switch>
-          <Picker
-            label="引导模式"
-            size="S"
-            value={String(settings.guidance)}
-            onChange={(value) => setSettings((prev) => ({...prev, guidance: Number(value)}))}
+          <Text styles={style({font: 'detail-sm'})}>引导模式</Text>
+          <ToggleButtonGroup
+            aria-label="引导模式"
+            selectionMode="single"
+            density="compact"
             isDisabled={exporting}
+            disallowEmptySelection
+            selectedKeys={new Set([String(settings.guidance)])}
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next != null) setSettings((prev) => ({...prev, guidance: Number(next)}));
+            }}
             styles={style({width: 'full'})}>
-            <PickerItem id="0">全部（运动 + 深度）</PickerItem>
-            <PickerItem id="1">强制为零</PickerItem>
-            <PickerItem id="2">仅运动</PickerItem>
-            <PickerItem id="3">仅深度</PickerItem>
-          </Picker>
+            <ToggleButton id="0">
+              <Text>全部</Text>
+            </ToggleButton>
+            <ToggleButton id="2">
+              <Text>运动</Text>
+            </ToggleButton>
+            <ToggleButton id="3">
+              <Text>深度</Text>
+            </ToggleButton>
+            <ToggleButton id="1">
+              <Text>无</Text>
+            </ToggleButton>
+          </ToggleButtonGroup>
         </SettingsSection>
         <Divider size="S" />
         <SettingsSection title="导出" defaultExpanded>

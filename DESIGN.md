@@ -253,8 +253,8 @@ FG 输入：
 
 NR 拆成一趟渲染 + 一趟调参两个阶段（类似 Premiere 里加效果），因为 NR 参数需要反复调整，不能绑死在一次性渲染里：
 
-- **Stage A（渲染时导出）**：管线加 `nr_buffer` 开关，在 tonemap 后额外回读 MV/深度并打包 **dlssnrbuffer**——RGB half EXR（R=mv.x G=mv.y B=NDC 深度，DepthInverted 约定），渲染分辨率、zip 无损，命名 `dlssnrbuffer_####.exr`。约束：FG 必须关（引导需在输入帧率）、与 kNR 互斥。色彩照常导出为 display-ready（ProRes/H265/PNG16）。
-- **Stage B（NR 工具）**：`NrToolSession` 读色彩源（FFmpeg 视频或 PNG16 序列）+ dlssnrbuffer，逐帧上传后进 DLSSNR（NGX feature 18），RGBA8 输出用于预览/再导出。时间语义：`frameIndex != last+1` 即置 `DLSSNR.Reset`（拖动/跳帧）。调参面 = Style/Intensity/LocalTone/LocalStructure/UseAutoMask/GuidanceMode（我们喂真实引导，Magpie 的 Depth Inference Interval 等兜底参数一概不加）。
+- **Stage A（渲染时导出）**：管线加 `nr_buffer` 开关，在 tonemap 后额外回读 MV/深度并打包 **dlssnrbuffer**——RGB half EXR（R=mv.x G=mv.y B=NDC 深度，DepthInverted 约定），渲染分辨率、zip 无损，命名 `dlssnrbuffer_####.exr`。写入 `nr_buffer_dir`（GUI 取「模板去掉帧号」= 视频名的子文件夹，避免多次导出混在一起）；FG 必须关（引导需在输入帧率）、与 kNR 互斥。色彩照常导出为 display-ready（ProRes/H265/PNG16）。
+- **Stage B（NR 工具）**：`NrToolSession` 读色彩源（FFmpeg 视频或 PNG16 序列）+ dlssnrbuffer，逐帧上传后进 DLSSNR（NGX feature 18），RGBA8 输出用于预览/再导出。时间语义：`frameIndex != last+1` 即置 `DLSSNR.Reset`（拖动/跳帧）。调参面 = Style/Intensity/LocalTone/LocalStructure/UseAutoMask/GuidanceMode（toggle 组：全部/运动/深度/无；我们喂真实引导，Magpie 的 Depth Inference Interval 等兜底参数一概不加）。NR 工具「选视频」时自动建议 `<视频目录>/<视频名>/` 为 buffer 目录。
 - **Feature 18 加载**：core `_nvngx.dll` 不路由 feature 18，需直接加载签名 snippet `nvngx_dlssnr.dll`（310.8.0.0）；snippet 校验调用方模块名，Init 会 0xBAD00002——用 IAT hook 把 snippet 的 `GetModuleFileNameW` 指回 `nvngx.dll` + 魔数 app id（Magpie 方案）。该 DLL 仅开发机持有（gitignored `resources/`，`pack-backend.mjs` 固定三 DLL 白名单不带它）。
 
 ---

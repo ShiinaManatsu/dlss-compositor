@@ -489,6 +489,18 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.nrAutoMask       = nrS.useAutoMask;
     cfg.nrGuidanceMode   = static_cast<int>(nrS.guidanceMode);
     cfg.nrBuffer         = p.value("nr_buffer", false);
+    if (cfg.nrBuffer) {
+        cfg.nrBufferDir = p.value("nr_buffer_dir", std::string{});
+        if (cfg.nrBufferDir.empty()) {
+            cfg.nrBufferDir = cfg.outputDir;
+        }
+        std::error_code mkdirEc;
+        std::filesystem::create_directories(cfg.nrBufferDir, mkdirEc);
+        if (mkdirEc) {
+            throw std::runtime_error("cannot create nr_buffer_dir " + cfg.nrBufferDir +
+                                     ": " + mkdirEc.message());
+        }
+    }
     if (cfg.nrBuffer && (cfg.features & kNR)) {
         throw std::runtime_error(
             "nr_buffer cannot be combined with nr: dlssnrbuffer is the export for the "

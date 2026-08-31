@@ -177,10 +177,15 @@ void VideoReader::ensureSws(int srcRange, int srcColorspace) {
     if (!m_sws) fail("VideoReader: sws_getContext failed");
 
     // src limited (0) unless flagged full; dst RGBA8 is full range (1).
-    sws_setColorspaceDetails(m_sws,
-                             sws_getCoefficients(coefficients), srcRange,
-                             sws_getCoefficients(SWS_CS_ITU709), 1,
-                             0, 0, 0);
+    // Brightness/contrast/saturation are 16.16 fixed point — 0 for brightness
+    // is neutral, but contrast/saturation neutral is 1<<16 (0 would zero the
+    // image: every frame comes out black).
+    if (sws_setColorspaceDetails(m_sws,
+                                 sws_getCoefficients(coefficients), srcRange,
+                                 sws_getCoefficients(SWS_CS_ITU709), 1,
+                                 0, 1 << 16, 1 << 16) < 0) {
+        fail("VideoReader: sws_setColorspaceDetails failed");
+    }
     m_swsReady = true;
 }
 
@@ -229,8 +234,10 @@ void VideoReader::readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRg
     outRgba8.resize(static_cast<std::size_t>(m_width) * m_height * 4);
     uint8_t* dst[4] = {outRgba8.data(), nullptr, nullptr, nullptr};
     int dstStride[4] = {static_cast<int>(m_width) * 4, 0, 0, 0};
-    sws_scale(m_sws, m_frame->data, m_frame->linesize, 0, m_codecCtx->height,
-              dst, dstStride);
+    if (sws_scale(m_sws, m_frame->data, m_frame->linesize, 0, m_codecCtx->height,
+                  dst, dstStride) < 0) {
+        fail("VideoReader: sws_scale failed on frame " + std::to_string(index));
+    }
 
     m_nextIndex = index + 1;
 }

@@ -1026,11 +1026,13 @@ void Pipeline::run(const PipelineConfig& config) {
                        : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
 
             // dlssnrbuffer rides along at the same frame index (FG must be off —
-            // dispatcher validates — so output idx == input idx).
+            // dispatcher validates — so output idx == input idx). Lives in its
+            // own folder (nrBufferDir, named after the video) so multiple
+            // exports don't mix guidance sequences in one directory.
             if (config.nrBuffer && !nrBufferPixels.empty()) {
                 WriteJob bufJob;
                 bufJob.format         = OutputFormat::ExrNrBuffer;
-                bufJob.outputPath     = std::filesystem::path(config.outputDir) /
+                bufJob.outputPath     = std::filesystem::path(config.nrBufferDir) /
                     AsyncFrameWriter::formatPath("dlssnrbuffer_####.exr", outputFrameIdx);
                 bufJob.width          = rW;
                 bufJob.height         = rH;

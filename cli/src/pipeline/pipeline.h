@@ -183,9 +183,13 @@ struct PipelineConfig {
     float nrLocalStructure = 1.0f; ///< 0–1 (Magpie Local Structure Strength)
     bool  nrAutoMask       = false; ///< DLSSNR.UseAutoMask
     /// Write the dlssnrbuffer guidance sequence (RGB half EXR: mv.x, mv.y, NDC
-    /// depth) next to the main output for the standalone NR tool. FG must be
-    /// off (guidance is per input frame). Mutually exclusive with kNR.
+    /// depth) for the standalone NR tool. FG must be off (guidance is per input
+    /// frame). Mutually exclusive with kNR.
     bool nrBuffer = false;
+    /// Destination for the dlssnrbuffer sequence; empty = outputDir. The GUI
+    /// names it after the video (template minus the frame token) so buffers
+    /// from different exports don't mix in one folder.
+    std::string nrBufferDir;
 
     // ── Output ────────────────────────────────────────────────────────────────
     OutputFormat    outputFormat = OutputFormat::ExrLinear;
