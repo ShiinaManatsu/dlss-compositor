@@ -2,17 +2,18 @@
 // NrToolSession — standalone DLSSNR compositor session (NR 工具 backend).
 //
 // Premiere-style effect pass: consumes the Stage-A export (color video or
-// PNG16 sequence) + the dlssnrbuffer guidance sequence, previews any frame
-// with live NR settings, and exports the denoised result once.
+// PNG16 sequence), optionally the dlssnrbuffer guidance sequence, previews
+// any frame with live NR settings, and exports the denoised result once.
 //
 //   color (RGBA8, display-ready, output res)  ─┐
 //   mv   (RG16F, render res, dlssnrbuffer R/G) ├→ DLSSNR → RGBA8 out
 //   depth(R32F,  render res, dlssnrbuffer B)   ─┘    ├→ preview JPEG
 //                                                    └→ unpack → rgb10_a2 → ProRes
 //
-// The pass keeps DLSSNR's temporal state between sequential frames; scrubbing
-// further than ±1 frame triggers Reset. Fails loud on missing inputs (no
-// fallback rendering).
+// The guidance buffers are optional: without them the session runs guidance
+// mode ForceZero only (blind temporal filter). The pass keeps DLSSNR's
+// temporal state between sequential frames; scrubbing further than ±1 frame
+// triggers Reset. Fails loud on missing inputs (no fallback rendering).
 
 #include "../dlss/dlss_nr.h"
 #include "../gpu/passes/nr_format_pass.h"
@@ -101,6 +102,7 @@ private:
     std::vector<std::filesystem::path> m_pngFiles;
 
     NrBufferReader m_buffer;
+    bool           m_hasBuffer = false;  ///< guidance dir supplied at open
 
     // Persistent per-session textures (same every frame — no pooling churn).
     TexturePool        m_pool;

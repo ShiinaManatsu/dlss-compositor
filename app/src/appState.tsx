@@ -61,6 +61,7 @@ export const ROUTE_LABELS: Record<Route, string> = {
 };
 
 const COLOR_SCHEME_KEY = 'dc-color-scheme';
+const CLI_LOG_KEY = 'dc-cli-log';
 
 export function padFrame(n: number) {
   return String(n).padStart(4, '0');
@@ -143,6 +144,7 @@ export function useAppState() {
   const [ramdiskGb, setRamdiskGb] = useState(2);
   const [cachePath, setCachePath] = useState('');
   const [elevated, setElevated] = useState(false);
+  const [cliLog, setCliLogState] = useState(true);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
   const [nrBuffer, setNrBuffer] = useState(false);
   const [fg, setFg] = useState(0);
@@ -195,6 +197,18 @@ export function useAppState() {
     } catch {
       /* private mode etc. */
     }
+  }
+
+  /** CLI 调试日志开关：dev 默认开、打包版默认关（main 侧 isPackaged），
+   *  用户改选持久化到 localStorage 并即时推给 orchestrator。 */
+  function setCliLog(next: boolean) {
+    setCliLogState(next);
+    try {
+      window.localStorage.setItem(CLI_LOG_KEY, next ? 'on' : 'off');
+    } catch {
+      /* private mode etc. */
+    }
+    void window.dlss.setCliLog(next);
   }
 
   function setPlayhead(next: number) {
@@ -651,6 +665,16 @@ export function useAppState() {
       setMaximized(isMax);
       if (launch.version) setAppVersion(launch.version);
       setElevated(Boolean(launch.elevated));
+      let storedLog: string | null = null;
+      try {
+        storedLog = window.localStorage.getItem(CLI_LOG_KEY);
+      } catch {
+        /* ignore */
+      }
+      const effectiveLog =
+        storedLog === 'on' ? true : storedLog === 'off' ? false : !launch.packaged;
+      setCliLogState(effectiveLog);
+      void window.dlss.setCliLog(effectiveLog);
       let stored: string | null = null;
       try {
         stored = window.localStorage.getItem(COLOR_SCHEME_KEY);
@@ -1103,6 +1127,8 @@ export function useAppState() {
     cachePath,
     setCachePath,
     elevated,
+    cliLog,
+    setCliLog,
     nativeResBuffers,
     setNativeResBuffers,
     nativeResEnabled,

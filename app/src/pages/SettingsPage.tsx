@@ -1,4 +1,4 @@
-import {Content, Divider, InlineAlert, LabeledValue, Link, Picker, PickerItem, StatusLight} from '@react-spectrum/s2';
+import {Content, Divider, InlineAlert, LabeledValue, Link, Picker, PickerItem, StatusLight, Switch} from '@react-spectrum/s2';
 import {getAppVersion, useApp, type ColorSchemePref} from '../appState';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
@@ -60,6 +60,9 @@ export function SettingsPage() {
             <Link href="https://github.com/LTRData/ImDisk">ImDisk</Link>。
           </Content>
         </InlineAlert>
+        <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog}>
+          CLI 调试日志
+        </Switch>
       </section>
 
       <Divider size="S" />

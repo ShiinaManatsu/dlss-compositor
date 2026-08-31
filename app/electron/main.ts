@@ -269,8 +269,12 @@ app.whenReady().then(() => {
     page: typeof flags.page === 'string' ? flags.page : null,
     rail: typeof flags.rail === 'string' ? flags.rail : null,
     elevated,
+    packaged,
     version: app.getVersion(),
   }));
+  ipcMain.handle('app:setCliLog', (_event, enabled: unknown) => {
+    orchestrator.setCliLog(Boolean(enabled));
+  });
   ipcMain.handle('window:setTitle', (_event, title: unknown) => {
     win.setTitle(String(title || 'DLSS Compositor'));
   });

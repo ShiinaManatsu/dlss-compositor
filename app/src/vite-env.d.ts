@@ -105,6 +105,7 @@ type LaunchFlags = {
   page?: string | null;
   rail?: string | null;
   elevated?: boolean;
+  packaged?: boolean;
   version?: string;
 };
 
@@ -145,7 +146,7 @@ interface DlssApi {
   inspect: (blend: string) => Promise<{ok: boolean; scene?: SceneState; error?: string}>;
   start: (req: ExportRequest) => Promise<{ok: boolean; error?: string}>;
   stop: () => Promise<{ok: boolean; unmounted: false}>;
-  nrOpen: (params: {color_source: string; buffer_dir: string}) => Promise<NrToolInfo>;
+  nrOpen: (params: {color_source: string; buffer_dir?: string}) => Promise<NrToolInfo>;
   nrPreview: (frame: number, settings: Record<string, unknown>) => Promise<NrPreviewResult>;
   nrExport: (params: Record<string, unknown>) => Promise<{ok: boolean; started?: boolean; frames?: number; error?: string}>;
   nrClose: () => Promise<{ok: boolean; error?: string}>;
@@ -165,6 +166,7 @@ interface DlssApi {
   openPath: (filePath: string) => Promise<boolean>;
   listDir: (dirPath: string) => Promise<DirEntry[] | null>;
   launchFlags: () => Promise<LaunchFlags>;
+  setCliLog: (enabled: boolean) => Promise<void>;
   setTitle: (title: string) => Promise<void>;
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;

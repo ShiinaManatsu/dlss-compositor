@@ -301,10 +301,9 @@ nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
         throw std::runtime_error("nrtool_open: a pipeline job is running");
     }
     const std::string color = p.at("color_source").get<std::string>();
+    // buffer_dir is optional: without it the session only runs guidance mode
+    // ForceZero (blind temporal filter); the session enforces that combination.
     const std::string buffer = p.value("buffer_dir", "");
-    if (buffer.empty()) {
-        throw std::runtime_error("nrtool_open: buffer_dir is required (dlssnrbuffer sequence)");
-    }
 
     if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
     m_nrExportRunning.store(false, std::memory_order_release);

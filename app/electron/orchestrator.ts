@@ -2,6 +2,7 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {app} from 'electron';
 import {parseFg} from '../src/dcp';
 import {userErrorMessage} from '../src/errors';
 import {estimateWindowFrameBytes, phaseLabel, planRamWindows, ramWindowBudget} from '../src/ramWindows';
@@ -316,6 +317,14 @@ export class PipelineOrchestrator {
   private ramLetter: string | null = null;
   private cliPath: string | null = null;
   private stderrFd: number | null = null;
+  /** CLI stderr file (cli.stderr.log): dev default on, release default off
+   *  (settings toggle). When off, stderr goes to the void. */
+  private cliLog = !app.isPackaged;
+
+  /** Settings toggle for the CLI debug log; takes effect on the next spawn. */
+  setCliLog(enabled: boolean): void {
+    this.cliLog = enabled;
+  }
   private session = 0;
   private pollInFlight = false;
   private exportSettled = false;
@@ -663,11 +672,12 @@ export class PipelineOrchestrator {
 
   // ── NR tool (standalone DLSSNR compositor pass) ───────────────────────────
 
-  /** Open an NR session over a color source + dlssnrbuffer guidance dir.
-   *  Boots the CLI on demand (the NR tool works without an open project). */
+  /** Open an NR session over a color source, optionally a dlssnrbuffer
+   *  guidance dir (no buffer = guidance mode 无 only). Boots the CLI on
+   *  demand (the NR tool works without an open project). */
   async nrOpen(params: {
     color_source: string;
-    buffer_dir: string;
+    buffer_dir?: string;
   }): Promise<Record<string, unknown>> {
     const cli = findCli(undefined, backendDir ?? undefined);
     if (!cli) return {ok: false, error: '找不到 dlss-compositor-cli.exe'};
@@ -733,7 +743,9 @@ export class PipelineOrchestrator {
         this.emit(
           stopped
             ? {type: 'nrtool_export_stopped'}
-            : {type: 'nrtool_export_error', message: 'NR 导出失败（见日志 cli.stderr.log）'}
+            : this.cliLog
+              ? {type: 'nrtool_export_error', message: 'NR 导出失败（详见 cli.stderr.log）'}
+              : {type: 'nrtool_export_error', message: 'NR 导出失败'}
         );
       }
     } catch (err) {
@@ -1084,18 +1096,31 @@ export class PipelineOrchestrator {
       return this.rpc;
     }
     this.discardCli();
-    const stderrPath = path.join(exportDir, 'cli.stderr.log');
-    this.stderrFd = fs.openSync(stderrPath, 'w');
-    this.cli = spawn(cli, ['--rpc-stdio'], {
-      cwd: path.dirname(cli),
-      stdio: ['pipe', 'pipe', this.stderrFd],
-      windowsHide: true,
-      env: {
-        ...process.env,
-        // Release CLI defaults logs to off; keep stderr useful for GUI jobs.
-        DLSS_COMPOSITOR_LOG: process.env.DLSS_COMPOSITOR_LOG || 'info',
-      },
-    });
+    let stderrFd: number | null = null;
+    if (this.cliLog) {
+      const stderrPath = path.join(exportDir, 'cli.stderr.log');
+      stderrFd = fs.openSync(stderrPath, 'w');
+      this.stderrFd = stderrFd;
+      this.cli = spawn(cli, ['--rpc-stdio'], {
+        cwd: path.dirname(cli),
+        stdio: ['pipe', 'pipe', stderrFd],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          // Release CLI defaults logs to off; keep stderr useful for GUI jobs.
+          DLSS_COMPOSITOR_LOG: process.env.DLSS_COMPOSITOR_LOG || 'info',
+        },
+      });
+      this.emit({type: 'cli_pid', pid: this.cli.pid, stderr: path.join(exportDir, 'cli.stderr.log')});
+    } else {
+      this.cli = spawn(cli, ['--rpc-stdio'], {
+        cwd: path.dirname(cli),
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+        env: process.env,
+      });
+      this.emit({type: 'cli_pid', pid: this.cli.pid});
+    }
     this.cliPath = cli;
     const child = this.cli;
     child.on('error', (err) => debug(`cli spawn error: ${err.message}`));
@@ -1108,7 +1133,6 @@ export class PipelineOrchestrator {
       }
     });
     this.rpc = new StdioRpcClient(this.cli);
-    this.emit({type: 'cli_pid', pid: this.cli.pid, stderr: stderrPath});
     debug(`cli pid=${this.cli.pid}`);
     return this.rpc;
   }
@@ -1190,12 +1214,13 @@ export class PipelineOrchestrator {
         const engineDetail = typeof progress.error === 'string' && progress.error
           ? String(progress.error)
           : '';
+        const logHint = this.cliLog ? '（详见导出目录 cli.stderr.log）' : '';
         this.emit({
           type: failed ? 'export_error' : 'export_done',
           message: failed
             ? engineDetail
-              ? `DLSS 引擎失败：${engineDetail}（详见导出目录 cli.stderr.log）`
-              : 'DLSS 引擎失败（见导出目录 cli.stderr.log）'
+              ? `DLSS 引擎失败：${engineDetail}${logHint}`
+              : `DLSS 引擎失败${logHint}`
             : undefined,
           ...progress,
         });

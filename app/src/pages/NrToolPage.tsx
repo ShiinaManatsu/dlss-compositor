@@ -388,7 +388,7 @@ export function NrToolPage() {
           </div>
           <div className="field-with-action">
             <TextField
-              label="dlssnrbuffer 目录"
+              label="dlssnrbuffer 目录（可选）"
               size="S"
               value={paths.bufferDir}
               onChange={(next) => nr.setPaths((prev) => ({...prev, bufferDir: next}))}
@@ -409,7 +409,8 @@ export function NrToolPage() {
           {info ? (
             <span className={style({font: 'detail-sm', color: 'gray-600'})}>
               {nr.message}
-              {info.buffer_width !== info.width || info.buffer_height !== info.height
+              {info.buffer_width > 0 &&
+              (info.buffer_width !== info.width || info.buffer_height !== info.height)
                 ? ` · 缓冲 ${info.buffer_width}×${info.buffer_height}`
                 : ''}
             </span>

@@ -122,17 +122,20 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
     }
     m_info.colorSource = colorSource.string();
 
-    // ── Guidance: dlssnrbuffer sequence (required — real guidance, no fallback)
-    m_buffer.open(bufferDir);
-    m_info.bufferDir    = bufferDir.string();
-    m_info.bufferWidth  = m_buffer.width();
-    m_info.bufferHeight = m_buffer.height();
+    // ── Guidance: dlssnrbuffer sequence (optional — no buffer means the
+    //    ForceZero blind filter only; enforced in evaluateFrame) ───────────────
+    m_hasBuffer = !bufferDir.empty();
+    if (m_hasBuffer) {
+        m_buffer.open(bufferDir);
+        m_info.bufferWidth  = m_buffer.width();
+        m_info.bufferHeight = m_buffer.height();
+    }
+    m_info.bufferDir = bufferDir.string();
 
     if (m_info.frames == 0) {
-        throw std::runtime_error("NrTool: color source frame count unknown — "
-                                 "dlssnrbuffer has " + std::to_string(m_buffer.frames()));
+        throw std::runtime_error("NrTool: color source frame count unknown");
     }
-    if (m_info.frames != m_buffer.frames()) {
+    if (m_hasBuffer && m_info.frames != m_buffer.frames()) {
         throw std::runtime_error(
             "NrTool: frame count mismatch — color has " + std::to_string(m_info.frames) +
             ", dlssnrbuffer has " + std::to_string(m_buffer.frames()) +
@@ -157,18 +160,20 @@ void NrToolSession::ensureCreated() {
 
     const TextureDesc tdColorIn  {m_info.width,  m_info.height,  VK_FORMAT_R8G8B8A8_UNORM,
                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
-    const TextureDesc tdMv       {m_info.bufferWidth, m_info.bufferHeight, VK_FORMAT_R16G16_SFLOAT,
-                                  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
-    const TextureDesc tdDepth    {m_info.bufferWidth, m_info.bufferHeight, VK_FORMAT_R32_SFLOAT,
-                                  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
     const VkImageUsageFlags storageRw = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
                                       | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     const TextureDesc tdNrOut    {m_info.width, m_info.height, VK_FORMAT_R8G8B8A8_UNORM, storageRw};
     const TextureDesc tdDisplayNr{m_info.width, m_info.height, VK_FORMAT_A2B10G10R10_UNORM_PACK32, storageRw};
 
     m_colorIn  = m_pool.acquire(tdColorIn);
-    m_mvTex    = m_pool.acquire(tdMv);
-    m_depthTex = m_pool.acquire(tdDepth);
+    if (m_hasBuffer) {
+        const TextureDesc tdMv    {m_info.bufferWidth, m_info.bufferHeight, VK_FORMAT_R16G16_SFLOAT,
+                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
+        const TextureDesc tdDepth {m_info.bufferWidth, m_info.bufferHeight, VK_FORMAT_R32_SFLOAT,
+                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
+        m_mvTex    = m_pool.acquire(tdMv);
+        m_depthTex = m_pool.acquire(tdDepth);
+    }
     m_nrOut    = m_pool.acquire(tdNrOut);
     m_displayNr= m_pool.acquire(tdDisplayNr);
 
@@ -186,6 +191,11 @@ void NrToolSession::ensureCreated() {
 
 void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
     ensureCreated();
+    if (!m_hasBuffer && m_settings.guidanceMode != NrGuidanceMode::ForceZero) {
+        throw std::runtime_error(
+            "NrTool: guidance needs a dlssnrbuffer session — reopen with buffer_dir "
+            "or set guidance mode to 无");
+    }
     LOG_DEBUG("[NrTool] eval frame {} begin", frameIndex);
 
     // ── Decode color ──────────────────────────────────────────────────────────
@@ -197,16 +207,18 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
         colorRgba8 = loadPng16AsRgba8(m_pngFiles[static_cast<std::size_t>(frameIndex)], w, h);
     }
 
-    // ── Decode guidance ───────────────────────────────────────────────────────
-    std::vector<std::uint8_t> mvBytes;
-    std::vector<float>        depth;
-    m_buffer.readFrame(static_cast<std::size_t>(frameIndex), mvBytes, depth);
-
     // ── Upload (NGX contract: inputs SHADER_READ) ─────────────────────────────
     UploadBatch batch(m_ctx);
     batch.addUpload(m_colorIn,  colorRgba8.data(), colorRgba8.size());
-    batch.addUpload(m_mvTex,    mvBytes.data(),    mvBytes.size());
-    batch.addUpload(m_depthTex, depth.data(),      depth.size() * sizeof(float));
+
+    // ── Decode guidance ───────────────────────────────────────────────────────
+    std::vector<std::uint8_t> mvBytes;
+    std::vector<float>        depth;
+    if (m_hasBuffer) {
+        m_buffer.readFrame(static_cast<std::size_t>(frameIndex), mvBytes, depth);
+        batch.addUpload(m_mvTex,    mvBytes.data(),    mvBytes.size());
+        batch.addUpload(m_depthTex, depth.data(),      depth.size() * sizeof(float));
+    }
     batch.submit();
 
     // ── Evaluate ──────────────────────────────────────────────────────────────
@@ -237,12 +249,14 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
     in.colorImage   = m_colorIn->image;
     in.outputView   = m_nrOut->view;
     in.outputImage  = m_nrOut->image;
-    in.mvView       = m_mvTex->view;
-    in.mvImage      = m_mvTex->image;
-    in.depthView    = m_depthTex->view;
-    in.depthImage   = m_depthTex->image;
-    in.renderWidth  = m_info.bufferWidth;
-    in.renderHeight = m_info.bufferHeight;
+    if (m_hasBuffer) {
+        in.mvView       = m_mvTex->view;
+        in.mvImage      = m_mvTex->image;
+        in.depthView    = m_depthTex->view;
+        in.depthImage   = m_depthTex->image;
+        in.renderWidth  = m_info.bufferWidth;
+        in.renderHeight = m_info.bufferHeight;
+    }
     in.reset        = reset;
     m_nrPass->updateSettings(m_settings);
     m_nrPass->evaluate(cmd, in);

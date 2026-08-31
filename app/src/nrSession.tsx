@@ -78,18 +78,20 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
   );
 
   const openSession = useCallback(async () => {
-    if (!paths.colorSource.trim() || !paths.bufferDir.trim()) {
-      setError('请选择色彩源和 dlssnrbuffer 目录');
+    if (!paths.colorSource.trim()) {
+      setError('请选择色彩源');
       return;
     }
     setOpening(true);
     setError(null);
     setInfo(null);
     try {
-      const result = await window.dlss.nrOpen({
-        color_source: paths.colorSource.trim(),
-        buffer_dir: paths.bufferDir.trim()
-      });
+      const params: {color_source: string; buffer_dir?: string} = {
+        color_source: paths.colorSource.trim()
+      };
+      // 无 buffer 也能开：仅引导模式「无」可用（CLI 侧同样强制）。
+      if (paths.bufferDir.trim()) params.buffer_dir = paths.bufferDir.trim();
+      const result = await window.dlss.nrOpen(params);
       if (!result.ok) {
         setError(userErrorMessage(result.error ?? '打开失败'));
         return;
