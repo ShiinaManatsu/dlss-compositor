@@ -374,8 +374,10 @@ export function NrToolPage() {
   }
 
   // 标题栏「导出」按钮触发这里组装好参数的导出；离开页面时注销。
+  // 必须写成「返回函数」的更新器：直接传 startExport 会被 React 当成
+  // setState 更新器立即调用（挂载/改设置=直接开始导出）。
   useEffect(() => {
-    setExportTrigger(startExport);
+    setExportTrigger(() => startExport);
     return () => setExportTrigger(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setExportTrigger, nrFormat, outputPath, outputDir, template, settingsKey]);
