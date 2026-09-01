@@ -614,8 +614,12 @@ void NrToolSession::exportTo(const NrSettings& settings,
     };
 
     uint32_t outIdx = 0;
-    auto tickProgress = [&]() {
-        ++outIdx;
+    // Progress = frames actually written: video via the ProRes writer's encode
+    // callback (fires on the encoder thread), PNG after each synchronous write.
+    // Also reporting the enqueue counter would run the GUI bar back and forth
+    // between two paces (the enqueue side runs up to the queue watermark ahead).
+    auto tickOutput = [&]() { ++outIdx; };
+    auto reportPng = [&]() {
         if (onProgress && outTotal > 0) onProgress(static_cast<float>(outIdx) / outTotal);
     };
 
@@ -634,11 +638,11 @@ void NrToolSession::exportTo(const NrSettings& settings,
             if (i > 0) {
                 for (const auto& h : interps) {
                     writeDisplay(h, VK_IMAGE_LAYOUT_GENERAL);
-                    tickProgress();
+                    tickOutput();
                 }
             }
             writeDisplay(m_displayNr, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            tickProgress();
+            tickOutput();
             for (auto& h : interps) m_pool.release(h);
         } else if (isVideo) {
             // colorSrc (SHADER_READ) → unpack → displayNr GENERAL → YUV pack.
@@ -655,7 +659,7 @@ void NrToolSession::exportTo(const NrSettings& settings,
             prores->enqueuePackedYuv422Frame(m_proresConvert->convertAndReadback(
                 m_displayNr, PixelEncoding::DisplayReady, /*hdr=*/false,
                 VK_IMAGE_LAYOUT_GENERAL));
-            tickProgress();
+            tickOutput();
         } else {
             auto rgba8 = settings.enabled
                 ? m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
@@ -664,7 +668,8 @@ void NrToolSession::exportTo(const NrSettings& settings,
                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                           /*restoreLayout=*/true);
             writePng(rgba8);
-            tickProgress();
+            tickOutput();
+            reportPng();
         }
 
         LOG_INFO("[NrTool] export output {}/{}", outIdx, outTotal);

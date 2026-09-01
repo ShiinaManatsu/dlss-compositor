@@ -69,7 +69,9 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     () =>
       window.dlss.onEvent((event) => {
         if (event.type === 'nrtool_progress' && typeof event.percent === 'number') {
-          setExportPercent(Math.min(100, Math.round(event.percent * 100)));
+          // 进度只进不退：任何上游双源/乱序都不该把条往回拽。
+          const pct = Math.min(100, Math.round(event.percent * 100));
+          setExportPercent((prev) => Math.max(prev, pct));
         } else if (event.type === 'nrtool_export_done') {
           setExporting(false);
           setExportPercent(100);

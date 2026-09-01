@@ -561,13 +561,13 @@ void Pipeline::run(const PipelineConfig& config) {
 
         // Enqueue one display-ready or scene-linear frame for writing.
         // isGenerated: true for FG-interpolated frames (used by FrameEvent, not write path).
+        // No per-enqueue onProgress here: the ProRes writer's encode callback
+        // / AsyncFrameWriter completion callback already report it. A second
+        // source at the enqueue pace made the GUI bar jitter back and forth
+        // between the two (e.g. 47→45→49→47 during FG exports).
         auto enqueueOutput = [&](PooledTextureHandle src, VkImageLayout oldLayout, bool isGenerated) {
             (void)isGenerated; // consumed by FrameEvent only; write path is format-agnostic
             ++outputFrameIdx;
-            const float progress = outputFrames > 0
-                ? static_cast<float>(outputFrameIdx) / static_cast<float>(outputFrames) : 0.f;
-
-            if (cb.onProgress) cb.onProgress(progress);
 
             if (proresWriter) {
                 proresWriter->enqueuePackedYuv422Frame(
