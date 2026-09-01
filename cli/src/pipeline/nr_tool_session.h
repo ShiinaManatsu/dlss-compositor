@@ -1,20 +1,30 @@
 #pragma once
-// NrToolSession — standalone DLSSNR compositor session (NR 工具 backend).
+// NrToolSession — standalone DLSSNR/DLSSFG compositor session (NR/FG 工具 backend).
 //
-// Premiere-style effect pass: consumes the Stage-A export (color video or
-// PNG16 sequence), optionally the dlssnrbuffer guidance sequence, previews
-// any frame with live NR settings, and exports the denoised result once.
+// Post pipeline over the Stage-A export: consumes the display-ready color
+// (video or PNG16 sequence), optionally the dlssnrbuffer guidance sequence
+// and dlssconfig.json camera data, then runs
 //
 //   color (RGBA8, display-ready, output res)  ─┐
-//   mv   (RG16F, render res, dlssnrbuffer R/G) ├→ DLSSNR → RGBA8 out
-//   depth(R32F,  render res, dlssnrbuffer B)   ─┘    ├→ preview JPEG
-//                                                    └→ unpack → rgb10_a2 → ProRes
+//   mv   (RG16F, render res, dlssnrbuffer R/G) ├→ [DLSSNR] → [DLSSFG] → out
+//   depth(R32F,  render res, dlssnrbuffer B)   ─┘        ├→ preview JPEGs
+//                                                        └→ unpack → rgb10_a2 → ProRes / PNG16
 //
-// The guidance buffers are optional: without them the session runs guidance
-// mode ForceZero only (blind temporal filter). The pass keeps DLSSNR's
-// temporal state between sequential frames; scrubbing further than ±1 frame
-// triggers Reset. Fails loud on missing inputs (no fallback rendering).
+// NR and FG are independently enabled. FG additionally requires the
+// guidance buffer (MV) and dlssconfig.json (per-frame camera data, copied
+// into the buffer dir by the export job) — fails loud when missing.
+//
+// The guidance buffers are optional for NR: without them the session runs
+// guidance mode ForceZero only (blind temporal filter). Temporal state is
+// kept between sequential frames; scrubbing further than ±1 frame triggers
+// Reset for both features. Fails loud on missing inputs (no fallback).
+//
+// FG output ordering (FgOnlyPipeline parity): multiplier N emits per input
+// frame the (N-1) interpolated frames between the previous and current real
+// frame, then the real frame — the first input emits the real frame only.
 
+#include "../core/dlssconfig.h"
+#include "../dlss/dlss_fg.h"
 #include "../dlss/dlss_nr.h"
 #include "../gpu/passes/nr_format_pass.h"
 #include "../gpu/passes/prores_convert_pass.h"
@@ -33,12 +43,18 @@ namespace dlss {
 
 class NgxContext;
 
+struct FgSettings {
+    bool enabled    = false;
+    int  multiplier = 2;  // 2..6, capped by NGX capability query
+};
+
 struct NrToolInfo {
     std::string colorSource;   ///< resolved video file / sequence directory
     std::string colorKind;     ///< "video" | "png_sequence"
     std::string bufferDir;     ///< dlssnrbuffer directory
+    std::string cameraConfig;  ///< dlssconfig.json path ("" when none supplied)
     uint32_t    frames       = 0;
-    uint32_t    width        = 0;  ///< color/output resolution (NR same-res)
+    uint32_t    width        = 0;  ///< color/output resolution (NR/FG same-res)
     uint32_t    height       = 0;
     uint32_t    bufferWidth  = 0;  ///< guidance resolution (render res)
     uint32_t    bufferHeight = 0;
@@ -49,7 +65,8 @@ class NrToolSession {
 public:
     NrToolSession(VulkanContext* ctx, NgxContext* ngx,
                   std::filesystem::path colorSource,
-                  std::filesystem::path bufferDir);
+                  std::filesystem::path bufferDir,
+                  std::filesystem::path cameraConfig);
     ~NrToolSession();
 
     NrToolSession(const NrToolSession&) = delete;
@@ -59,22 +76,36 @@ public:
 
     struct PreviewResult {
         std::vector<std::uint8_t> jpeg;
+        /// FG interpolated frame between the previous and this real frame —
+        /// empty when FG is off or the eval was a reset (history warmup).
+        std::vector<std::uint8_t> interpJpeg;
         std::uint32_t width = 0;
         std::uint32_t height = 0;
         double evalMs = 0.0;
         bool   resetApplied = false;
     };
 
-    /// Decode + denoise one frame, return its preview JPEG.
-    PreviewResult preview(std::int64_t frameIndex, const NrSettings& settings);
+    /// Decode + process one frame (NR, then FG when enabled), return preview
+    /// JPEG(s). `interpJpeg` is valid while playing sequentially with FG on.
+    PreviewResult preview(std::int64_t frameIndex, const NrSettings& settings,
+                          const FgSettings& fg);
 
     /// Retune without evaluating (settings persist for the next preview/export).
     void updateSettings(const NrSettings& settings) { m_settings = settings; }
 
-    /// Full sequential export. Video formats mux through ProResWriter; PNG16
-    /// writes per-frame files `outputDir/template`. `stop` aborts between
-    /// frames. onProgress receives [0..1].
+    /// Output frames a full sequential export writes with these FG settings.
+    uint32_t outputFrameCount(const FgSettings& fg) const {
+        return fg.enabled
+            ? m_info.frames + (m_info.frames - 1) * static_cast<uint32_t>(fg.multiplier - 1)
+            : m_info.frames;
+    }
+
+    /// Full sequential export. Video formats mux through ProResWriter (FG
+    /// exports mux at fps × multiplier); PNG16 writes per-frame files
+    /// `outputDir/template`, renumbered sequentially. `stop` aborts between
+    /// frames. onProgress receives [0..1] over output frames.
     void exportTo(const NrSettings& settings,
+                  const FgSettings& fg,
                   OutputFormat format,
                   const std::filesystem::path& outputPath,      ///< video file path
                   const std::filesystem::path& outputDir,       ///< png: directory
@@ -86,9 +117,19 @@ private:
     /// Lazy GPU setup on first frame (NR feature creation = availability probe).
     void ensureCreated();
 
-    /// Decode color + guidance for `frameIndex`, upload, evaluate DLSSNR.
-    /// Returns with nrOut in GENERAL. Leaves videoReader positioned after the frame.
-    void evaluateFrame(std::int64_t frameIndex);
+    /// Lazy FG feature creation; recreates when the multiplier changes.
+    void ensureFgCreated(int multiplier);
+
+    /// Decode color (+ guidance when needed) and evaluate DLSSNR when enabled.
+    /// Leaves the processed color in m_nrOut (enabled, GENERAL) or m_colorIn
+    /// (disabled, SHADER_READ). Updates m_lastFrame.
+    void evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance);
+
+    /// Evaluate DLSSFG on the processed color. Returns the (multiplier-1)
+    /// interpolated output handles in GENERAL — the caller writes/downloads
+    /// and releases them. m_displayNr holds the real frame (SHADER_READ).
+    std::vector<PooledTextureHandle> evaluateFg(std::int64_t frameIndex, bool reset,
+                                                const FgSettings& fg);
 
     VulkanContext* m_ctx = nullptr;
     NgxContext*    m_ngx = nullptr;
@@ -104,20 +145,26 @@ private:
     NrBufferReader m_buffer;
     bool           m_hasBuffer = false;  ///< guidance dir supplied at open
 
+    std::filesystem::path m_cameraConfigPath;
+    std::unique_ptr<DlssConfig> m_camConfig;  ///< per-frame camera data for FG
+    std::vector<std::string> m_camKeys;       ///< frame keys sorted numerically
+
     // Persistent per-session textures (same every frame — no pooling churn).
     TexturePool        m_pool;
-    PooledTextureHandle m_colorIn{};   ///< RGBA8, output res (NR input)
+    PooledTextureHandle m_colorIn{};   ///< RGBA8, output res (source color)
     PooledTextureHandle m_mvTex{};     ///< RG16F, render res (guidance)
     PooledTextureHandle m_depthTex{};  ///< R32F,  render res (guidance)
     PooledTextureHandle m_nrOut{};     ///< RGBA8, output res (NR output)
-    PooledTextureHandle m_displayNr{}; ///< rgb10_a2, output res (prores path)
+    PooledTextureHandle m_displayNr{}; ///< rgb10_a2, output res (prores pack / FG backbuffer)
 
     std::unique_ptr<DlssNrPass>  m_nrPass;
+    std::unique_ptr<DlssFgPass>  m_fgPass;
+    int m_fgMultiplier = 0;             ///< multiplier m_fgPass was created with
     std::unique_ptr<NrFormatPass> m_nrUnpack;      ///< rgba8 → rgb10_a2
     std::unique_ptr<ProresConvertPass> m_proresConvert;
 
     VkCommandPool m_cmdPool = VK_NULL_HANDLE;
-    std::int64_t  m_lastFrame = -1;  ///< DLSSNR temporal continuity tracking
+    std::int64_t  m_lastFrame = -1;  ///< NR/FG temporal continuity tracking
 };
 
 } // namespace dlss

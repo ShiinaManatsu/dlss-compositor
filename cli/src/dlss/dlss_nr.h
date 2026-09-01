@@ -78,6 +78,7 @@ enum class NrGuidanceMode : int {
 /// depthInferenceInterval, which has no NGX parameter — it only drives
 /// Magpie's zero-filled guidance interop).
 struct NrSettings {
+    bool           enabled            = true;
     NrStyle        style              = NrStyle::Default;
     float          intensity          = 1.0f;
     float          localToneStrength  = 1.0f;

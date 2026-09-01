@@ -2,6 +2,8 @@
 
 #include "nr_tool_session.h"
 
+#include "fg_camera.h"
+
 #include "../core/log.h"
 #include "../io/async_writer.h"
 #include "../io/prores_writer.h"
@@ -10,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -86,11 +89,94 @@ std::vector<std::uint8_t> loadPng16AsRgba8(const std::filesystem::path& p,
     return rgba8;
 }
 
+float halfToFloat(std::uint16_t h) {
+    const std::uint32_t sign = (h & 0x8000u) << 16;
+    const std::uint32_t exp  = (h & 0x7C00u) >> 10;
+    const std::uint32_t man  = h & 0x03FFu;
+    std::uint32_t bits;
+    if (exp == 0) {
+        if (man == 0) {
+            bits = sign;
+        } else {
+            int e = -1;
+            std::uint32_t m = man;
+            do { ++e; m <<= 1; } while ((m & 0x0400u) == 0);
+            bits = sign | (static_cast<std::uint32_t>(127 - 15 - e) << 23) | ((m & 0x03FFu) << 13);
+        }
+    } else if (exp == 31) {
+        bits = sign | 0x7F800000u | (man << 13);
+    } else {
+        bits = sign | ((exp - 15 + 127) << 23) | (man << 13);
+    }
+    float f = 0.0f;
+    std::memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+/// A2B10 download bytes (rgba16f, 4×half per pixel) → RGBA8 for JPEG/PNG paths.
+std::vector<std::uint8_t> rgba16fBytesToRgba8(const std::vector<std::uint8_t>& f16,
+                                              std::size_t pixelCount) {
+    if (f16.size() < pixelCount * 8) {
+        throw std::runtime_error("NrTool: FG readback short read (" +
+                                 std::to_string(f16.size()) + " bytes)");
+    }
+    std::vector<std::uint8_t> rgba8(pixelCount * 4, 255);
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        for (int c = 0; c < 3; ++c) {
+            const std::uint16_t h = static_cast<std::uint16_t>(
+                f16[i * 8 + static_cast<std::size_t>(c) * 2]) |
+                (static_cast<std::uint16_t>(f16[i * 8 + static_cast<std::size_t>(c) * 2 + 1]) << 8);
+            const float v = std::clamp(halfToFloat(h), 0.0f, 1.0f);
+            rgba8[i * 4 + static_cast<std::size_t>(c)] =
+                static_cast<std::uint8_t>(v * 255.0f + 0.5f);
+        }
+    }
+    return rgba8;
+}
+
+void barrierUndefinedToGeneral(VkCommandBuffer cmd, const PooledTextureHandle& tex) {
+    VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
+    b.srcAccessMask = VK_ACCESS_2_NONE;
+    b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    b.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    b.oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout     = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = tex->image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
+/// GENERAL (compute storage write) → SHADER_READ (sampled read).
+void barrierGeneralToShaderRead(VkCommandBuffer cmd, const PooledTextureHandle& tex) {
+    VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    b.oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+    b.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = tex->image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 } // namespace
 
 NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
                              std::filesystem::path colorSource,
-                             std::filesystem::path bufferDir)
+                             std::filesystem::path bufferDir,
+                             std::filesystem::path cameraConfig)
     : m_ctx(ctx), m_ngx(ngx), m_pool(ctx) {
     if (!ctx || !ngx) throw std::invalid_argument("NrToolSession: GPU contexts must not be null");
 
@@ -123,7 +209,7 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
     m_info.colorSource = colorSource.string();
 
     // ── Guidance: dlssnrbuffer sequence (optional — no buffer means the
-    //    ForceZero blind filter only; enforced in evaluateFrame) ───────────────
+    //    ForceZero blind filter only; enforced in evaluateFrame/evaluateFg) ────
     m_hasBuffer = !bufferDir.empty();
     if (m_hasBuffer) {
         m_buffer.open(bufferDir);
@@ -131,6 +217,29 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
         m_info.bufferHeight = m_buffer.height();
     }
     m_info.bufferDir = bufferDir.string();
+
+    // ── Camera data (dlssconfig.json): required by FG, ignored by NR-only ─────
+    if (!cameraConfig.empty()) {
+        auto loaded = DlssConfigLoader::Load(cameraConfig);
+        if (!loaded) {
+            throw std::runtime_error("NrTool: cannot load dlssconfig " + cameraConfig.string() +
+                                     ": " + loaded.error().message);
+        }
+        m_camConfig = std::make_unique<DlssConfig>(std::move(loaded.value()));
+        m_camKeys.reserve(m_camConfig->frames.size());
+        for (const auto& [key, cam] : m_camConfig->frames) {
+            (void)cam;
+            m_camKeys.push_back(key);
+        }
+        std::sort(m_camKeys.begin(), m_camKeys.end(), [](const std::string& a, const std::string& b) {
+            try {
+                return std::stoi(a) < std::stoi(b);
+            } catch (...) {
+                return a < b;
+            }
+        });
+    }
+    m_info.cameraConfig = cameraConfig.string();
 
     if (m_info.frames == 0) {
         throw std::runtime_error("NrTool: color source frame count unknown");
@@ -141,11 +250,18 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
             ", dlssnrbuffer has " + std::to_string(m_buffer.frames()) +
             ". Re-export the buffer with the same frame range.");
     }
+    if (m_camConfig && m_camKeys.size() != m_info.frames) {
+        throw std::runtime_error(
+            "NrTool: frame count mismatch — color has " + std::to_string(m_info.frames) +
+            ", dlssconfig has " + std::to_string(m_camKeys.size()) +
+            " camera frames. Re-export with the same frame range.");
+    }
 }
 
 NrToolSession::~NrToolSession() {
     LOG_INFO("[NrTool] session teardown begin");
-    m_nrPass.reset();       // feature 18 shutdown first (snippet still loaded)
+    m_fgPass.reset();       // FG feature shutdown first
+    m_nrPass.reset();       // feature 18 shutdown (snippet still loaded)
     m_nrUnpack.reset();
     m_proresConvert.reset();
     if (m_cmdPool != VK_NULL_HANDLE) {
@@ -189,14 +305,26 @@ void NrToolSession::ensureCreated() {
              m_info.bufferWidth, m_info.bufferHeight);
 }
 
-void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
+void NrToolSession::ensureFgCreated(int multiplier) {
+    if (m_fgPass && m_fgMultiplier == multiplier) return;
+    if (m_fgPass) {
+        m_fgPass.reset();
+        m_fgMultiplier = 0;
+    }
+    m_fgPass = std::make_unique<DlssFgPass>(m_ngx, m_ctx, &m_pool);
+    m_fgPass->create(m_info.width, m_info.height, m_info.width, m_info.height, multiplier);
+    m_fgMultiplier = multiplier;
+    LOG_INFO("[NrTool] FG feature created ({}x)", multiplier);
+}
+
+void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance) {
     ensureCreated();
-    if (!m_hasBuffer && m_settings.guidanceMode != NrGuidanceMode::ForceZero) {
+    if (nrEnabled && !m_hasBuffer && m_settings.guidanceMode != NrGuidanceMode::ForceZero) {
         throw std::runtime_error(
             "NrTool: guidance needs a dlssnrbuffer session — reopen with buffer_dir "
             "or set guidance mode to 无");
     }
-    LOG_DEBUG("[NrTool] eval frame {} begin", frameIndex);
+    LOG_DEBUG("[NrTool] eval frame {} begin (nr={} guide={})", frameIndex, nrEnabled, needGuidance);
 
     // ── Decode color ──────────────────────────────────────────────────────────
     std::vector<std::uint8_t> colorRgba8;
@@ -209,12 +337,12 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
 
     // ── Upload (NGX contract: inputs SHADER_READ) ─────────────────────────────
     UploadBatch batch(m_ctx);
-    batch.addUpload(m_colorIn,  colorRgba8.data(), colorRgba8.size());
+    batch.addUpload(m_colorIn, colorRgba8.data(), colorRgba8.size());
 
     // ── Decode guidance ───────────────────────────────────────────────────────
     std::vector<std::uint8_t> mvBytes;
     std::vector<float>        depth;
-    if (m_hasBuffer) {
+    if (m_hasBuffer && needGuidance) {
         m_buffer.readFrame(static_cast<std::size_t>(frameIndex), mvBytes, depth);
         batch.addUpload(m_mvTex,    mvBytes.data(),    mvBytes.size());
         batch.addUpload(m_depthTex, depth.data(),      depth.size() * sizeof(float));
@@ -222,70 +350,172 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex) {
     batch.submit();
 
     // ── Evaluate ──────────────────────────────────────────────────────────────
-    const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
+    if (nrEnabled) {
+        const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
 
-    VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(m_cmdPool);
-    // Output layout: UNDEFINED→GENERAL each eval (legal discard; pipeline parity).
-    VkImageMemoryBarrier2 ob{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    ob.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-    ob.srcAccessMask = VK_ACCESS_2_NONE;
-    ob.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    ob.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    ob.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    ob.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    ob.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    ob.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    ob.image = m_nrOut->image;
-    ob.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    {
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &ob;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    }
+        VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(m_cmdPool);
+        // Output layout: UNDEFINED→GENERAL each eval (legal discard; pipeline parity).
+        VkImageMemoryBarrier2 ob{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        ob.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+        ob.srcAccessMask = VK_ACCESS_2_NONE;
+        ob.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        ob.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        ob.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ob.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        ob.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ob.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        ob.image = m_nrOut->image;
+        ob.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        {
+            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &ob;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        }
 
-    NrInputs in{};
-    in.colorView    = m_colorIn->view;
-    in.colorImage   = m_colorIn->image;
-    in.outputView   = m_nrOut->view;
-    in.outputImage  = m_nrOut->image;
-    if (m_hasBuffer) {
-        in.mvView       = m_mvTex->view;
-        in.mvImage      = m_mvTex->image;
-        in.depthView    = m_depthTex->view;
-        in.depthImage   = m_depthTex->image;
-        in.renderWidth  = m_info.bufferWidth;
-        in.renderHeight = m_info.bufferHeight;
+        NrInputs in{};
+        in.colorView    = m_colorIn->view;
+        in.colorImage   = m_colorIn->image;
+        in.outputView   = m_nrOut->view;
+        in.outputImage  = m_nrOut->image;
+        if (m_hasBuffer) {
+            in.mvView       = m_mvTex->view;
+            in.mvImage      = m_mvTex->image;
+            in.depthView    = m_depthTex->view;
+            in.depthImage   = m_depthTex->image;
+            in.renderWidth  = m_info.bufferWidth;
+            in.renderHeight = m_info.bufferHeight;
+        }
+        in.reset        = reset;
+        m_nrPass->updateSettings(m_settings);
+        m_nrPass->evaluate(cmd, in);
+        m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
+        // Pipeline parity: NGX eval may run on the snippet's own internal queue —
+        // drain the device before any readback (downloadImageRaw submits its own).
+        m_ctx->waitIdle();
+        LOG_DEBUG("[NrTool] eval frame {} done (reset={})", frameIndex, reset);
     }
-    in.reset        = reset;
-    m_nrPass->updateSettings(m_settings);
-    m_nrPass->evaluate(cmd, in);
-    m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
-    // Pipeline parity: NGX eval may run on the snippet's own internal queue —
-    // drain the device before any readback (downloadImageRaw submits its own).
-    m_ctx->waitIdle();
-    LOG_DEBUG("[NrTool] eval frame {} done (reset={})", frameIndex, reset);
 
     m_lastFrame = frameIndex;
 }
 
-NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, const NrSettings& settings) {
+std::vector<PooledTextureHandle> NrToolSession::evaluateFg(std::int64_t frameIndex, bool reset,
+                                                           const FgSettings& fg) {
+    if (!m_hasBuffer) {
+        throw std::runtime_error(
+            "NrTool: FG 需要 dlssnrbuffer（MV/深度引导）— 开启 NR buffer 重新导出");
+    }
+    if (!m_camConfig) {
+        throw std::runtime_error(
+            "NrTool: FG 需要 dlssconfig.json（逐帧相机数据）— 缓冲目录缺失该文件");
+    }
+    if (static_cast<std::size_t>(frameIndex) >= m_camKeys.size()) {
+        throw std::runtime_error("NrTool: FG frame " + std::to_string(frameIndex) +
+                                 " beyond dlssconfig camera keys");
+    }
+    ensureFgCreated(fg.multiplier);
+
+    // Interpolated outputs (multiplier-1 per input), written GENERAL by FG.
+    const VkImageUsageFlags fgOutUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                       | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    const TextureDesc tdInterp{m_info.width, m_info.height,
+                               VK_FORMAT_A2B10G10R10_UNORM_PACK32, fgOutUsage};
+    std::vector<PooledTextureHandle> interps;
+    interps.reserve(static_cast<std::size_t>(fg.multiplier - 1));
+    for (int j = 0; j < fg.multiplier - 1; ++j) {
+        interps.push_back(m_pool.acquire(tdInterp));
+    }
+
+    // FG backbuffer = m_displayNr (A2B10G10R10): unpack the processed color into it.
+    const PooledTextureHandle& colorSrc = m_settings.enabled ? m_nrOut : m_colorIn;
+
+    VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(m_cmdPool);
+    if (m_settings.enabled) {
+        barrierGeneralToShaderRead(cmd, m_nrOut);  // unpack reads it sampled
+    }
+    m_nrUnpack->execute(cmd, colorSrc, m_displayNr);  // dst UNDEFINED→GENERAL inside
+    barrierGeneralToShaderRead(cmd, m_displayNr);     // FG backbuffer input
+    for (const auto& h : interps) {
+        barrierUndefinedToGeneral(cmd, h);
+    }
+
+    FgInputs in{};
+    in.backbufferDisplayReady = m_displayNr->view;
+    in.backbufferImage        = m_displayNr->image;
+    in.depthNdcRenderRes      = m_depthTex->view;
+    in.depthImage             = m_depthTex->image;
+    in.motionVecDlssRenderRes = m_mvTex->view;
+    in.motionVecImage         = m_mvTex->image;
+    in.outputInterp.reserve(interps.size());
+    in.outputInterpImages.reserve(interps.size());
+    for (const auto& h : interps) {
+        in.outputInterp.push_back(h->view);
+        in.outputInterpImages.push_back(h->image);
+    }
+    in.backbufferFormat  = m_displayNr->desc.format;
+    in.depthFormat       = m_depthTex->desc.format;
+    in.motionVecFormat   = m_mvTex->desc.format;
+    in.width             = m_info.width;
+    in.height            = m_info.height;
+    in.depthMotionWidth  = m_info.bufferWidth;
+    in.depthMotionHeight = m_info.bufferHeight;
+    in.is_hdr            = false;
+    in.reset             = reset;
+    in.multiplier        = fg.multiplier;
+
+    const CameraData& cam = m_camConfig->frames.at(m_camKeys[static_cast<std::size_t>(frameIndex)]);
+    const CameraData* prevCam = frameIndex > 0
+        ? &m_camConfig->frames.at(m_camKeys[static_cast<std::size_t>(frameIndex) - 1])
+        : nullptr;
+    fillFgCameraInputs(in, &cam, prevCam);
+    // DLSS FG §6: clip-space jitter, separate from unjittered matrices.
+    in.jitterClipX = -2.0f * cam.jitter.x / static_cast<float>(m_info.width);
+    in.jitterClipY = -2.0f * cam.jitter.y / static_cast<float>(m_info.height);
+
+    m_fgPass->evaluate(cmd, in);
+    m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
+    m_ctx->waitIdle();
+    LOG_DEBUG("[NrTool] FG frame {} done (reset={}, {}x)", frameIndex, reset, fg.multiplier);
+    return interps;
+}
+
+NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, const NrSettings& settings,
+                                                    const FgSettings& fg) {
     m_settings = settings;
-    // Same reset rule as evaluateFrame — captured before it updates m_lastFrame.
+    // Same reset rule as evaluateFrame/evaluateFg — captured before it updates m_lastFrame.
     const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
     const auto t0 = std::chrono::steady_clock::now();
 
-    evaluateFrame(frameIndex);
+    const bool needGuidance = settings.enabled || fg.enabled;
+    evaluateFrame(frameIndex, settings.enabled, needGuidance);
 
-    // Readback RGBA8 from nrOut (still GENERAL; restore keeps it GENERAL).
-    auto rgba8 = m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
-                                         VK_IMAGE_LAYOUT_GENERAL, /*restoreLayout=*/true);
+    // Readback the processed color BEFORE FG runs — evaluateFg re-layouts
+    // m_nrOut to SHADER_READ. NR out is GENERAL, the raw color SHADER_READ.
+    auto rgba8 = m_settings.enabled
+        ? m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
+                                  VK_IMAGE_LAYOUT_GENERAL, /*restoreLayout=*/true)
+        : m_ctx->downloadImageRaw(m_colorIn->image, m_info.width, m_info.height, 4,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, /*restoreLayout=*/true);
     auto jpeg = encodePreviewJpeg(m_info.width, m_info.height, rgba8, 80);
+
+    std::vector<PooledTextureHandle> interps;
+    if (fg.enabled) {
+        interps = evaluateFg(frameIndex, reset, fg);
+    }
 
     PreviewResult r;
     r.jpeg         = std::move(jpeg);
     r.width        = m_info.width;
     r.height       = m_info.height;
+    if (fg.enabled && !reset && !interps.empty()) {
+        // FG interp frames are A2B10 — convert via rgba16f bytes for JPEG.
+        const std::size_t px = static_cast<std::size_t>(m_info.width) * m_info.height;
+        auto f16 = m_ctx->downloadImageA2B10ToRgba16f(interps[0]->image, m_info.width,
+                                                      m_info.height, VK_IMAGE_LAYOUT_GENERAL);
+        r.interpJpeg = encodePreviewJpeg(m_info.width, m_info.height,
+                                         rgba16fBytesToRgba8(f16, px), 80);
+    }
+    for (auto& h : interps) m_pool.release(h);
     r.evalMs       = std::chrono::duration<double, std::milli>(
                          std::chrono::steady_clock::now() - t0).count();
     r.resetApplied = reset;
@@ -293,6 +523,7 @@ NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, con
 }
 
 void NrToolSession::exportTo(const NrSettings& settings,
+                             const FgSettings& fg,
                              OutputFormat format,
                              const std::filesystem::path& outputPath,
                              const std::filesystem::path& outputDir,
@@ -305,14 +536,23 @@ void NrToolSession::exportTo(const NrSettings& settings,
     if (!isVideo && format != OutputFormat::Png16) {
         throw std::runtime_error(
             "NrTool export: unsupported format — use prores_422hq, h265_hevc or png_16 "
-            "(EXR is scene-linear; NR needs the display-domain export)");
+            "(EXR is scene-linear; NR/FG need the display-domain export)");
     }
+    if (fg.enabled && (fg.multiplier < 2 || fg.multiplier > 6)) {
+        throw std::runtime_error("NrTool export: FG multiplier must be 2..6");
+    }
+
+    const uint32_t outTotal = outputFrameCount(fg);
+    const double srcFps = m_info.fps > 0 ? m_info.fps : 30.0;
+    const double outFps = fg.enabled ? srcFps * fg.multiplier : srcFps;
 
     // PNG16: write per-frame via OIIO (pixels are display-ready; plain 16-bit
     // upscale, no sRGB re-encode — mirrors the color-source read exactly).
-    auto writePng = [&](const std::vector<std::uint8_t>& rgba8, int frameIdx1Based) {
+    int pngIdx = 0;
+    auto writePng = [&](const std::vector<std::uint8_t>& rgba8) {
+        ++pngIdx;
         std::filesystem::path p = outputDir /
-            AsyncFrameWriter::formatPath(templateName, frameIdx1Based);
+            AsyncFrameWriter::formatPath(templateName, pngIdx);
         std::error_code ec;
         std::filesystem::create_directories(p.parent_path(), ec);
         std::vector<std::uint16_t> rgba16(static_cast<std::size_t>(m_info.width) * m_info.height * 4);
@@ -335,64 +575,90 @@ void NrToolSession::exportTo(const NrSettings& settings,
         out->close();
     };
 
+    // Display-ready writer for the FG path (A2B10 real + interp frames).
     std::unique_ptr<ProResProgressWriter> prores;
     if (isVideo) {
         prores = std::make_unique<ProResProgressWriter>(
             outputPath, m_info.width, m_info.height,
-            m_info.fps > 0 ? static_cast<int>(m_info.fps) : 30,
+            static_cast<int>(outFps),
             /*isHdr=*/false, PixelEncoding::DisplayReady,
             /*hdrMasteringNits=*/100.0f,
             /*queueHighWatermark=*/8, /*queueLowWatermark=*/4,
             /*encoderThreadCount=*/4,
-            static_cast<int>(m_info.frames),
+            static_cast<int>(outTotal),
             [&onProgress](int cur, int total) {
                 if (onProgress && total > 0) onProgress(static_cast<float>(cur) / total);
             },
             format == OutputFormat::H265Mp4 ? VideoCodec::H265Hevc : VideoCodec::ProRes422HQ,
             H265EncoderOptions{});
     }
+    auto writeDisplay = [&](const PooledTextureHandle& tex, VkImageLayout layout) {
+        if (isVideo) {
+            prores->enqueuePackedYuv422Frame(m_proresConvert->convertAndReadback(
+                tex, PixelEncoding::DisplayReady, /*hdr=*/false, layout));
+        } else {
+            const std::size_t px = static_cast<std::size_t>(m_info.width) * m_info.height;
+            auto f16 = m_ctx->downloadImageA2B10ToRgba16f(tex->image, m_info.width,
+                                                          m_info.height, layout);
+            writePng(rgba16fBytesToRgba8(f16, px));
+        }
+    };
+
+    uint32_t outIdx = 0;
+    auto tickProgress = [&]() {
+        ++outIdx;
+        if (onProgress && outTotal > 0) onProgress(static_cast<float>(outIdx) / outTotal);
+    };
 
     for (uint32_t i = 0; i < m_info.frames; ++i) {
         if (stop && stop->load(std::memory_order_acquire)) {
             throw std::runtime_error("NrTool export: cancelled");
         }
-        evaluateFrame(static_cast<std::int64_t>(i));
+        const std::int64_t frame = static_cast<std::int64_t>(i);
+        const bool reset = (m_lastFrame < 0) || (frame != m_lastFrame + 1);
+        const bool needGuidance = settings.enabled || fg.enabled;
+        evaluateFrame(frame, settings.enabled, needGuidance);
 
-        if (isVideo) {
-            // nrOut GENERAL → SHADER_READ → unpack → displayNr GENERAL → YUV pack.
+        if (fg.enabled) {
+            auto interps = evaluateFg(frame, reset, fg);
+            // Write A, generated(A->B), B — the first eval warms FG history.
+            if (i > 0) {
+                for (const auto& h : interps) {
+                    writeDisplay(h, VK_IMAGE_LAYOUT_GENERAL);
+                    tickProgress();
+                }
+            }
+            writeDisplay(m_displayNr, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            tickProgress();
+            for (auto& h : interps) m_pool.release(h);
+        } else if (isVideo) {
+            // colorSrc (SHADER_READ) → unpack → displayNr GENERAL → YUV pack.
+            const PooledTextureHandle& colorSrc = settings.enabled ? m_nrOut : m_colorIn;
             VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(m_cmdPool);
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-            b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-            b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image = m_nrOut->image;
-            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers = &b;
-            vkCmdPipelineBarrier2(cmd, &dep);
-            m_nrUnpack->execute(cmd, m_nrOut, m_displayNr);
+            if (settings.enabled) {
+                barrierGeneralToShaderRead(cmd, m_nrOut);
+            }
+            m_nrUnpack->execute(cmd, colorSrc, m_displayNr);
             m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
 
-            // Sampler reads displayNr in SHADER_READ; convertAndReadback leaves
+            // Sampler reads displayNr in GENERAL; convertAndReadback leaves
             // it layout-intact for the next iteration's UNDEFINED discard.
-            auto packed = m_proresConvert->convertAndReadback(
+            prores->enqueuePackedYuv422Frame(m_proresConvert->convertAndReadback(
                 m_displayNr, PixelEncoding::DisplayReady, /*hdr=*/false,
-                VK_IMAGE_LAYOUT_GENERAL);
-            prores->enqueuePackedYuv422Frame(std::move(packed));
+                VK_IMAGE_LAYOUT_GENERAL));
+            tickProgress();
         } else {
-            auto rgba8 = m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
-                                                 VK_IMAGE_LAYOUT_GENERAL, /*restoreLayout=*/true);
-            writePng(rgba8, static_cast<int>(i) + 1);
+            auto rgba8 = settings.enabled
+                ? m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
+                                          VK_IMAGE_LAYOUT_GENERAL, /*restoreLayout=*/true)
+                : m_ctx->downloadImageRaw(m_colorIn->image, m_info.width, m_info.height, 4,
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                          /*restoreLayout=*/true);
+            writePng(rgba8);
+            tickProgress();
         }
 
-        if (onProgress) onProgress(static_cast<float>(i + 1) / static_cast<float>(m_info.frames));
-        LOG_INFO("[NrTool] export frame {}/{}", i + 1, m_info.frames);
+        LOG_INFO("[NrTool] export output {}/{}", outIdx, outTotal);
     }
 
     if (prores) prores->close();

@@ -284,6 +284,7 @@ std::string b64Encode(const std::vector<uint8_t>& jpeg) {
 /// Shared nr_* tuning keys (same names as start_job).
 NrSettings RpcDispatcher::parseNrSettings(const nlohmann::json& p) {
     NrSettings s{};
+    s.enabled = p.value("nr_enabled", true);
     s.style = static_cast<NrStyle>(std::clamp(p.value("nr_style", 0), 0, 2));
     s.intensity = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
     s.localToneStrength = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
@@ -291,6 +292,13 @@ NrSettings RpcDispatcher::parseNrSettings(const nlohmann::json& p) {
     s.useAutoMask = p.value("nr_automask", false);
     s.guidanceMode = static_cast<NrGuidanceMode>(std::clamp(p.value("nr_guidance", 0), 0, 3));
     return s;
+}
+
+FgSettings RpcDispatcher::parseFgSettings(const nlohmann::json& p) {
+    FgSettings f{};
+    f.enabled = p.value("fg_enabled", false);
+    f.multiplier = std::clamp(p.value("fg_multiplier", 2), 2, 6);
+    return f;
 }
 
 nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
@@ -304,18 +312,23 @@ nlohmann::json RpcDispatcher::handleNrToolOpen(const nlohmann::json& p) {
     // buffer_dir is optional: without it the session only runs guidance mode
     // ForceZero (blind temporal filter); the session enforces that combination.
     const std::string buffer = p.value("buffer_dir", "");
+    // camera_config (dlssconfig.json) is optional: FG requires it, NR-only
+    // sessions don't. The export job copies it into the buffer dir.
+    const std::string cameraConfig = p.value("camera_config", "");
 
     if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
     m_nrExportRunning.store(false, std::memory_order_release);
     m_nrTool.reset();  // close any previous session
     m_nrTool = std::make_unique<NrToolSession>(m_ctx, m_ngx,
                                                std::filesystem::path(color),
-                                               std::filesystem::path(buffer));
+                                               std::filesystem::path(buffer),
+                                               std::filesystem::path(cameraConfig));
     const auto& i = m_nrTool->info();
     return {{"ok", true},
             {"color_source", i.colorSource},
             {"color_kind", i.colorKind},
             {"buffer_dir", i.bufferDir},
+            {"camera_config", i.cameraConfig},
             {"frames", i.frames},
             {"width", i.width},
             {"height", i.height},
@@ -335,7 +348,7 @@ nlohmann::json RpcDispatcher::handleNrToolPreview(const nlohmann::json& p) {
                                  " out of range (0.." +
                                  std::to_string(m_nrTool->info().frames - 1) + ")");
     }
-    auto r = m_nrTool->preview(frame, parseNrSettings(p));
+    auto r = m_nrTool->preview(frame, parseNrSettings(p), parseFgSettings(p));
     nlohmann::json resp{{"ok", true},
                         {"frame", frame},
                         {"width", r.width},
@@ -343,6 +356,7 @@ nlohmann::json RpcDispatcher::handleNrToolPreview(const nlohmann::json& p) {
                         {"eval_ms", r.evalMs},
                         {"reset_applied", r.resetApplied}};
     if (!r.jpeg.empty()) resp["jpeg_b64"] = b64Encode(r.jpeg);
+    if (!r.interpJpeg.empty()) resp["interp_jpeg_b64"] = b64Encode(r.interpJpeg);
     return resp;
 }
 
@@ -363,6 +377,7 @@ nlohmann::json RpcDispatcher::handleNrToolExport(const nlohmann::json& p) {
     const std::string outDirStr  = p.value("output_dir", "");
     const std::string tmpl       = p.value("output_template", std::string{"nr_####.png"});
     const NrSettings settings = parseNrSettings(p);
+    const FgSettings fg = parseFgSettings(p);
     m_nrExportStop.store(false, std::memory_order_release);
 
     // Validation on the RPC thread — fail before the worker starts.
@@ -377,17 +392,18 @@ nlohmann::json RpcDispatcher::handleNrToolExport(const nlohmann::json& p) {
     }
 
     auto* session = m_nrTool.get();
-    m_progress.total_frames.store(static_cast<int>(session->info().frames));
+    const int outTotal = static_cast<int>(session->outputFrameCount(fg));
+    m_progress.total_frames.store(outTotal);
     m_progress.current_frame.store(0);
     m_progress.percent.store(0.0f);
     m_progress.state.store(1);  // Running
 
     if (m_nrExportWorker.joinable()) m_nrExportWorker.join();
-    m_nrExportWorker = std::thread([this, session, settings, fmt,
+    m_nrExportWorker = std::thread([this, session, settings, fg, fmt,
                                     outPath = std::filesystem::path(outPathStr),
                                     outDir = std::filesystem::path(outDirStr), tmpl]() {
         try {
-            session->exportTo(settings, fmt, outPath, outDir, tmpl,
+            session->exportTo(settings, fg, fmt, outPath, outDir, tmpl,
                               [this](float prog) {
                                   m_progress.percent.store(prog);
                               },
@@ -407,7 +423,7 @@ nlohmann::json RpcDispatcher::handleNrToolExport(const nlohmann::json& p) {
         m_nrExportRunning.store(false, std::memory_order_release);
     });
 
-    return {{"ok", true}, {"started", true}, {"frames", session->info().frames}};
+    return {{"ok", true}, {"started", true}, {"frames", outTotal}};
 }
 
 nlohmann::json RpcDispatcher::handleNrToolClose(const nlohmann::json& /*p*/) {

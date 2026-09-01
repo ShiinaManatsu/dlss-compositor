@@ -153,6 +153,7 @@ private:
 
     /// Parse the shared nr_* tuning keys (start_job and nrtool_* alike).
     static NrSettings parseNrSettings(const nlohmann::json& p);
+    static FgSettings parseFgSettings(const nlohmann::json& p);
 
     // Last preview JPEG delivered by the pipeline callback (may be empty).
     std::mutex              m_previewMu;

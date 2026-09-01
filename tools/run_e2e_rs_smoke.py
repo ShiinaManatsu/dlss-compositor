@@ -243,21 +243,124 @@ def stage_c_sr(cli: Path, input_dir: Path, out_dir: Path) -> bool:
     return ok
 
 
+def stage_d_fgtool(cli: Path, input_dir: Path, rr_out: Path, fg_out: Path) -> bool:
+    """Stage D: NR/FG tool — FG consumes the Stage-A mov + buffer + dlssconfig.
+
+    Checks the FG session contract: reset on open/seek (no interp frame),
+    interp frame on sequential playback (2x), and 2N-1 PNG output frames —
+    all pixel-checked (mean/std) to fail loud on black output.
+    """
+    print("=== Stage D: NR/FG tool — FG over mov + buffer + dlssconfig ===")
+    log = fg_out / "cli.stderr.log"
+    config = input_dir / "dlssconfig.json"
+    if not config.exists():
+        seed_input(input_dir)  # A consumed the frames; D only needs the config
+    proc = spawn_cli(cli, log)
+    client = StdioRpcClient(proc)
+    ok = False
+    try:
+        info = client.request("nrtool_open", {
+            "color_source": str(rr_out / f"{VIDEO_BASE}.mov"),
+            "buffer_dir": str(rr_out / VIDEO_BASE),
+            "camera_config": str(config),
+        }, timeout=120.0)
+        frames = info.get("frames", 0)
+        print(f"  nrtool_open ok={info.get('ok')} frames={frames} "
+              f"{info.get('width')}x{info.get('height')} camera_config={info.get('camera_config')}")
+        if not info.get("ok") or frames != len(FRAME_NAMES):
+            print("  STAGE D: FAIL (open)")
+            return False
+
+        previews_ok = True
+        # Frame 0: reset warmup — real frame only, no interp.
+        prev0 = client.request("nrtool_preview", {
+            "frame": 0, "nr_guidance": 0, "fg_enabled": True, "fg_multiplier": 2,
+        }, timeout=120.0)
+        jpeg0 = prev0.get("jpeg_b64") or ""
+        m0 = jpeg_stats(jpeg0) if jpeg0 else (0, 0.0, 0.0)
+        print(f"  preview 0: reset={prev0.get('reset_applied')} interp={'yes' if prev0.get('interp_jpeg_b64') else 'no'} "
+              f"mean={m0[1]:.1f} std={m0[2]:.1f}")
+        previews_ok &= prev0.get("reset_applied") is True and not prev0.get("interp_jpeg_b64") and m0[1] > 10.0
+
+        # Frame 1 (sequential): interp frame must appear and be non-black.
+        prev1 = client.request("nrtool_preview", {
+            "frame": 1, "nr_guidance": 0, "fg_enabled": True, "fg_multiplier": 2,
+        }, timeout=120.0)
+        jpeg1 = prev1.get("jpeg_b64") or ""
+        interp1 = prev1.get("interp_jpeg_b64") or ""
+        m1 = jpeg_stats(jpeg1) if jpeg1 else (0, 0.0, 0.0)
+        mi = jpeg_stats(interp1) if interp1 else (0, 0.0, 0.0)
+        print(f"  preview 1: reset={prev1.get('reset_applied')} interp={'yes' if interp1 else 'no'} "
+              f"mean={m1[1]:.1f}/{mi[1]:.1f} std={m1[2]:.1f}/{mi[2]:.1f}")
+        previews_ok &= prev1.get("reset_applied") is False and bool(interp1) and mi[1] > 10.0 and mi[2] > 5.0
+
+        # Seek back to 0: FG history must reset again (no interp).
+        prev0b = client.request("nrtool_preview", {
+            "frame": 0, "nr_guidance": 0, "fg_enabled": True, "fg_multiplier": 2,
+        }, timeout=120.0)
+        print(f"  preview 0 (seek back): reset={prev0b.get('reset_applied')} "
+              f"interp={'yes' if prev0b.get('interp_jpeg_b64') else 'no'}")
+        previews_ok &= prev0b.get("reset_applied") is True and not prev0b.get("interp_jpeg_b64")
+
+        # PNG16 export: 2N-1 = 5 sequentially numbered frames.
+        client.request("nrtool_export", {
+            "output_format": "png_16",
+            "output_dir": str(fg_out),
+            "output_template": "fg_####.png",
+            "nr_guidance": 0, "fg_enabled": True, "fg_multiplier": 2,
+        }, timeout=30.0)
+        final = settle(client)
+        print(f"  final -> {json.dumps(final)[:200]}")
+        produced = sorted(fg_out.glob("fg_*.png"))
+        print(f"  fg pngs ({len(produced)}): {[p.name for p in produced]}")
+        exports_ok = final.get("state") == 2 and len(produced) == 2 * frames - 1
+        try:
+            from PIL import Image  # noqa: PLC0415
+            import numpy as np  # noqa: PLC0415
+
+            for png in produced:
+                arr = np.asarray(Image.open(png).convert("RGB"), dtype=np.float32)
+                if arr.mean() <= 1.0:
+                    print(f"  EXPORT IS BLACK: {png.name}")
+                    exports_ok = False
+        except ImportError:
+            print("  (Pillow/numpy unavailable — skipping export pixel check)")
+
+        # ProRes mux sanity at 2x rate.
+        client.request("nrtool_export", {
+            "output_format": "prores_422hq",
+            "output_path": str(fg_out / "e2e_fg_v1.mov"),
+            "nr_guidance": 0, "fg_enabled": True, "fg_multiplier": 2,
+        }, timeout=30.0)
+        final2 = settle(client)
+        mov_ok = final2.get("state") == 2 and (fg_out / "e2e_fg_v1.mov").exists()
+        print(f"  prores export: state={final2.get('state')} mov_exists={mov_ok}")
+
+        ok = previews_ok and exports_ok and mov_ok
+        for ln in log_tail(log, ("FG", "error")):
+            print(f"    {ln}")
+    finally:
+        shutdown(client, proc)
+    print(f"  STAGE D: {'OK' if ok else 'FAIL'}")
+    return ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, default=EXE)
     parser.add_argument("--input", type=Path, default=Path(r"R:\dlss"))
     parser.add_argument("--out-root", type=Path, default=Path(r"S:\e2e"))
-    parser.add_argument("--stages", default="abc", help="subset of a/b/c to run")
+    parser.add_argument("--stages", default="abc", help="subset of a/b/c/d to run")
     args = parser.parse_args()
 
     results: dict[str, bool] = {}
     rr_out = args.out_root / "rr-out"
     nr_out = args.out_root / "nr-out"
     sr_out = args.out_root / "sr-out"
+    fg_out = args.out_root / "fg-out"
 
     if "a" in args.stages:
-        for d in (rr_out, nr_out, sr_out):
+        for d in (rr_out, nr_out, sr_out, fg_out):
             d.mkdir(parents=True, exist_ok=True)
         seed_input(args.input)
         results["A_rr_nrbuffer"] = stage_a_rr_nrbuffer(args.cli, args.input, rr_out)
@@ -269,6 +372,15 @@ def main() -> int:
         # Stage A consumes (deletes) the input frames — reseed for C.
         seed_input(args.input)
         results["C_sr"] = stage_c_sr(args.cli, args.input, sr_out)
+    if "d" in args.stages:
+        fg_out.mkdir(parents=True, exist_ok=True)
+        # Stage D consumes Stage-A products (mov + buffer subfolder); run A first.
+        if not (rr_out / f"{VIDEO_BASE}.mov").exists():
+            for d in (rr_out,):
+                d.mkdir(parents=True, exist_ok=True)
+            seed_input(args.input)
+            results["A_rr_nrbuffer"] = stage_a_rr_nrbuffer(args.cli, args.input, rr_out)
+        results["D_fgtool"] = stage_d_fgtool(args.cli, args.input, rr_out, fg_out)
 
     print(json.dumps(results, indent=1))
     return 0 if results and all(results.values()) else 1
