@@ -25,7 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "pipeline"))
-from rpc_client import StdioRpcClient  # noqa: E402
+from rpc_client import StdioRpcClient, RpcError  # noqa: E402
 
 EXE = ROOT / "build/x64-windows-msvc-release/Release/dlss-compositor-cli.exe"
 FRAMES_SRC = ROOT / "test-frames/rr"
@@ -126,7 +126,15 @@ def stage_a_rr_nrbuffer(cli: Path, input_dir: Path, out_dir: Path) -> bool:
             "overwrite_mode": "overwrite",
         }, timeout=120.0)
         time.sleep(2.0)
-        preview = client.request("preview_frame", timeout=30.0)
+        preview: dict = {}
+        for _ in range(10):  # first watch frame can take a while at 4K
+            try:
+                preview = client.request("preview_frame", timeout=30.0)
+            except RpcError:
+                preview = {}
+            if preview.get("ok"):
+                break
+            time.sleep(1.0)
         jpeg = preview.get("jpeg_b64") or ""
         print(f"  preview_frame ok={preview.get('ok')} jpeg_bytes={len(jpeg) * 3 // 4}")
         final = settle(client)
@@ -252,9 +260,13 @@ def stage_d_fgtool(cli: Path, input_dir: Path, rr_out: Path, fg_out: Path) -> bo
     """
     print("=== Stage D: NR/FG tool — FG over mov + buffer + dlssconfig ===")
     log = fg_out / "cli.stderr.log"
-    config = input_dir / "dlssconfig.json"
-    if not config.exists():
-        seed_input(input_dir)  # A consumed the frames; D only needs the config
+    # Trimmed 3-frame camera config written into fg_out — never touch the
+    # user's real dlssconfig in the input dir.
+    config = fg_out / "dlssconfig.json"
+    cfg = json.loads((FRAMES_SRC / "dlssconfig.json").read_text(encoding="utf-8"))
+    keep = {n.split(".")[0] for n in FRAME_NAMES}
+    cfg["frames"] = {k: v for k, v in cfg["frames"].items() if k in keep}
+    config.write_text(json.dumps(cfg), encoding="utf-8")
     proc = spawn_cli(cli, log)
     client = StdioRpcClient(proc)
     ok = False
@@ -348,7 +360,8 @@ def stage_d_fgtool(cli: Path, input_dir: Path, rr_out: Path, fg_out: Path) -> bo
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, default=EXE)
-    parser.add_argument("--input", type=Path, default=Path(r"R:\dlss"))
+    parser.add_argument("--input", type=Path, default=Path(r"S:\e2e\in"),
+                        help="watch input dir (disposable; never point at a real export ramDir)")
     parser.add_argument("--out-root", type=Path, default=Path(r"S:\e2e"))
     parser.add_argument("--stages", default="abc", help="subset of a/b/c/d to run")
     args = parser.parse_args()
@@ -362,6 +375,9 @@ def main() -> int:
     if "a" in args.stages:
         for d in (rr_out, nr_out, sr_out, fg_out):
             d.mkdir(parents=True, exist_ok=True)
+        # Test EXRs are full-res, so Stage A/D run buffer-res == color-res;
+        # the mismatched shape (2572x1447 buffer vs 4K color) is covered by
+        # real exports, not reproducible by config edits alone.
         seed_input(args.input)
         results["A_rr_nrbuffer"] = stage_a_rr_nrbuffer(args.cli, args.input, rr_out)
     if "b" in args.stages:
@@ -374,8 +390,11 @@ def main() -> int:
         results["C_sr"] = stage_c_sr(args.cli, args.input, sr_out)
     if "d" in args.stages:
         fg_out.mkdir(parents=True, exist_ok=True)
-        # Stage D consumes Stage-A products (mov + buffer subfolder); run A first.
-        if not (rr_out / f"{VIDEO_BASE}.mov").exists():
+        # Stage D consumes Stage-A products (mov + buffer subfolder); run A
+        # first if either is missing (a failed A can leave a header-only mov).
+        have_products = ((rr_out / f"{VIDEO_BASE}.mov").exists()
+                         and any((rr_out / VIDEO_BASE).glob("dlssnrbuffer_*.exr")))
+        if not have_products:
             for d in (rr_out,):
                 d.mkdir(parents=True, exist_ok=True)
             seed_input(args.input)

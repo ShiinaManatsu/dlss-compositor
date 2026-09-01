@@ -311,10 +311,17 @@ void NrToolSession::ensureFgCreated(int multiplier) {
         m_fgPass.reset();
         m_fgMultiplier = 0;
     }
+    // Pipeline parity (sr_fg_pipeline): internal/render dims = the MV/depth
+    // resolution, output dims = the backbuffer (color) resolution. Declaring
+    // internal = color res while the MV subrect is render res makes FG
+    // misinterpret MV scale — interpolation degrades to a cross-fade.
     m_fgPass = std::make_unique<DlssFgPass>(m_ngx, m_ctx, &m_pool);
-    m_fgPass->create(m_info.width, m_info.height, m_info.width, m_info.height, multiplier);
+    m_fgPass->create(m_info.bufferWidth, m_info.bufferHeight,
+                     m_info.width, m_info.height, multiplier);
     m_fgMultiplier = multiplier;
-    LOG_INFO("[NrTool] FG feature created ({}x)", multiplier);
+    LOG_INFO("[NrTool] FG feature created ({}x{} -> {}x{}, {}x)",
+             m_info.bufferWidth, m_info.bufferHeight,
+             m_info.width, m_info.height, multiplier);
 }
 
 void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance) {
@@ -469,8 +476,10 @@ std::vector<PooledTextureHandle> NrToolSession::evaluateFg(std::int64_t frameInd
         : nullptr;
     fillFgCameraInputs(in, &cam, prevCam);
     // DLSS FG §6: clip-space jitter, separate from unjittered matrices.
-    in.jitterClipX = -2.0f * cam.jitter.x / static_cast<float>(m_info.width);
-    in.jitterClipY = -2.0f * cam.jitter.y / static_cast<float>(m_info.height);
+    // Blender jitter is in render-res pixel units — normalize by the buffer
+    // (render) dims, same as sr_fg_pipeline's /rW.
+    in.jitterClipX = -2.0f * cam.jitter.x / static_cast<float>(m_info.bufferWidth);
+    in.jitterClipY = -2.0f * cam.jitter.y / static_cast<float>(m_info.bufferHeight);
 
     m_fgPass->evaluate(cmd, in);
     m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
