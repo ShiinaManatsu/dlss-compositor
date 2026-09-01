@@ -31,10 +31,20 @@ const targets = [
 let seeded = 0;
 for (const dir of targets) {
   if (!existsSync(path.join(dir, 'dlss-compositor-cli.exe'))) continue;
-  copyFileSync(src, path.join(dir, 'nvngx_dlssnr.dll'));
-  console.log(`seed-nr: ${dir}`);
-  seeded++;
+  try {
+    copyFileSync(src, path.join(dir, 'nvngx_dlssnr.dll'));
+    console.log(`seed-nr: ${dir}`);
+    seeded++;
+  } catch (err) {
+    // A running app with an open NR session keeps the DLL loaded/locked —
+    // warn and continue, seeding can happen after the app closes.
+    console.warn(`seed-nr: FAILED ${dir}: ${err?.message ?? err}`);
+  }
 }
-copyFileSync(src, path.join(appDir, 'release', 'nvngx_dlssnr.dll'));
-console.log(`seed-nr: ${path.join(appDir, 'release', 'nvngx_dlssnr.dll')}（供安装器 $EXEDIR 拾取）`);
+try {
+  copyFileSync(src, path.join(appDir, 'release', 'nvngx_dlssnr.dll'));
+  console.log(`seed-nr: ${path.join(appDir, 'release', 'nvngx_dlssnr.dll')}（供安装器 $EXEDIR 拾取）`);
+} catch (err) {
+  console.warn(`seed-nr: FAILED release copy: ${err?.message ?? err}`);
+}
 if (seeded === 0) console.log('seed-nr: 没找到可播种的 CLI 目录（先跑 dist）');
