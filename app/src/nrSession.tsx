@@ -16,8 +16,8 @@ function loadPaths(): StoredPaths {
 }
 
 /**
- * NR 工具的会话核心：路径、打开的会话、导出状态。放在页面外的 context，
- * 因为「打开」按钮按 Spectrum 的页面主操作约定放在标题栏（App.tsx），
+ * NR/FG 工具的会话核心：路径、打开的会话、导出状态。放在页面外的 context，
+ * 因为导出/停止按钮按 Spectrum 的页面主操作约定放在标题栏（App.tsx），
  * 而预览泵、调参、导出表单仍留在 NrToolPage。
  */
 type NrSessionStore = {
@@ -32,8 +32,12 @@ type NrSessionStore = {
   setMessage: (value: string) => void;
   setError: (value: string | null) => void;
   openSession: () => Promise<void>;
-  /** 离开页面时释放 CLI 侧的 NR 会话（feature + 显存纹理）。 */
+  /** 离开页面时释放 CLI 侧的 NR/FG 会话（feature + 显存纹理）。 */
   closeSession: () => void;
+  stopExport: () => Promise<void>;
+  /** 标题栏「导出」按钮触发页面里组装好参数的 startExport。 */
+  exportTrigger: (() => void) | null;
+  setExportTrigger: (fn: (() => void) | null) => void;
 };
 
 const NrSessionContext = createContext<NrSessionStore | null>(null);
@@ -44,8 +48,9 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
   const [opening, setOpening] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportPercent, setExportPercent] = useState(0);
-  const [message, setMessage] = useState('打开已导出的视频或序列帧 + dlssnrbuffer，预览调整 NR');
+  const [message, setMessage] = useState('选择色彩源后自动打开会话，预览调整 NR / FG');
   const [error, setError] = useState(null as string | null);
+  const [exportTrigger, setExportTrigger] = useState<(() => void) | null>(null);
 
   // Persist paths so re-entering the tool restores the workspace.
   useEffect(() => {
@@ -56,7 +61,7 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     }
   }, [paths]);
 
-  // NR export progress arrives over the shared orchestrator event channel.
+  // NR/FG export progress arrives over the shared orchestrator event channel.
   useEffect(
     () =>
       window.dlss.onEvent((event) => {
@@ -65,13 +70,13 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
         } else if (event.type === 'nrtool_export_done') {
           setExporting(false);
           setExportPercent(100);
-          setMessage('NR 导出完成');
+          setMessage('导出完成');
         } else if (event.type === 'nrtool_export_stopped') {
           setExporting(false);
           setMessage('已停止');
         } else if (event.type === 'nrtool_export_error') {
           setExporting(false);
-          setError(userErrorMessage(String(event.message ?? 'NR 导出失败')));
+          setError(userErrorMessage(String(event.message ?? '导出失败')));
         }
       }),
     []
@@ -86,11 +91,21 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     setError(null);
     setInfo(null);
     try {
-      const params: {color_source: string; buffer_dir?: string} = {
+      const params: {color_source: string; buffer_dir?: string; camera_config?: string} = {
         color_source: paths.colorSource.trim()
       };
-      // 无 buffer 也能开：仅引导模式「无」可用（CLI 侧同样强制）。
-      if (paths.bufferDir.trim()) params.buffer_dir = paths.bufferDir.trim();
+      // 无 buffer 也能开：仅引导模式「无」+ FG 不可用（CLI 侧同样强制）。
+      const bufferDir = paths.bufferDir.trim();
+      if (bufferDir) {
+        params.buffer_dir = bufferDir;
+        // FG 的逐帧相机数据由导出任务拷进缓冲目录；存在才带上。
+        const cfgPath = `${bufferDir.replace(/[\\/]+$/, '')}\\dlssconfig.json`;
+        try {
+          if (await window.dlss.exists(cfgPath)) params.camera_config = cfgPath;
+        } catch {
+          /* probe failure → omit; FG errors loud at eval time */
+        }
+      }
       const result = await window.dlss.nrOpen(params);
       if (!result.ok) {
         setError(userErrorMessage(result.error ?? '打开失败'));
@@ -100,7 +115,7 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       setMessage(
         `${result.frames} 帧 · ${result.width}×${result.height} · ${
           result.color_kind === 'video' ? '视频' : 'PNG 序列'
-        }`
+        }${result.buffer_width > 0 ? ' · 有引导缓冲' : ''}`
       );
     } catch (err) {
       setError(userErrorMessage(err instanceof Error ? err.message : '打开失败'));
@@ -113,6 +128,14 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     void window.dlss.nrClose();
     setInfo(null);
     setExporting(false);
+  }, []);
+
+  const stopExport = useCallback(async () => {
+    try {
+      await window.dlss.nrStop();
+    } catch (err) {
+      setError(userErrorMessage(err instanceof Error ? err.message : '停止失败'));
+    }
   }, []);
 
   const value = useMemo(
@@ -128,9 +151,24 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       setMessage,
       setError,
       openSession,
-      closeSession
+      closeSession,
+      stopExport,
+      exportTrigger,
+      setExportTrigger
     }),
-    [paths, info, opening, exporting, exportPercent, message, error, openSession, closeSession]
+    [
+      paths,
+      info,
+      opening,
+      exporting,
+      exportPercent,
+      message,
+      error,
+      openSession,
+      closeSession,
+      stopExport,
+      exportTrigger
+    ]
   );
 
   return <NrSessionContext.Provider value={value}>{children}</NrSessionContext.Provider>;

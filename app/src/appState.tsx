@@ -56,7 +56,7 @@ export const ROUTE_LABELS: Record<Route, string> = {
   project: '项目',
   export: '导出',
   jobs: 'Jobs',
-  nrtool: 'NR 工具',
+  nrtool: 'NR / FG',
   settings: '设置'
 };
 

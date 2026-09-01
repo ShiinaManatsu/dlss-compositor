@@ -122,6 +122,7 @@ type NrToolInfo = {
   color_source: string;
   color_kind: 'video' | 'png_sequence';
   buffer_dir: string;
+  camera_config: string;
   frames: number;
   width: number;
   height: number;
@@ -139,6 +140,7 @@ type NrPreviewResult = {
   eval_ms: number;
   reset_applied: boolean;
   jpeg_b64?: string;
+  interp_jpeg_b64?: string;
   error?: string;
 };
 
@@ -147,7 +149,7 @@ interface DlssApi {
   inspect: (blend: string) => Promise<{ok: boolean; scene?: SceneState; error?: string}>;
   start: (req: ExportRequest) => Promise<{ok: boolean; error?: string}>;
   stop: () => Promise<{ok: boolean; unmounted: false}>;
-  nrOpen: (params: {color_source: string; buffer_dir?: string}) => Promise<NrToolInfo>;
+  nrOpen: (params: {color_source: string; buffer_dir?: string; camera_config?: string}) => Promise<NrToolInfo>;
   nrPreview: (frame: number, settings: Record<string, unknown>) => Promise<NrPreviewResult>;
   nrExport: (params: Record<string, unknown>) => Promise<{ok: boolean; started?: boolean; frames?: number; error?: string}>;
   nrClose: () => Promise<{ok: boolean; error?: string}>;

@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActionButton,
-  Button,
   Divider,
   Disclosure,
   DisclosurePanel,
@@ -19,29 +18,34 @@ import {
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Pause from '@react-spectrum/s2/icons/Pause';
 import Play from '@react-spectrum/s2/icons/Play';
-import StopProcessing from '@react-spectrum/s2/icons/StopProcessing';
 import {useNrSession} from '../nrSession';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
 
-const SETTINGS_KEY = 'dc-nr-settings';
+const SETTINGS_KEY = 'dc-nrfg-settings';
 
 type StoredSettings = {
+  nrEnabled: boolean;
   style: number;
   intensity: number;
   localTone: number;
   localStructure: number;
   automask: boolean;
   guidance: number;
+  fgEnabled: boolean;
+  fgMultiplier: number;
 };
 
 const DEFAULT_SETTINGS: StoredSettings = {
-  style: 2,
+  nrEnabled: true,
+  style: 0,
   intensity: 1.0,
   localTone: 1.0,
-  localStructure: 0.45,
+  localStructure: 1.0,
   automask: false,
   guidance: 0,
+  fgEnabled: true,
+  fgMultiplier: 2,
 };
 
 function loadSettings(): StoredSettings {
@@ -54,25 +58,16 @@ function loadSettings(): StoredSettings {
   }
 }
 
-/** Turn a color source path into a sibling `<stem>_nr.mov` suggestion. */
-function suggestVideoOut(source: string): string {
-  const norm = source.replace(/\\/g, '/').replace(/\/+$/, '');
-  const isFile = /\.[a-z0-9]+$/i.test(norm);
-  const dir = isFile ? norm.slice(0, norm.lastIndexOf('/')) : norm;
-  const stem = isFile
-    ? norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
-    : norm.split('/').filter(Boolean).pop() || 'nr';
-  return `${dir}/${stem}_nr.mov`;
-}
-
-/** Suggest the dlssnrbuffer folder for a picked video: exports now write the
- * guidance sequence into `<video dir>/<video name>/` (no extension). */
+/** Suggest the guidance folder for a picked color source:
+ * `<video dir>/<video stem>_dlssbuffer`. For a picked sequence first frame
+ * (`…/name_0001.png`) the trailing frame number is stripped from the stem. */
 function suggestBufferDir(source: string): string {
   const norm = source.replace(/\\/g, '/');
-  if (!/\.[a-z0-9]+$/i.test(norm)) return '';
-  const dir = norm.slice(0, norm.lastIndexOf('/'));
-  const stem = norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
-  return `${dir}/${stem}`;
+  const dir = norm.includes('/') ? norm.slice(0, norm.lastIndexOf('/')) : '';
+  let stem = norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+  stem = stem.replace(/\d+$/, '');
+  if (!dir || !stem) return '';
+  return `${dir}/${stem}_dlssbuffer`;
 }
 
 function SettingsSection({
@@ -101,14 +96,14 @@ function SettingsSection({
 
 export function NrToolPage() {
   const nr = useNrSession();
-  const {paths, info, opening, exporting, exportPercent, setError} = nr;
+  const {paths, setPaths, info, opening, exporting, exportPercent, setError} = nr;
 
   // ── viewport / timeline ────────────────────────────────────────────────────
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [evalMs, setEvalMs] = useState(0);
 
-  // ── NR settings ────────────────────────────────────────────────────────────
+  // ── NR / FG settings ───────────────────────────────────────────────────────
   const [settings, setSettings] = useState<StoredSettings>(loadSettings);
   const [nrFormat, setNrFormat] = useState('prores_422hq');
   const [outputPath, setOutputPath] = useState('');
@@ -131,12 +126,15 @@ export function NrToolPage() {
 
   const settingsParams = useCallback(
     (s: StoredSettings) => ({
+      nr_enabled: s.nrEnabled,
       nr_style: s.style,
       nr_intensity: s.intensity,
       nr_local_tone: s.localTone,
       nr_local_structure: s.localStructure,
       nr_automask: s.automask,
-      nr_guidance: s.guidance
+      nr_guidance: s.guidance,
+      fg_enabled: s.fgEnabled,
+      fg_multiplier: s.fgMultiplier
     }),
     []
   );
@@ -180,6 +178,11 @@ export function NrToolPage() {
         try {
           const r = await window.dlss.nrPreview(job.frame, job.settings);
           if (r.ok && r.jpeg_b64) {
+            // FG 只在播放时出插值帧：eval(N) 的插值位于 N-1 与 N 之间，
+            // 先画插值再画实帧即得到 2x 顺序播放；seek/暂停只显示实帧。
+            if (playingRef.current && r.interp_jpeg_b64) {
+              await drawJpeg(r.interp_jpeg_b64);
+            }
             await drawJpeg(r.jpeg_b64);
             setEvalMs(r.eval_ms);
           } else if (r.error) {
@@ -215,9 +218,9 @@ export function NrToolPage() {
     [pump, settingsParams]
   );
 
-  // Leaving the page releases the 4K NR session (feature + textures) in the CLI.
+  // Leaving the page releases the 4K NR/FG session (feature + textures) in the CLI.
   // closeSession is useCallback([])-stable in the store, so this is unmount-only.
-  const {closeSession} = nr;
+  const {closeSession, setExportTrigger} = nr;
   useEffect(
     () => () => {
       playingRef.current = false;
@@ -237,8 +240,27 @@ export function NrToolPage() {
     }
   }, [settings]);
 
-  // A fresh session (打开/重新打开): rewind, suggest the output video, kick the
-  // first preview.
+  // 选完色彩源（或改了 buffer 目录）→ 自动激活会话出预览。以「路径键」去重，
+  // 手动改路径同样触发；正在打开/导出时跳过，等状态变化后重新评估。
+  const openKey = `${paths.colorSource.trim()}|${paths.bufferDir.trim()}`;
+  const openedKeyRef = useRef<string | null>(null);
+  const {openSession} = nr;
+  useEffect(() => {
+    if (opening || exporting) return;
+    if (!paths.colorSource.trim()) {
+      openedKeyRef.current = openKey;
+      return;
+    }
+    if (openedKeyRef.current === openKey) return;
+    const handle = window.setTimeout(() => {
+      openedKeyRef.current = openKey;
+      void openSession();
+    }, 500);
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey, opening, exporting, openSession]);
+
+  // A fresh session: rewind, suggest the output video, kick the first preview.
   useEffect(() => {
     if (!info) return;
     playingRef.current = false;
@@ -267,13 +289,18 @@ export function NrToolPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsKey, requestPreview]);
 
-  // 引导数据来自 dlssnrbuffer：没给目录就只有「无」可选。
+  // 引导数据来自 dlssnrbuffer：没给目录就只有「无」可选，FG 无 MV 不可用。
   const hasBuffer = Boolean(paths.bufferDir.trim());
   useEffect(() => {
     if (!hasBuffer && settings.guidance !== 1) {
       setSettings((prev) => ({...prev, guidance: 1}));
     }
   }, [hasBuffer, settings.guidance]);
+  useEffect(() => {
+    if (!hasBuffer && settings.fgEnabled) {
+      setSettings((prev) => ({...prev, fgEnabled: false}));
+    }
+  }, [hasBuffer, settings.fgEnabled]);
 
   function scrub(next: number) {
     playingRef.current = false;
@@ -295,7 +322,7 @@ export function NrToolPage() {
     }
   }
 
-  async function startExport() {
+  function startExport() {
     const session = infoRef.current;
     if (!session) return;
     nr.setError(null);
@@ -314,84 +341,80 @@ export function NrToolPage() {
       }
       params.output_path = outputPath.trim();
     }
-    try {
-      const started = await window.dlss.nrExport(params);
-      if (!started.ok) {
-        nr.setError(userErrorMessage(started.error ?? '导出失败'));
-        return;
-      }
-      playingRef.current = false;
-      setPlaying(false);
-      nr.setMessage(`NR 导出中 · ${session.frames} 帧 · ${settingsRef.current.intensity.toFixed(2)}`);
-    } catch (err) {
-      nr.setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
-    }
+    void window.dlss
+      .nrExport(params)
+      .then((started) => {
+        if (!started.ok) {
+          nr.setError(userErrorMessage(started.error ?? '导出失败'));
+          return;
+        }
+        playingRef.current = false;
+        setPlaying(false);
+        const stages = [settings.nrEnabled ? 'NR' : null, settings.fgEnabled ? 'FG' : null]
+          .filter(Boolean)
+          .join('/');
+        nr.setMessage(`导出中 · ${started.frames ?? session.frames} 帧 · ${stages || '直通'}`);
+      })
+      .catch((err: unknown) => {
+        nr.setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
+      });
   }
 
-  async function stopExport() {
-    try {
-      await window.dlss.nrStop();
-    } catch (err) {
-      nr.setError(userErrorMessage(err instanceof Error ? err.message : '停止失败'));
-    }
-  }
+  // 标题栏「导出」按钮触发这里组装好参数的导出；离开页面时注销。
+  useEffect(() => {
+    setExportTrigger(startExport);
+    return () => setExportTrigger(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setExportTrigger, nrFormat, outputPath, outputDir, template, settingsKey]);
 
   const aspect = info ? `${info.width} / ${info.height}` : '16 / 9';
-  const exportLabel = exporting
-    ? `NR 导出中 ${exportPercent}%`
-    : exportPercent >= 100
-      ? 'NR 导出完成'
-      : null;
+  const fgConfigMissing = settings.fgEnabled && info != null && !info.camera_config;
+  const outFrames =
+    info && settings.fgEnabled
+      ? info.frames + (info.frames - 1) * (settings.fgMultiplier - 1)
+      : info?.frames ?? 0;
 
   return (
     <div className="export-body">
       <aside className="export-settings">
         <SettingsSection title="媒体" defaultExpanded>
           <TextField
-            label="色彩源（视频或 PNG 序列目录）"
+            label="色彩源（视频或 PNG 序列首帧）"
             size="S"
             value={paths.colorSource}
-            onChange={(next) => nr.setPaths((prev) => ({...prev, colorSource: next}))}
+            onChange={(next) => setPaths((prev) => ({...prev, colorSource: next}))}
             isDisabled={opening || exporting}
           />
-          <div className="row-2">
-            <ActionButton
-              size="S"
-              isDisabled={opening || exporting}
-              onPress={() => {
-                void window.dlss.chooseNrVideo().then((picked) => {
-                  if (picked) {
-                    // The buffer subfolder is named after the video — suggest it
-                    // alongside the color source.
-                    nr.setPaths((prev) => ({
-                      ...prev,
-                      colorSource: picked,
-                      bufferDir: suggestBufferDir(picked) || prev.bufferDir
-                    }));
-                  }
-                });
-              }}>
-              <FolderOpen />
-              <Text>选视频</Text>
-            </ActionButton>
-            <ActionButton
-              size="S"
-              isDisabled={opening || exporting}
-              onPress={() => {
-                void window.dlss.chooseDir('选择 PNG 序列目录').then((picked) => {
-                  if (picked) nr.setPaths((prev) => ({...prev, colorSource: picked}));
-                });
-              }}>
-              <FolderOpen />
-              <Text>选序列目录</Text>
-            </ActionButton>
-          </div>
+          <ActionButton
+            size="S"
+            isDisabled={opening || exporting}
+            onPress={() => {
+              void window.dlss.chooseNrVideo().then((picked) => {
+                if (picked) {
+                  // 单一入口：PNG 首帧 → 序列目录；视频 → 文件本身。
+                  // buffer 子目录按 <名称>_dlssbuffer 自动建议。
+                  const isPng = /\.png$/i.test(picked);
+                  const colorSource = isPng
+                    ? picked.replace(/\\/g, '/').slice(0, picked.replace(/\\/g, '/').lastIndexOf('/'))
+                    : picked;
+                  const bufferDir = suggestBufferDir(picked);
+                  setPaths((prev) => ({
+                    ...prev,
+                    colorSource,
+                    bufferDir: bufferDir || prev.bufferDir
+                  }));
+                }
+              });
+            }}>
+            <FolderOpen />
+            <Text>选择色彩源</Text>
+          </ActionButton>
           <div className="field-with-action">
             <TextField
               label="dlssnrbuffer 目录（可选）"
               size="S"
               value={paths.bufferDir}
-              onChange={(next) => nr.setPaths((prev) => ({...prev, bufferDir: next}))}
+              onChange={(next) => setPaths((prev) => ({...prev, bufferDir: next}))}
               isDisabled={opening || exporting}
             />
             <ActionButton
@@ -399,33 +422,35 @@ export function NrToolPage() {
               isDisabled={opening || exporting}
               onPress={() => {
                 void window.dlss.chooseDir('选择 dlssnrbuffer 目录').then((picked) => {
-                  if (picked) nr.setPaths((prev) => ({...prev, bufferDir: picked}));
+                  if (picked) setPaths((prev) => ({...prev, bufferDir: picked}));
                 });
               }}>
               <FolderOpen />
               <Text>选择</Text>
             </ActionButton>
           </div>
-          {info ? (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>
-              {nr.message}
-              {info.buffer_width > 0 &&
-              (info.buffer_width !== info.width || info.buffer_height !== info.height)
-                ? ` · 缓冲 ${info.buffer_width}×${info.buffer_height}`
-                : ''}
-            </span>
-          ) : (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>{nr.message}</span>
-          )}
+          <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+            {info && info.buffer_width > 0 &&
+            (info.buffer_width !== info.width || info.buffer_height !== info.height)
+              ? `${nr.message} · 缓冲 ${info.buffer_width}×${info.buffer_height}`
+              : nr.message}
+          </span>
         </SettingsSection>
         <Divider size="S" />
-        <SettingsSection title="NR 设置" defaultExpanded>
+        <SettingsSection title="NR 降噪" defaultExpanded>
+          <Switch
+            size="S"
+            isSelected={settings.nrEnabled}
+            onChange={(next) => setSettings((prev) => ({...prev, nrEnabled: next}))}
+            isDisabled={exporting}>
+            启用
+          </Switch>
           <Picker
             label="降噪风格"
             size="S"
             value={String(settings.style)}
             onChange={(value) => setSettings((prev) => ({...prev, style: Number(value)}))}
-            isDisabled={exporting}
+            isDisabled={exporting || !settings.nrEnabled}
             styles={style({width: 'full'})}>
             <PickerItem id="0">默认</PickerItem>
             <PickerItem id="1">自然</PickerItem>
@@ -439,7 +464,7 @@ export function NrToolPage() {
             step={0.05}
             value={settings.intensity}
             onChange={(next) => setSettings((prev) => ({...prev, intensity: next}))}
-            isDisabled={exporting}
+            isDisabled={exporting || !settings.nrEnabled}
           />
           <Slider
             label="局部色调"
@@ -449,7 +474,7 @@ export function NrToolPage() {
             step={0.05}
             value={settings.localTone}
             onChange={(next) => setSettings((prev) => ({...prev, localTone: next}))}
-            isDisabled={exporting}
+            isDisabled={exporting || !settings.nrEnabled}
           />
           <Slider
             label="局部结构"
@@ -459,13 +484,13 @@ export function NrToolPage() {
             step={0.05}
             value={settings.localStructure}
             onChange={(next) => setSettings((prev) => ({...prev, localStructure: next}))}
-            isDisabled={exporting}
+            isDisabled={exporting || !settings.nrEnabled}
           />
           <Switch
             size="S"
             isSelected={settings.automask}
             onChange={(next) => setSettings((prev) => ({...prev, automask: next}))}
-            isDisabled={exporting}>
+            isDisabled={exporting || !settings.nrEnabled}>
             自动遮罩
           </Switch>
           <Text styles={style({font: 'detail-sm'})}>引导模式</Text>
@@ -473,7 +498,7 @@ export function NrToolPage() {
             aria-label="引导模式"
             selectionMode="single"
             density="compact"
-            isDisabled={exporting}
+            isDisabled={exporting || !settings.nrEnabled}
             disallowEmptySelection
             selectedKeys={new Set([String(settings.guidance)])}
             onSelectionChange={(keys) => {
@@ -494,6 +519,34 @@ export function NrToolPage() {
               <Text>无</Text>
             </ToggleButton>
           </ToggleButtonGroup>
+        </SettingsSection>
+        <Divider size="S" />
+        <SettingsSection title="FG 帧生成" defaultExpanded>
+          <Switch
+            size="S"
+            isSelected={settings.fgEnabled}
+            onChange={(next) => setSettings((prev) => ({...prev, fgEnabled: next}))}
+            isDisabled={exporting || !hasBuffer}>
+            启用
+          </Switch>
+          <Picker
+            label="倍数"
+            size="S"
+            value={String(settings.fgMultiplier)}
+            onChange={(value) => setSettings((prev) => ({...prev, fgMultiplier: Number(value)}))}
+            isDisabled={exporting || !settings.fgEnabled || !hasBuffer}
+            styles={style({width: 'full'})}>
+            <PickerItem id="2">2x（60fps）</PickerItem>
+            <PickerItem id="3">3x</PickerItem>
+            <PickerItem id="4">4x</PickerItem>
+            <PickerItem id="5">5x</PickerItem>
+            <PickerItem id="6">6x</PickerItem>
+          </Picker>
+          {fgConfigMissing ? (
+            <span className={style({font: 'detail-sm', color: 'red-700'})}>
+              缺少 dlssconfig.json（缓冲目录内）— 无法帧生成
+            </span>
+          ) : null}
         </SettingsSection>
         <Divider size="S" />
         <SettingsSection title="导出" defaultExpanded>
@@ -562,20 +615,12 @@ export function NrToolPage() {
               </ActionButton>
             </div>
           )}
-          {exporting ? (
-            <Button variant="secondary" size="S" onPress={() => void stopExport()}>
-              <StopProcessing />
-              <Text>停止</Text>
-            </Button>
-          ) : (
-            <Button
-              variant="accent"
-              size="S"
-              isDisabled={!info}
-              onPress={() => void startExport()}>
-              <Text>导出</Text>
-            </Button>
-          )}
+          {info ? (
+            <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+              输出 {outFrames} 帧
+              {settings.fgEnabled ? ` · ${Math.round((info.fps || 30) * settings.fgMultiplier)}fps` : ''}
+            </span>
+          ) : null}
           {nr.error ? (
             <span className={style({font: 'detail-sm', color: 'red-700'})}>{nr.error}</span>
           ) : null}
@@ -585,49 +630,60 @@ export function NrToolPage() {
       <section className="preview-col">
         <div className="preview-well">
           <div className="preview-frame" style={{aspectRatio: aspect}}>
-            <canvas ref={canvasRef} className="preview-image" aria-label="NR 预览" />
+            <canvas ref={canvasRef} className="preview-image" aria-label="NR / FG 预览" />
           </div>
-          {exportLabel ? (
-            <div className="preview-progress nr-progress">
+          <div className={`nr-bottom ${exporting ? 'is-busy' : 'is-idle'}`}>
+            <div className={`nr-export-bar ${exporting ? '' : 'is-hidden'}`}>
               <ProgressBar
-                aria-label="NR 导出进度"
-                label={exportLabel}
+                aria-label="导出进度"
+                label={`导出中 ${exportPercent}%`}
                 value={exportPercent}
                 size="S"
                 staticColor="white"
                 styles={style({width: 'full'})}
               />
             </div>
-          ) : null}
-          <div className="nr-timeline">
-            <ActionButton
-              isQuiet
-              aria-label={playing ? '暂停' : '播放'}
-              isDisabled={!info || exporting}
-              onPress={togglePlay}>
-              <div slot="icon">{playing ? <Pause /> : <Play />}</div>
-            </ActionButton>
-            <Slider
-              aria-label="帧"
-              size="S"
-              minValue={0}
-              maxValue={Math.max(0, (info?.frames ?? 1) - 1)}
-              step={1}
-              value={frame}
-              onChange={scrub}
-              isDisabled={!info || exporting}
-              styles={style({flexGrow: 1, minWidth: 0})}
-            />
-            <span className={`nr-frame-label ${style({font: 'detail-sm'})}`}>
-              {info
-                ? `${String(frame + 1).padStart(4, '0')} / ${String(info.frames).padStart(4, '0')}${
-                    evalMs > 0 ? ` · ${Math.round(evalMs)}ms` : ''
-                  }`
-                : '— / —'}
-            </span>
+            <div className={`nr-timeline ${exporting ? 'is-hidden' : ''}`}>
+              <ActionButton
+                isQuiet
+                aria-label={playing ? '暂停' : '播放'}
+                isDisabled={!info || exporting}
+                onPress={togglePlay}>
+                <div slot="icon">{playing ? <Pause /> : <Play />}</div>
+              </ActionButton>
+              <Slider
+                aria-label="帧"
+                size="S"
+                minValue={0}
+                maxValue={Math.max(0, (info?.frames ?? 1) - 1)}
+                step={1}
+                value={frame}
+                onChange={scrub}
+                isDisabled={!info || exporting}
+                styles={style({flexGrow: 1, minWidth: 0})}
+              />
+              <span className={`nr-frame-label ${style({font: 'detail-sm'})}`}>
+                {info
+                  ? `${String(frame + 1).padStart(4, '0')} / ${String(info.frames).padStart(4, '0')}${
+                      evalMs > 0 ? ` · ${Math.round(evalMs)}ms` : ''
+                    }`
+                  : '— / —'}
+              </span>
+            </div>
           </div>
         </div>
       </section>
     </div>
   );
+}
+
+/** Turn a color source path into a sibling `<stem>_nr.mov` suggestion. */
+function suggestVideoOut(source: string): string {
+  const norm = source.replace(/\\/g, '/').replace(/\/+$/, '');
+  const isFile = /\.[a-z0-9]+$/i.test(norm);
+  const dir = isFile ? norm.slice(0, norm.lastIndexOf('/')) : norm;
+  const stem = isFile
+    ? norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
+    : norm.split('/').filter(Boolean).pop() || 'nr';
+  return `${dir}/${stem}_nr.mov`;
 }

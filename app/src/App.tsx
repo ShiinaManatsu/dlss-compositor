@@ -21,7 +21,7 @@ function Shell() {
     app.route === 'project'
       ? ['项目']
       : app.route === 'nrtool'
-        ? ['NR 工具']
+        ? ['NR / FG']
         : [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]];
 
   let titleAction: ReactNode = null;
@@ -41,13 +41,18 @@ function Shell() {
       </Button>
     );
   } else if (app.route === 'nrtool') {
-    titleAction = (
+    titleAction = nr.exporting ? (
+      <Button variant="secondary" size="S" onPress={() => void nr.stopExport()}>
+        <StopProcessing />
+        <Text>停止</Text>
+      </Button>
+    ) : (
       <Button
         variant="accent"
         size="S"
-        isDisabled={nr.opening || nr.exporting}
-        onPress={() => void nr.openSession()}>
-        <Text>{nr.opening ? '打开中…' : nr.info ? '重新打开' : '打开'}</Text>
+        isDisabled={nr.opening || !nr.info || !nr.exportTrigger}
+        onPress={() => nr.exportTrigger?.()}>
+        <Text>{nr.opening ? '打开中…' : '导出'}</Text>
       </Button>
     );
   }

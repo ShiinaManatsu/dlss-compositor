@@ -413,17 +413,47 @@ body,
   gap: 12px;
 }
 
-/* ---------- NR tool page ---------- */
+/* ---------- NR/FG tool page ---------- */
+
+/* Bottom strip of the preview well: the playback/scrub transport and the
+   export progress bar swap in place — during export the timeline slides
+   down/out and the progress bar slides in; both return on completion. */
+.nr-bottom {
+  position: absolute;
+  inset-inline: 12px;
+  bottom: 12px;
+  display: grid;
+}
+
+.nr-bottom > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+
+.nr-bottom > .is-hidden {
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+}
 
 /* Playback/scrub overlay: play button + frame slider + counter, floating on
    the preview well like the export progress bar. */
 .nr-timeline {
-  position: absolute;
-  inset-inline: 12px;
-  bottom: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 62%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.nr-export-bar {
+  display: flex;
+  align-items: center;
   padding: 8px 14px;
   border-radius: 8px;
   background: rgb(0 0 0 / 62%);
@@ -441,11 +471,6 @@ body,
    built-in value bubble to avoid a duplicate readout. */
 .nr-timeline output {
   display: none;
-}
-
-/* Export progress sits above the timeline so both can be visible at once. */
-.nr-progress {
-  bottom: 64px;
 }
 
 /* ---------- jobs page ---------- */

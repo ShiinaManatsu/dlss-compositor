@@ -84,7 +84,7 @@ export function Rail() {
         </ToggleButton>
         <ToggleButton id="nrtool">
           <Brush />
-          {collapsed ? null : <Text>NR 工具</Text>}
+          {collapsed ? null : <Text>NR / FG</Text>}
         </ToggleButton>
         <ToggleButton id="settings">
           <Settings />

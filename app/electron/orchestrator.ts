@@ -329,6 +329,7 @@ export class PipelineOrchestrator {
   private pollInFlight = false;
   private exportSettled = false;
   private ramDir: string | null = null;
+  private nrBufferDir: string | null = null;
   private ramdiskManaged = false;
   private lastRamdiskBytes = 0;
 
@@ -562,16 +563,21 @@ export class PipelineOrchestrator {
         fs.mkdirSync(colorDir, {recursive: true});
         fs.mkdirSync(guidesDir, {recursive: true});
       }
-      // dlssnrbuffer goes into a per-video subfolder (template minus the frame
-      // token = the video's base name) so exports don't mix guidance buffers.
+      // dlssnrbuffer goes into a per-video subfolder `<video>_dlssbuffer`
+      // (template minus the frame token/extension) so exports don't mix
+      // guidance buffers — the NR/FG tool auto-suggests the same name.
       let nrBufferDir: string | undefined;
       if (req.nrBuffer) {
         const baseName = outputTemplate
           .replace(/\{frame[^}]*\}/gi, '')
+          .replace(/\.(mov|mp4|m4v|mkv|avi|png|exr)$/i, '')
           .replace(/[._\s]+$/, '')
           .trim();
-        nrBufferDir = path.join(exportDir, baseName || 'dlssnrbuffer');
+        nrBufferDir = path.join(exportDir, `${baseName || 'dlssnrbuffer'}_dlssbuffer`);
         fs.mkdirSync(nrBufferDir, {recursive: true});
+        this.nrBufferDir = nrBufferDir;
+      } else {
+        this.nrBufferDir = null;
       }
       await this.bakeConfig(blender, req, ramDir, pct);
       if (!existsFile(path.join(ramDir, 'dlssconfig.json'))) {
@@ -1208,6 +1214,19 @@ export class PipelineOrchestrator {
       }
       this.running = false;
       if (failed) this.abandonBlender();
+      // Persist the per-frame camera data next to the guidance buffer before
+      // anything can go away — the NR/FG tool needs it for FG (RAM disk may
+      // unmount at quit; cache dirs get swept).
+      if (!failed && this.nrBufferDir && this.ramDir) {
+        try {
+          const cfgSrc = path.join(this.ramDir, 'dlssconfig.json');
+          if (existsFile(cfgSrc)) {
+            fs.copyFileSync(cfgSrc, path.join(this.nrBufferDir, 'dlssconfig.json'));
+          }
+        } catch (err) {
+          debug(`dlssconfig copy into buffer dir failed: ${String(err)}`);
+        }
+      }
       void this.sweepRamDir();
       if (!this.exportSettled) {
         this.exportSettled = true;

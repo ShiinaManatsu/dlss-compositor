@@ -252,9 +252,11 @@ app.whenReady().then(() => {
   ipcMain.handle('nrtool:stop', () => orchestrator.nrStop());
   ipcMain.handle('dialog:nrVideo', async () => {
     const result = await dialog.showOpenDialog(win, {
-      title: '选择色彩源视频',
+      title: '选择色彩源（视频或 PNG16 序列首帧）',
       filters: [
+        {name: '色彩源（视频 / PNG）', extensions: ['mov', 'mp4', 'm4v', 'mkv', 'avi', 'png']},
         {name: '视频', extensions: ['mov', 'mp4', 'm4v', 'mkv', 'avi']},
+        {name: 'PNG 图片', extensions: ['png']},
         {name: '所有文件', extensions: ['*']},
       ],
       properties: ['openFile'],
