@@ -69,6 +69,22 @@ void NrBufferReader::open(const std::filesystem::path& dir) {
     }
     m_w = static_cast<uint32_t>(spec.width);
     m_h = static_cast<uint32_t>(spec.height);
+
+    // Resolve channels by NAME, not index — defensive hardening. OpenEXR sorts
+    // the ChannelList alphabetically (B,G,R) on disk, though OIIO presents
+    // channels in write order, so plain indices 0/1/2 were correct here too;
+    // name resolution stays correct regardless of any writer variance. (The
+    // actual 0.5.5 artifact root cause was the UINT16 read in readFrame, not
+    // channel order — that conversion destroyed the fp16 values themselves.)
+    chMvX    = spec.channelindex("R");
+    chMvY    = spec.channelindex("G");
+    chDepth  = spec.channelindex("B");
+    if (chMvX < 0 || chMvY < 0 || chDepth < 0) {
+        throw std::runtime_error(
+            "NrBufferReader: missing R/G/B channels in " + m_files.front().string() +
+            " — not a dlssnrbuffer sequence (first channel: " +
+            std::string(spec.channel_name(0)) + ")");
+    }
     input->close();
 
     LOG_INFO("[NrBufferReader] {} frames {}x{} from {}",
@@ -89,7 +105,11 @@ void NrBufferReader::readFrame(std::size_t idx,
     const std::size_t px = static_cast<std::size_t>(spec.width) * spec.height;
 
     std::vector<std::uint16_t> halves(px * static_cast<std::size_t>(spec.nchannels));
-    if (!input->read_image(0, 0, 0, spec.nchannels, OIIO::TypeDesc::UINT16, halves.data())) {
+    // Request HALF, not UINT16: OIIO's half→uint16 conversion is VALUE-domain
+    // ([0,1] scaled to [0,65535], clamped) — reading these motion/depth bits as
+    // UINT16 destroyed every value (depth 0.97→0xF2xx = f16 NaN; |mv|>1px clamps
+    // to 0xFFFF = NaN). TypeDesc::HALF keeps the raw bit patterns verbatim.
+    if (!input->read_image(0, 0, 0, spec.nchannels, OIIO::TypeDesc::HALF, halves.data())) {
         const std::string err = input->geterror();
         input->close();
         throw std::runtime_error("NrBufferReader: read failed: " + m_files[idx].string() +
@@ -98,15 +118,16 @@ void NrBufferReader::readFrame(std::size_t idx,
     input->close();
 
     // R,G carry fp16 motion bits — copy verbatim. B is NDC depth — widen to f32.
+    // Indices are name-resolved in open() (OIIO exposes write order: R,G,B).
     mvOut.resize(px * 2 * sizeof(std::uint16_t));
     auto* mvHalf = reinterpret_cast<std::uint16_t*>(mvOut.data());
     depthOut.resize(px);
     for (std::size_t i = 0; i < px; ++i) {
         const std::size_t s = i * static_cast<std::size_t>(spec.nchannels);
-        mvHalf[i * 2 + 0] = halves[s + 0];
-        mvHalf[i * 2 + 1] = halves[s + 1];
+        mvHalf[i * 2 + 0] = halves[s + static_cast<std::size_t>(chMvX)];
+        mvHalf[i * 2 + 1] = halves[s + static_cast<std::size_t>(chMvY)];
         Imath::half h;
-        h.setBits(halves[s + 2]);
+        h.setBits(halves[s + static_cast<std::size_t>(chDepth)]);
         depthOut[i] = static_cast<float>(h);
     }
 }

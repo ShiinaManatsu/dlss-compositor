@@ -33,6 +33,12 @@ private:
     std::vector<std::filesystem::path> m_files;
     uint32_t m_w = 0;
     uint32_t m_h = 0;
+    // EXR channel indices resolved by NAME at open(). EXR stores the
+    // ChannelList alphabetically (B,G,R on disk); OIIO presents write order,
+    // so indices would work too — name lookup is immune to writer variance.
+    int chMvX = 0;
+    int chMvY = 0;
+    int chDepth = 0;
 };
 
 } // namespace dlss
