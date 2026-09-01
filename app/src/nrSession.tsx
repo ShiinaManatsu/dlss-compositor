@@ -35,6 +35,9 @@ type NrSessionStore = {
   /** 离开页面时释放 CLI 侧的 NR/FG 会话（feature + 显存纹理）。 */
   closeSession: () => void;
   stopExport: () => Promise<void>;
+  /** 导出发起前锁定 UI（标题栏停止、进度条交换）；RPC 失败用 endExport 回滚。 */
+  beginExport: () => void;
+  endExport: () => void;
   /** 标题栏「导出」按钮触发页面里组装好参数的 startExport。 */
   exportTrigger: (() => void) | null;
   setExportTrigger: (fn: (() => void) | null) => void;
@@ -138,6 +141,14 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     }
   }, []);
 
+  const beginExport = useCallback(() => {
+    setExporting(true);
+    setExportPercent(0);
+    setError(null);
+  }, []);
+
+  const endExport = useCallback(() => setExporting(false), []);
+
   const value = useMemo(
     () => ({
       paths,
@@ -153,6 +164,8 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       openSession,
       closeSession,
       stopExport,
+      beginExport,
+      endExport,
       exportTrigger,
       setExportTrigger
     }),
@@ -167,6 +180,8 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       openSession,
       closeSession,
       stopExport,
+      beginExport,
+      endExport,
       exportTrigger
     ]
   );

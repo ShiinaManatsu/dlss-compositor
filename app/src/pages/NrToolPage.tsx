@@ -59,14 +59,17 @@ function loadSettings(): StoredSettings {
 }
 
 /** Suggest the guidance folder for a picked color source:
- * `<video dir>/<video stem>_dlssbuffer`. For a picked sequence first frame
- * (`…/name_0001.png`) the trailing frame number is stripped from the stem. */
+ * `<dir>/<stem>_dlssbuffer`. A picked PNG is a sequence first frame, so its
+ * trailing frame number is stripped (`name_0001.png` → `name_dlssbuffer`);
+ * video stems are kept verbatim (`…_v3.mov` → `…_v3_dlssbuffer`). */
 function suggestBufferDir(source: string): string {
   const norm = source.replace(/\\/g, '/');
   const dir = norm.includes('/') ? norm.slice(0, norm.lastIndexOf('/')) : '';
-  let stem = norm.slice(norm.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
-  stem = stem.replace(/\d+$/, '');
-  if (!dir || !stem) return '';
+  if (!dir) return '';
+  const file = norm.slice(norm.lastIndexOf('/') + 1);
+  let stem = file.replace(/\.[^.]+$/, '');
+  if (/\.png$/i.test(file)) stem = stem.replace(/\d+$/, '').replace(/[._\s]+$/, '');
+  if (!stem) return '';
   return `${dir}/${stem}_dlssbuffer`;
 }
 
@@ -120,9 +123,11 @@ export function NrToolPage() {
   const infoRef = useRef<NrToolInfo | null>(null);
   const frameRef = useRef(0);
   const settingsRef = useRef(settings as StoredSettings);
+  const exportingRef = useRef(false);
   infoRef.current = info;
   frameRef.current = frame;
   settingsRef.current = settings;
+  exportingRef.current = exporting;
 
   const settingsParams = useCallback(
     (s: StoredSettings) => ({
@@ -175,6 +180,8 @@ export function NrToolPage() {
         const job = pendingRef.current;
         if (!job) break;
         pendingRef.current = null;
+        // 导出期间 CLI 拒绝预览 —— 静默退出，别刷一屏错误。
+        if (exportingRef.current) break;
         try {
           const r = await window.dlss.nrPreview(job.frame, job.settings);
           if (r.ok && r.jpeg_b64) {
@@ -186,11 +193,13 @@ export function NrToolPage() {
             await drawJpeg(r.jpeg_b64);
             setEvalMs(r.eval_ms);
           } else if (r.error) {
-            setError(userErrorMessage(r.error));
+            if (!exportingRef.current) setError(userErrorMessage(r.error));
             break;
           }
         } catch (err) {
-          setError(userErrorMessage(err instanceof Error ? err.message : '预览失败'));
+          if (!exportingRef.current) {
+            setError(userErrorMessage(err instanceof Error ? err.message : '预览失败'));
+          }
           break;
         }
         // Chained playback: advance only when the previous frame settled, so
@@ -324,8 +333,7 @@ export function NrToolPage() {
 
   function startExport() {
     const session = infoRef.current;
-    if (!session) return;
-    nr.setError(null);
+    if (!session || nr.exporting) return;
     const params: Record<string, unknown> = {output_format: nrFormat, ...settingsParams(settings)};
     if (nrFormat === 'png_16') {
       if (!outputDir.trim()) {
@@ -341,21 +349,26 @@ export function NrToolPage() {
       }
       params.output_path = outputPath.trim();
     }
-    void window.dlss
+    // 先锁定 UI（标题栏停止、进度条交换、时间轴禁用），RPC 失败再回滚 ——
+    // 否则导出运行中 GUI 仍是空闲态，预览全部被 CLI 拒绝。
+    nr.beginExport();
+    playingRef.current = false;
+    setPlaying(false);
+    window.dlss
       .nrExport(params)
       .then((started) => {
         if (!started.ok) {
+          nr.endExport();
           nr.setError(userErrorMessage(started.error ?? '导出失败'));
           return;
         }
-        playingRef.current = false;
-        setPlaying(false);
         const stages = [settings.nrEnabled ? 'NR' : null, settings.fgEnabled ? 'FG' : null]
           .filter(Boolean)
           .join('/');
         nr.setMessage(`导出中 · ${started.frames ?? session.frames} 帧 · ${stages || '直通'}`);
       })
       .catch((err: unknown) => {
+        nr.endExport();
         nr.setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
       });
   }
