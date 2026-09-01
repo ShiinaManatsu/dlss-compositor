@@ -131,6 +131,11 @@ private:
     std::vector<PooledTextureHandle> evaluateFg(std::int64_t frameIndex, bool reset,
                                                 const FgSettings& fg);
 
+    /// DLSS_NRTOOL_DUMP_DIR forensics: write the raw 4-byte-per-pixel device
+    /// bytes of `image` to dir/f<frame>_<tag>.raw (layout restored afterwards).
+    void debugDumpRaw(const std::filesystem::path& dir, std::int64_t frameIndex,
+                      const char* tag, VkImage image, uint32_t w, uint32_t h);
+
     VulkanContext* m_ctx = nullptr;
     NgxContext*    m_ngx = nullptr;
 

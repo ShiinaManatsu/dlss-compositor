@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 
@@ -481,11 +483,50 @@ std::vector<PooledTextureHandle> NrToolSession::evaluateFg(std::int64_t frameInd
     in.jitterClipX = -2.0f * cam.jitter.x / static_cast<float>(m_info.bufferWidth);
     in.jitterClipY = -2.0f * cam.jitter.y / static_cast<float>(m_info.bufferHeight);
 
+    // Debug facility: DLSS_NRTOOL_DUMP_DIR=<dir> dumps the exact FG eval inputs
+    // (frames 1..2) as raw device bytes — pre_mv RG16F, pre_depth R32F,
+    // pre_color RGBA8 (sanity: known color-source content). Proves the uploads
+    // landed before eval; this hook is what exposed the 0.5.5 reader corruption.
+    // Zero cost when the env var is unset. Post-eval mv/depth are deliberately
+    // NOT dumped: NGX dilates MVs in place, so post-eval state is overwritten.
+    if (const char* dumpDir = std::getenv("DLSS_NRTOOL_DUMP_DIR")) {
+        if (frameIndex >= 1 && frameIndex <= 2) {
+            const std::filesystem::path dir{dumpDir};
+            std::filesystem::create_directories(dir);
+            debugDumpRaw(dir, frameIndex, "pre_mv",    m_mvTex->image,    m_info.bufferWidth, m_info.bufferHeight);
+            debugDumpRaw(dir, frameIndex, "pre_depth", m_depthTex->image, m_info.bufferWidth, m_info.bufferHeight);
+            debugDumpRaw(dir, frameIndex, "pre_color", m_colorIn->image,  m_info.width, m_info.height);
+            LOG_INFO("[NrTool] dumped pre-eval guidance for frame {}", frameIndex);
+        }
+    }
+
     m_fgPass->evaluate(cmd, in);
     m_ctx->endOneTimeCommands(m_cmdPool, cmd, m_ctx->computeQueue());
     m_ctx->waitIdle();
     LOG_DEBUG("[NrTool] FG frame {} done (reset={}, {}x)", frameIndex, reset, fg.multiplier);
+
+    // Debug facility (see pre-eval note): post-eval interp output, A2B10.
+    if (const char* dumpDir = std::getenv("DLSS_NRTOOL_DUMP_DIR")) {
+        if (frameIndex >= 1 && frameIndex <= 2) {
+            debugDumpRaw(std::filesystem::path{dumpDir}, frameIndex, "interp",
+                         interps[0]->image, m_info.width, m_info.height);
+            LOG_INFO("[NrTool] dumped FG interp for frame {}", frameIndex);
+        }
+    }
     return interps;
+}
+
+void NrToolSession::debugDumpRaw(const std::filesystem::path& dir, std::int64_t frameIndex,
+                                 const char* tag, VkImage image, uint32_t w, uint32_t h) {
+    auto bytes = m_ctx->downloadImageRaw(image, w, h, 4,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, /*restoreLayout=*/true);
+    std::ofstream f(dir / (std::string{"f"} + std::to_string(frameIndex) + "_" + tag + ".raw"),
+                    std::ios::binary);
+    if (!f) {
+        throw std::runtime_error("NrTool: cannot open debug dump file in " + dir.string());
+    }
+    f.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
 }
 
 NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, const NrSettings& settings,
@@ -618,9 +659,10 @@ void NrToolSession::exportTo(const NrSettings& settings,
     // callback (fires on the encoder thread), PNG after each synchronous write.
     // Also reporting the enqueue counter would run the GUI bar back and forth
     // between two paces (the enqueue side runs up to the queue watermark ahead).
-    auto tickOutput = [&]() { ++outIdx; };
-    auto reportPng = [&]() {
-        if (onProgress && outTotal > 0) onProgress(static_cast<float>(outIdx) / outTotal);
+    auto tickOutput = [&]() {
+        ++outIdx;
+        if (!isVideo && onProgress && outTotal > 0)
+            onProgress(static_cast<float>(outIdx) / outTotal);
     };
 
     for (uint32_t i = 0; i < m_info.frames; ++i) {
@@ -669,7 +711,6 @@ void NrToolSession::exportTo(const NrSettings& settings,
                                           /*restoreLayout=*/true);
             writePng(rgba8);
             tickOutput();
-            reportPng();
         }
 
         LOG_INFO("[NrTool] export output {}/{}", outIdx, outTotal);
