@@ -519,10 +519,16 @@ def write_dlssconfig(
     )
     if ngx_quality not in JITTER_PHASES:
         ngx_quality = quality
-    for frame_num in range(frame_start, frame_end + 1):
+    # Per-frame camera eval is the slow part of a long-range bake — stream
+    # progress so the GUI can show it (orchestrator maps it into the first 10%).
+    total_bake = frame_end - frame_start + 1
+    emit_every = max(1, total_bake // 100)
+    for i, frame_num in enumerate(range(frame_start, frame_end + 1)):
         scene.frame_set(frame_num)
         jitter_x, jitter_y = jitter_for_frame_number(ngx_quality, frame_num)
         frames[f"{frame_num:04d}"] = collect_camera_data(scene, jitter_x, jitter_y, depsgraph)
+        if i % emit_every == 0 or i == total_bake - 1:
+            emit("bake_progress", percent=(i + 1) / total_bake, frame=frame_num)
     scene.frame_set(saved_frame)
 
     luts = generate_tonemap_lut(scene, str(output_dir))
