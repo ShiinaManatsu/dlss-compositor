@@ -999,11 +999,15 @@ void Pipeline::run(const PipelineConfig& config) {
             const auto tGpu = std::chrono::steady_clock::now();
 
             // ── [8] Preview (non-generated frames only) ────────────────────────
+            // 1920 long edge: the export-page well is ~1-2k device px wide — a
+            // 512px JPEG upscaled there reads as 480p. Encode/IPC cost stays
+            // negligible against the per-frame pipeline time.
             const bool wantPreview = cb.wantsPreview && cb.wantsPreview();
             if (wantPreview && cb.onPreview && cb.encodePreview) {
                 PreviewReadback prev2 = previewPass.renderAndReadback(
                     displayOut, PreviewInputMode::DisplayReady, dlssCfg.is_hdr,
-                    exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL);
+                    exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL,
+                    1920);
                 if (!prev2.rgba8.empty()) {
                     auto jpeg = cb.encodePreview(prev2.width, prev2.height, prev2.rgba8);
                     if (!jpeg.empty()) cb.onPreview(std::move(jpeg));

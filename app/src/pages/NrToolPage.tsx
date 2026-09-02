@@ -149,7 +149,7 @@ export function NrToolPage() {
   const previewTargetWidth = useCallback(() => {
     const dpr = window.devicePixelRatio || 1;
     const canvas = canvasRef.current;
-    return Math.min(1920, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
+    return Math.min(2560, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
   }, []);
 
   const drawJpeg = useCallback(async (b64: string, srcWidth?: number) => {

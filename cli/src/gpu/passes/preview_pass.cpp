@@ -264,9 +264,42 @@ PreviewReadback PreviewPass::renderAndReadback(PooledTextureHandle src,
         return {};
     }
     auto preview = acquirePreviewTexture(src->desc.width, src->desc.height, maxLongEdge);
+
+    // Halving chain: one bilinear tap per destination pixel aliases badly at
+    // ratios above ~2x (fine detail smears — reads as a low-res preview).
+    // Step down in ≤2x hops, then make the final ≤2x hop into the preview
+    // texture. Intermediate hops run passthrough (DisplayReady + hdr=false) so
+    // tonemapping happens exactly once, in the final pass, and keep the source
+    // format to avoid extra quantization.
+    struct ChainStep {
+        PooledTextureHandle tex;
+        VkImageLayout       layout;
+    };
+    std::vector<ChainStep> chain;
+    PooledTextureHandle cur = src;
+    VkImageLayout curLayout = srcLayout;
+    while (cur->desc.width > 2u * preview->desc.width ||
+           cur->desc.height > 2u * preview->desc.height) {
+        const TextureDesc td{std::max(1u, cur->desc.width / 2),
+                             std::max(1u, cur->desc.height / 2),
+                             src->desc.format,
+                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                           | VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
+        chain.push_back({m_pool.acquire(td), VK_IMAGE_LAYOUT_GENERAL});
+        cur = chain.back().tex;
+        curLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+
     VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
     VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(cmdPool);
-    record(cmd, src, preview, mode, hdr, srcLayout);
+    PooledTextureHandle stepSrc = src;
+    VkImageLayout stepLayout = srcLayout;
+    for (const auto& step : chain) {
+        record(cmd, stepSrc, step.tex, PreviewInputMode::DisplayReady, /*hdr=*/false, stepLayout);
+        stepSrc = step.tex;
+        stepLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    record(cmd, stepSrc, preview, mode, hdr, stepLayout);
 
     VkImageMemoryBarrier2 toTransfer{};
     toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -321,6 +354,9 @@ PreviewReadback PreviewPass::renderAndReadback(PooledTextureHandle src,
     }
     vmaDestroyBuffer(m_ctx->allocator(), buffer, allocation);
     m_pool.release(preview);
+    for (const auto& step : chain) {
+        m_pool.release(step.tex);
+    }
     return readback;
 }
 

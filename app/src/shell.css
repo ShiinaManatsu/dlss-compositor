@@ -380,7 +380,6 @@ body,
   position: relative;
   width: min(calc(100cqw - 32px), calc((100cqh - 96px) * 16 / 9));
   aspect-ratio: 16 / 9;
-  background: radial-gradient(90% 70% at 50% 28%, #243044 0%, #141820 42%, #0a0c10 100%);
   overflow: hidden;
 }
 

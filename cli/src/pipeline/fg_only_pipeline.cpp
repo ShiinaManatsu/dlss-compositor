@@ -494,7 +494,8 @@ void FgOnlyPipeline::run(const FgOnlyConfig& config) {
                     srcDisplay,
                     PreviewInputMode::DisplayReady,
                     dlssCfg.is_hdr,
-                    oldLayout);
+                    oldLayout,
+                    1920);
                 if (!preview.rgba8.empty()) {
                     config.previewRgba8Callback(preview.rgba8, preview.width, preview.height);
                 }

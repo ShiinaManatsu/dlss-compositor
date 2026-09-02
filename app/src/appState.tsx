@@ -1050,7 +1050,7 @@ export function useAppState() {
       if (event.type === 'preview_frame' && typeof event.jpeg_b64 === 'string' && event.jpeg_b64) {
         const canvas = previewCanvasRef.current;
         const dpr = window.devicePixelRatio || 1;
-        const targetW = Math.min(1920, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
+        const targetW = Math.min(2560, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
         const naturalW = typeof event.width === 'number' ? event.width : 0;
         pendingPreviewRef.current = {
           b64: event.jpeg_b64,
