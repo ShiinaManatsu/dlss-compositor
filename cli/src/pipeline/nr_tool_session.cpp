@@ -246,17 +246,20 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
     if (m_info.frames == 0) {
         throw std::runtime_error("NrTool: color source frame count unknown");
     }
-    if (m_hasBuffer && m_info.frames != m_buffer.frames()) {
-        throw std::runtime_error(
-            "NrTool: frame count mismatch — color has " + std::to_string(m_info.frames) +
-            ", dlssnrbuffer has " + std::to_string(m_buffer.frames()) +
-            ". Re-export the buffer with the same frame range.");
+    // Truncate to the shortest sequence instead of failing: a Stage-A export
+    // stopped mid-flight leaves the in-flight frame's guidance EXR written but
+    // no color frame (and dlssconfig only lands on completion). Both sequences
+    // start at the export's frame_start, so the partial frame is always the
+    // tail and min(lengths) positionally aligned is exactly the usable range.
+    if (m_hasBuffer && m_buffer.frames() < m_info.frames) {
+        LOG_WARN("[NrTool] dlssnrbuffer has {} frames vs color {} — processing the shorter range",
+                 m_buffer.frames(), m_info.frames);
+        m_info.frames = static_cast<uint32_t>(m_buffer.frames());
     }
-    if (m_camConfig && m_camKeys.size() != m_info.frames) {
-        throw std::runtime_error(
-            "NrTool: frame count mismatch — color has " + std::to_string(m_info.frames) +
-            ", dlssconfig has " + std::to_string(m_camKeys.size()) +
-            " camera frames. Re-export with the same frame range.");
+    if (m_camConfig && m_camKeys.size() < m_info.frames) {
+        LOG_WARN("[NrTool] dlssconfig has {} camera frames vs color {} — processing the shorter range",
+                 m_camKeys.size(), m_info.frames);
+        m_info.frames = static_cast<uint32_t>(m_camKeys.size());
     }
 }
 
