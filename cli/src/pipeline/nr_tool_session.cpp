@@ -5,6 +5,7 @@
 #include "fg_camera.h"
 
 #include "../core/log.h"
+#include "../gpu/passes/preview_pass.h"
 #include "../io/async_writer.h"
 #include "../io/prores_writer.h"
 
@@ -261,10 +262,130 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
                  m_camKeys.size(), m_info.frames);
         m_info.frames = static_cast<uint32_t>(m_camKeys.size());
     }
+    startPrefetchWorker();
+}
+
+// ── Decode prefetch ──────────────────────────────────────────────────────────
+// The worker owns every color/guidance decode (VideoReader keeps sequential
+// state — single owner). The fetch path posts frame N+1 right after taking
+// frame N's pixels, so a 4K decode (~35ms: ProRes + guidance EXR) overlaps the
+// previous frame's upload/eval/encode instead of serializing with it.
+
+void NrToolSession::startPrefetchWorker() {
+    m_prefetchThread = std::thread([this] { prefetchLoop(); });
+}
+
+void NrToolSession::stopPrefetchWorker() {
+    {
+        std::lock_guard<std::mutex> lk(m_prefetchMu);
+        m_prefetchQuit = true;
+        m_prefetchJob = {};
+    }
+    m_prefetchCv.notify_all();
+    if (m_prefetchThread.joinable()) {
+        m_prefetchThread.join();
+    }
+}
+
+void NrToolSession::prefetchLoop() {
+    std::unique_lock<std::mutex> lk(m_prefetchMu);
+    for (;;) {
+        m_prefetchCv.wait(lk, [this] { return m_prefetchQuit || m_prefetchJob.frame >= 0; });
+        if (m_prefetchQuit) return;
+        const PrefetchJob job = m_prefetchJob;
+        m_prefetchJob = {};
+        lk.unlock();
+        PrefetchedFrame result;
+        try {
+            result = decodeColorAndGuidance(job.frame, job.guidance);
+        } catch (const std::exception& e) {
+            result = PrefetchedFrame{};
+            result.frame   = job.frame;
+            result.guidance = job.guidance;
+            result.error   = e.what();
+        }
+        lk.lock();
+        m_prefetchResult = std::move(result);
+        m_prefetchCv.notify_all();
+    }
+}
+
+NrToolSession::PrefetchedFrame NrToolSession::decodeColorAndGuidance(std::int64_t frameIndex,
+                                                                     bool guidance) {
+    PrefetchedFrame out;
+    out.frame    = frameIndex;
+    out.guidance = guidance;
+    if (m_isVideo) {
+        m_video.readFrameRgba8(frameIndex, out.colorRgba8);
+    } else {
+        uint32_t w = 0, h = 0;
+        out.colorRgba8 = loadPng16AsRgba8(m_pngFiles.at(static_cast<std::size_t>(frameIndex)), w, h);
+    }
+    if (m_hasBuffer && guidance) {
+        m_buffer.readFrame(static_cast<std::size_t>(frameIndex), out.mvBytes, out.depth);
+    }
+    return out;
+}
+
+bool NrToolSession::takePrefetched(std::int64_t frameIndex, bool guidance, PrefetchedFrame& out) {
+    std::lock_guard<std::mutex> lk(m_prefetchMu);
+    if (m_prefetchResult.frame != frameIndex || m_prefetchResult.guidance != guidance) {
+        return false;
+    }
+    PrefetchedFrame taken = std::move(m_prefetchResult);
+    m_prefetchResult = {};
+    if (!taken.error.empty()) {
+        throw std::runtime_error("NrTool: decode failed: " + taken.error);
+    }
+    out = std::move(taken);
+    return true;
+}
+
+NrToolSession::PrefetchedFrame NrToolSession::decodeNow(std::int64_t frameIndex, bool guidance) {
+    {
+        std::lock_guard<std::mutex> lk(m_prefetchMu);
+        m_prefetchResult = {};  // drop any stale completed decode
+        m_prefetchJob    = {frameIndex, guidance};
+    }
+    m_prefetchCv.notify_all();
+    std::unique_lock<std::mutex> lk(m_prefetchMu);
+    m_prefetchCv.wait(lk, [&] {
+        return m_prefetchResult.frame == frameIndex && m_prefetchResult.guidance == guidance;
+    });
+    PrefetchedFrame out = std::move(m_prefetchResult);
+    m_prefetchResult = {};
+    if (!out.error.empty()) {
+        throw std::runtime_error("NrTool: decode failed: " + out.error);
+    }
+    return out;
+}
+
+void NrToolSession::postPrefetch(std::int64_t frameIndex, bool guidance) {
+    {
+        std::lock_guard<std::mutex> lk(m_prefetchMu);
+        m_prefetchJob = {frameIndex, guidance};
+    }
+    m_prefetchCv.notify_all();
+}
+
+NrToolSession::PrefetchedFrame NrToolSession::fetchFrame(std::int64_t frameIndex, bool needGuidance) {
+    PrefetchedFrame pf;
+    const bool seq = (frameIndex == m_lastFetched + 1);
+    const bool hit = seq && takePrefetched(frameIndex, needGuidance, pf);
+    if (!hit) {
+        pf = decodeNow(frameIndex, needGuidance);
+    }
+    LOG_DEBUG("[NrTool] fetch frame {} (prefetch={} guide={})", frameIndex, hit, needGuidance);
+    m_lastFetched = frameIndex;
+    if (frameIndex + 1 < static_cast<std::int64_t>(m_info.frames)) {
+        postPrefetch(frameIndex + 1, needGuidance);
+    }
+    return pf;
 }
 
 NrToolSession::~NrToolSession() {
     LOG_INFO("[NrTool] session teardown begin");
+    stopPrefetchWorker();
     m_fgPass.reset();       // FG feature shutdown first
     m_nrPass.reset();       // feature 18 shutdown (snippet still loaded)
     m_nrUnpack.reset();
@@ -329,7 +450,8 @@ void NrToolSession::ensureFgCreated(int multiplier) {
              m_info.width, m_info.height, multiplier);
 }
 
-void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance) {
+void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance,
+                                  PrefetchedFrame&& pixels) {
     ensureCreated();
     if (nrEnabled && !m_hasBuffer && m_settings.guidanceMode != NrGuidanceMode::ForceZero) {
         throw std::runtime_error(
@@ -337,29 +459,21 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool 
             "or set guidance mode to 无");
     }
     LOG_DEBUG("[NrTool] eval frame {} begin (nr={} guide={})", frameIndex, nrEnabled, needGuidance);
-
-    // ── Decode color ──────────────────────────────────────────────────────────
-    std::vector<std::uint8_t> colorRgba8;
-    if (m_isVideo) {
-        m_video.readFrameRgba8(frameIndex, colorRgba8);
-    } else {
-        uint32_t w = 0, h = 0;
-        colorRgba8 = loadPng16AsRgba8(m_pngFiles[static_cast<std::size_t>(frameIndex)], w, h);
-    }
+    const auto tf0 = std::chrono::steady_clock::now();
+    const auto msSinceF = [tf0] {
+        return std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - tf0).count();
+    };
 
     // ── Upload (NGX contract: inputs SHADER_READ) ─────────────────────────────
     UploadBatch batch(m_ctx);
-    batch.addUpload(m_colorIn, colorRgba8.data(), colorRgba8.size());
-
-    // ── Decode guidance ───────────────────────────────────────────────────────
-    std::vector<std::uint8_t> mvBytes;
-    std::vector<float>        depth;
+    batch.addUpload(m_colorIn, pixels.colorRgba8.data(), pixels.colorRgba8.size());
     if (m_hasBuffer && needGuidance) {
-        m_buffer.readFrame(static_cast<std::size_t>(frameIndex), mvBytes, depth);
-        batch.addUpload(m_mvTex,    mvBytes.data(),    mvBytes.size());
-        batch.addUpload(m_depthTex, depth.data(),      depth.size() * sizeof(float));
+        batch.addUpload(m_mvTex,    pixels.mvBytes.data(), pixels.mvBytes.size());
+        batch.addUpload(m_depthTex, pixels.depth.data(),   pixels.depth.size() * sizeof(float));
     }
     batch.submit();
+    const double tUpload = msSinceF();
 
     // ── Evaluate ──────────────────────────────────────────────────────────────
     if (nrEnabled) {
@@ -405,7 +519,11 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool 
         // Pipeline parity: NGX eval may run on the snippet's own internal queue —
         // drain the device before any readback (downloadImageRaw submits its own).
         m_ctx->waitIdle();
-        LOG_DEBUG("[NrTool] eval frame {} done (reset={})", frameIndex, reset);
+        const double tNr = msSinceF();
+        LOG_DEBUG("[NrTool] eval frame {} upload(exr+copy)={}ms nr={}ms "
+                  "(reset={}, {}x{})",
+                  frameIndex, tUpload, tNr - tUpload, reset,
+                  m_info.width, m_info.height);
     }
 
     m_lastFrame = frameIndex;
@@ -532,45 +650,79 @@ void NrToolSession::debugDumpRaw(const std::filesystem::path& dir, std::int64_t 
             static_cast<std::streamsize>(bytes.size()));
 }
 
+void NrToolSession::ensurePreviewPass() {
+    if (!m_previewPass) {
+        m_previewPass = std::make_unique<PreviewPass>(m_ctx);
+    }
+}
+
 NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, const NrSettings& settings,
-                                                    const FgSettings& fg) {
+                                                    const FgSettings& fg, std::uint32_t maxLongEdge) {
     m_settings = settings;
     // Same reset rule as evaluateFrame/evaluateFg — captured before it updates m_lastFrame.
     const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
     const auto t0 = std::chrono::steady_clock::now();
+    const auto msSince = [t0] {
+        return std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0).count();
+    };
 
     const bool needGuidance = settings.enabled || fg.enabled;
-    evaluateFrame(frameIndex, settings.enabled, needGuidance);
+    evaluateFrame(frameIndex, settings.enabled, needGuidance,
+                  fetchFrame(frameIndex, needGuidance));
+    const double tEval = msSince();
 
-    // Readback the processed color BEFORE FG runs — evaluateFg re-layouts
-    // m_nrOut to SHADER_READ. NR out is GENERAL, the raw color SHADER_READ.
-    auto rgba8 = m_settings.enabled
-        ? m_ctx->downloadImageRaw(m_nrOut->image, m_info.width, m_info.height, 4,
-                                  VK_IMAGE_LAYOUT_GENERAL, /*restoreLayout=*/true)
-        : m_ctx->downloadImageRaw(m_colorIn->image, m_info.width, m_info.height, 4,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, /*restoreLayout=*/true);
-    auto jpeg = encodePreviewJpeg(m_info.width, m_info.height, rgba8, 80);
-
+    // FG first, readbacks last: evaluateFg re-layouts m_nrOut to SHADER_READ
+    // for its unpack, and doing all device syncs after the evals keeps the GPU
+    // busy instead of interleaving readbacks between the two NGX evals.
     std::vector<PooledTextureHandle> interps;
     if (fg.enabled) {
         interps = evaluateFg(frameIndex, reset, fg);
     }
+    const double tFg = msSince();
 
+    ensurePreviewPass();
     PreviewResult r;
-    r.jpeg         = std::move(jpeg);
-    r.width        = m_info.width;
-    r.height       = m_info.height;
+    r.width  = m_info.width;
+    r.height = m_info.height;
+
+    // Display readbacks via GPU downscale (sampler2D handles RGBA8 and A2B10
+    // alike; mode=DisplayReady + hdr=false is a passthrough for these
+    // already-display-ready sources).
+    const PooledTextureHandle& colorSrc = m_settings.enabled ? m_nrOut : m_colorIn;
+    const VkImageLayout colorLayout =
+        m_settings.enabled
+            ? (fg.enabled ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL  // evaluateFg re-laid it out
+                          : VK_IMAGE_LAYOUT_GENERAL)
+            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    PreviewReadback real = m_previewPass->renderAndReadback(
+        colorSrc, PreviewInputMode::DisplayReady, /*hdr=*/false, colorLayout, maxLongEdge);
+    if (real.width > 0) {
+        r.width  = real.width;
+        r.height = real.height;
+    }
+    const double tReadback = msSince();
+
+    // Interp and real JPEG encodes are independent CPU work — overlap them.
+    PreviewReadback interp;
+    std::thread interpEncoder;
     if (fg.enabled && !reset && !interps.empty()) {
-        // FG interp frames are A2B10 — convert via rgba16f bytes for JPEG.
-        const std::size_t px = static_cast<std::size_t>(m_info.width) * m_info.height;
-        auto f16 = m_ctx->downloadImageA2B10ToRgba16f(interps[0]->image, m_info.width,
-                                                      m_info.height, VK_IMAGE_LAYOUT_GENERAL);
-        r.interpJpeg = encodePreviewJpeg(m_info.width, m_info.height,
-                                         rgba16fBytesToRgba8(f16, px), 80);
+        interp = m_previewPass->renderAndReadback(
+            interps[0], PreviewInputMode::DisplayReady, /*hdr=*/false,
+            VK_IMAGE_LAYOUT_GENERAL, maxLongEdge);
+    }
+    r.jpeg = encodePreviewJpeg(real.width, real.height, real.rgba8, 80);
+    if (interp.width > 0) {
+        r.interpJpeg = encodePreviewJpeg(interp.width, interp.height, interp.rgba8, 80);
     }
     for (auto& h : interps) m_pool.release(h);
-    r.evalMs       = std::chrono::duration<double, std::milli>(
-                         std::chrono::steady_clock::now() - t0).count();
+    const double tJpeg = msSince();
+
+    LOG_DEBUG("[NrTool] preview frame {} nr+upload={}ms fg={}ms readback={}ms jpeg+b64src={}ms "
+              "total={}ms ({}x{} -> {}x{} long-edge={})",
+              frameIndex, tEval, tFg - tEval, tReadback - tFg, tJpeg - tReadback, tJpeg,
+              m_info.width, m_info.height, r.width, r.height, maxLongEdge);
+    r.evalMs       = tJpeg;
     r.resetApplied = reset;
     return r;
 }
@@ -675,7 +827,8 @@ void NrToolSession::exportTo(const NrSettings& settings,
         const std::int64_t frame = static_cast<std::int64_t>(i);
         const bool reset = (m_lastFrame < 0) || (frame != m_lastFrame + 1);
         const bool needGuidance = settings.enabled || fg.enabled;
-        evaluateFrame(frame, settings.enabled, needGuidance);
+        evaluateFrame(frame, settings.enabled, needGuidance,
+                      fetchFrame(frame, needGuidance));
 
         if (fg.enabled) {
             auto interps = evaluateFg(frame, reset, fg);

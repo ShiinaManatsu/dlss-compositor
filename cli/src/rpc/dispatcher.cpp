@@ -349,7 +349,10 @@ nlohmann::json RpcDispatcher::handleNrToolPreview(const nlohmann::json& p) {
                                  " out of range (0.." +
                                  std::to_string(m_nrTool->info().frames - 1) + ")");
     }
-    auto r = m_nrTool->preview(frame, parseNrSettings(p), parseFgSettings(p));
+    // GPU downscale cap for the preview JPEGs (long edge). Matches the GUI
+    // canvas cap (1920) so the readback/JPEG/IPC sizes track what's shown.
+    const auto maxLongEdge = static_cast<uint32_t>(p.value("preview_max_long_edge", 1920));
+    auto r = m_nrTool->preview(frame, parseNrSettings(p), parseFgSettings(p), maxLongEdge);
     nlohmann::json resp{{"ok", true},
                         {"frame", frame},
                         {"width", r.width},

@@ -34,14 +34,19 @@
 #include "../io/video_reader.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace dlss {
 
 class NgxContext;
+class PreviewPass;
 
 struct FgSettings {
     bool enabled    = false;
@@ -87,8 +92,11 @@ public:
 
     /// Decode + process one frame (NR, then FG when enabled), return preview
     /// JPEG(s). `interpJpeg` is valid while playing sequentially with FG on.
+    /// Readbacks go through PreviewPass (GPU downscale to `maxLongEdge` on the
+    /// long edge before the CPU ever sees the pixels — the display chain is
+    /// capped near 1920 wide, so shipping full-res JPEGs is pure waste).
     PreviewResult preview(std::int64_t frameIndex, const NrSettings& settings,
-                          const FgSettings& fg);
+                          const FgSettings& fg, std::uint32_t maxLongEdge);
 
     /// Retune without evaluating (settings persist for the next preview/export).
     void updateSettings(const NrSettings& settings) { m_settings = settings; }
@@ -114,6 +122,35 @@ public:
                   std::atomic<bool>* stop);
 
 private:
+    // ── Decode prefetch ──────────────────────────────────────────────────────
+    // A worker thread owns the color/guidance decoders (VideoReader keeps
+    // sequential state, so it must have a single owner) and speculatively
+    // decodes frame N+1 while the main path uploads + evaluates frame N.
+    struct PrefetchedFrame {
+        std::int64_t              frame = -1;
+        bool                      guidance = false;
+        std::string               error;      ///< non-empty: decode threw on the worker
+        std::vector<std::uint8_t> colorRgba8; ///< output-res
+        std::vector<std::uint8_t> mvBytes;    ///< empty when !guidance
+        std::vector<float>        depth;
+    };
+
+    /// Worker body: wait for a job, decode it, publish the result.
+    void prefetchLoop();
+
+    /// Worker-side decode (runs on the prefetch thread only).
+    PrefetchedFrame decodeColorAndGuidance(std::int64_t frameIndex, bool guidance);
+
+    /// Consume the sequential prefetch when it matches (frame + guidance);
+    /// otherwise decode synchronously through the worker (seek / toggle).
+    PrefetchedFrame fetchFrame(std::int64_t frameIndex, bool needGuidance);
+
+    bool takePrefetched(std::int64_t frameIndex, bool guidance, PrefetchedFrame& out);
+    PrefetchedFrame decodeNow(std::int64_t frameIndex, bool guidance);
+    void postPrefetch(std::int64_t frameIndex, bool guidance);
+    void startPrefetchWorker();
+    void stopPrefetchWorker();
+
     /// Lazy GPU setup on first frame (NR feature creation = availability probe).
     void ensureCreated();
 
@@ -121,9 +158,11 @@ private:
     void ensureFgCreated(int multiplier);
 
     /// Decode color (+ guidance when needed) and evaluate DLSSNR when enabled.
-    /// Leaves the processed color in m_nrOut (enabled, GENERAL) or m_colorIn
-    /// (disabled, SHADER_READ). Updates m_lastFrame.
-    void evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance);
+    /// Takes the prefetched pixels; leaves the processed color in m_nrOut
+    /// (enabled, GENERAL) or m_colorIn (disabled, SHADER_READ). Updates
+    /// m_lastFrame.
+    void evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance,
+                       PrefetchedFrame&& pixels);
 
     /// Evaluate DLSSFG on the processed color. Returns the (multiplier-1)
     /// interpolated output handles in GENERAL — the caller writes/downloads
@@ -135,6 +174,10 @@ private:
     /// bytes of `image` to dir/f<frame>_<tag>.raw (layout restored afterwards).
     void debugDumpRaw(const std::filesystem::path& dir, std::int64_t frameIndex,
                       const char* tag, VkImage image, uint32_t w, uint32_t h);
+
+    /// Lazy preview-pass construction (needs preview_display.comp.spv — fail
+    /// loud on first preview if the pack is broken, never at open time).
+    void ensurePreviewPass();
 
     VulkanContext* m_ctx = nullptr;
     NgxContext*    m_ngx = nullptr;
@@ -167,6 +210,20 @@ private:
     int m_fgMultiplier = 0;             ///< multiplier m_fgPass was created with
     std::unique_ptr<NrFormatPass> m_nrUnpack;      ///< rgba8 → rgb10_a2
     std::unique_ptr<ProresConvertPass> m_proresConvert;
+    std::unique_ptr<PreviewPass> m_previewPass;    ///< GPU downscale + RGBA8 readback
+
+    // Prefetch worker (owns m_video / m_buffer / m_pngFiles reads).
+    std::thread             m_prefetchThread;
+    std::mutex              m_prefetchMu;
+    std::condition_variable m_prefetchCv;
+    bool                    m_prefetchQuit = false;
+    struct PrefetchJob {
+        std::int64_t frame = -1;
+        bool         guidance = false;
+    };
+    PrefetchJob    m_prefetchJob;    ///< pending work (worker picks it up)
+    PrefetchedFrame m_prefetchResult;///< last completed decode
+    std::int64_t   m_lastFetched = -1;  ///< sequential-prefetch tracking
 
     VkCommandPool m_cmdPool = VK_NULL_HANDLE;
     std::int64_t  m_lastFrame = -1;  ///< NR/FG temporal continuity tracking

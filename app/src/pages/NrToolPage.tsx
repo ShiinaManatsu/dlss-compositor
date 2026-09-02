@@ -144,19 +144,27 @@ export function NrToolPage() {
     []
   );
 
-  const drawJpeg = useCallback(async (b64: string) => {
+  // Preview cap: CLI downscales to this long edge before JPEG encode — matches
+  // the display width so 4K sources don't ship full-res readback+JPEG over IPC.
+  const previewTargetWidth = useCallback(() => {
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = canvasRef.current;
+    return Math.min(1920, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
+  }, []);
+
+  const drawJpeg = useCallback(async (b64: string, srcWidth?: number) => {
     try {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const binary = atob(b64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const dpr = window.devicePixelRatio || 1;
-      const targetW = Math.min(1920, Math.max(320, Math.round((canvas.clientWidth || 1280) * dpr)));
-      const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}), {
-        resizeWidth: targetW,
-        resizeQuality: 'medium'
-      });
+      // CLI 已经按 preview_max_long_edge 出图；只有超宽的旧尺寸才需要重采样。
+      const targetW = previewTargetWidth();
+      const resize = typeof srcWidth === 'number' && srcWidth > targetW
+        ? {resizeWidth: targetW, resizeQuality: 'medium' as const}
+        : undefined;
+      const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}), resize);
       const target = canvasRef.current;
       if (!target) {
         bitmap.close();
@@ -170,7 +178,7 @@ export function NrToolPage() {
     } catch {
       /* malformed jpeg */
     }
-  }, []);
+  }, [previewTargetWidth]);
 
   const pump = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -183,14 +191,17 @@ export function NrToolPage() {
         // 导出期间 CLI 拒绝预览 —— 静默退出，别刷一屏错误。
         if (exportingRef.current) break;
         try {
-          const r = await window.dlss.nrPreview(job.frame, job.settings);
+          const r = await window.dlss.nrPreview(job.frame, {
+            ...job.settings,
+            preview_max_long_edge: previewTargetWidth()
+          });
           if (r.ok && r.jpeg_b64) {
             // FG 只在播放时出插值帧：eval(N) 的插值位于 N-1 与 N 之间，
             // 先画插值再画实帧即得到 2x 顺序播放；seek/暂停只显示实帧。
             if (playingRef.current && r.interp_jpeg_b64) {
-              await drawJpeg(r.interp_jpeg_b64);
+              await drawJpeg(r.interp_jpeg_b64, r.width);
             }
-            await drawJpeg(r.jpeg_b64);
+            await drawJpeg(r.jpeg_b64, r.width);
             setEvalMs(r.eval_ms);
           } else if (r.error) {
             if (!exportingRef.current) setError(userErrorMessage(r.error));
@@ -217,7 +228,7 @@ export function NrToolPage() {
       inFlightRef.current = false;
       if (pendingRef.current) void pump();
     }
-  }, [drawJpeg, settingsParams, setError]);
+  }, [drawJpeg, previewTargetWidth, settingsParams, setError]);
 
   const requestPreview = useCallback(
     (next: number) => {
