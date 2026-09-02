@@ -335,10 +335,12 @@ void RrFramePrefetcher::workerLoop() {
     for (int idx = 0; idx < total; ++idx) {
         {
             std::unique_lock<std::mutex> lk(m_mutex);
-            m_cv.wait(lk, [&] {
+            // Timed wait — same no-notify-on-stop shape as getNext().
+            while (!m_cv.wait_for(lk, std::chrono::milliseconds(100), [&] {
                 return stopRequested() ||
                        (m_produced.load() - m_consumed.load()) < m_prefetchDepth;
-            });
+            })) {
+            }
             if (stopRequested()) return;
         }
 
@@ -369,7 +371,15 @@ RrFrameResult RrFramePrefetcher::decodeFile(const std::filesystem::path& path) {
 
 RrFrameResult RrFramePrefetcher::getNext() {
     std::unique_lock<std::mutex> lk(m_mutex);
-    m_cv.wait(lk, [&] { return !m_queue.empty() || stopRequested(); });
+    // Timed wait, not wait(): stop() only sets a flag and nobody notifies this
+    // cv. In watch mode the consumer blocks here while the producer is stuck in
+    // waitUntilWritten for a file that stops arriving after a job stop — the
+    // producer then exits without notifying and a plain wait() slept forever,
+    // so the mov trailer was never written (the "stop takes ages to land the
+    // mov" report). Re-evaluate the predicate every 100 ms.
+    while (!m_cv.wait_for(lk, std::chrono::milliseconds(100),
+                          [&] { return !m_queue.empty() || stopRequested(); })) {
+    }
     if (m_queue.empty()) {
         return std::unexpected(RrReadError{RrReadErrorCode::IoError,
             "Prefetcher queue empty (stopped or no more frames)", {}});

@@ -52,6 +52,9 @@ struct alignas(64) RenderProgress {
     std::atomic<float> dlss_percent{0.0f};
     // State: 0=Idle, 1=Running, 2=Done, 3=Error
     std::atomic<int>   state{0};
+    // Phase: 0=render 1=finalize (writer drain + mov trailer after the frame
+    // loop ends). Fires RunEvent::Stopping → the GUI splits the last 10%.
+    std::atomic<int>   phase{0};
 };
 #if defined(_MSC_VER)
 #  pragma warning(pop)

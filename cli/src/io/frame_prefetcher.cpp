@@ -392,10 +392,12 @@ void FramePrefetcher::workerLoop()
         // Backpressure — sleep if we are `prefetchDepth` ahead of the consumer.
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [&] {
+            // Timed wait — same no-notify-on-stop shape as getNext().
+            while (!m_cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
                 return stopRequested() ||
                        (m_produced.load() - m_consumed.load()) < m_prefetchDepth;
-            });
+            })) {
+            }
             if (stopRequested()) {
                 return;
             }
@@ -454,9 +456,12 @@ FrameResult FramePrefetcher::decodeFile(const std::filesystem::path& path) {
 FrameResult FramePrefetcher::getNext()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    m_cv.wait(lock, [&] {
+    // Timed wait — stop() sets a flag without notifying this cv (see
+    // RrFramePrefetcher::getNext); re-evaluate the predicate every 100 ms.
+    while (!m_cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
         return !m_queue.empty() || stopRequested();
-    });
+    })) {
+    }
 
     if (m_queue.empty()) {
         return std::unexpected(ReadError{

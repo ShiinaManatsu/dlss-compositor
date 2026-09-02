@@ -1111,6 +1111,10 @@ void Pipeline::run(const PipelineConfig& config) {
                      static_cast<int>(frameSw.elapsedMs()));
         } // frame loop
 
+        // Signal the finalize segment (writer drain + mov trailer) so the GUI
+        // can split it off the render progress.
+        fireRunEvent(RunEvent::Stopping);
+
         // ── Finalize writers ───────────────────────────────────────────────────
         if (m_stop.load(std::memory_order_acquire)) {
             if (proresWriter) proresWriter->cancel();

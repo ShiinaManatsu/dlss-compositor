@@ -213,6 +213,7 @@ nlohmann::json RpcDispatcher::handleProgress(const nlohmann::json& /*p*/) {
         {"current_frame",      m_progress.current_frame.load()},
         {"total_frames",       m_progress.total_frames.load()},
         {"percent",            m_progress.percent.load()},
+        {"phase",              m_progress.phase.load()},  // 0=render 1=finalize
         {"dlss_current_frame", m_progress.dlss_current_frame.load()},
         {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
         {"dlss_percent",       m_progress.dlss_percent.load()},
@@ -593,23 +594,28 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
         switch (ev) {
             case RunEvent::Started:
                 m_progress.state.store(1);
+                m_progress.phase.store(0);
                 LOG_INFO("[Pipeline] run started: {}", detail);
                 break;
             case RunEvent::Stopping:
+                m_progress.phase.store(1);  // finalize: writer drain + mov trailer
                 LOG_INFO("[Pipeline] run stopping: {}", detail);
                 break;
             case RunEvent::Cancelled:
                 m_progress.state.store(0);
+                m_progress.phase.store(0);
                 m_jobRunning.store(false, std::memory_order_release);
                 LOG_INFO("[Pipeline] run cancelled: {}", detail);
                 break;
             case RunEvent::Completed:
                 m_progress.state.store(2);
+                m_progress.phase.store(0);
                 m_jobRunning.store(false, std::memory_order_release);
                 LOG_INFO("[Pipeline] run completed: {}", detail);
                 break;
             case RunEvent::Error:
                 m_progress.state.store(3);
+                m_progress.phase.store(0);
                 m_jobRunning.store(false, std::memory_order_release);
                 LOG_ERROR("[Pipeline] run error: {}", detail);
                 break;
@@ -811,6 +817,7 @@ nlohmann::json RpcDispatcher::handleGetProgress(const nlohmann::json& /*p*/) {
         {"current_frame",      m_progress.current_frame.load()},
         {"total_frames",       m_progress.total_frames.load()},
         {"percent",            m_progress.percent.load()},
+        {"phase",              m_progress.phase.load()},
         {"dlss_current_frame", m_progress.dlss_current_frame.load()},
         {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
         {"dlss_percent",       m_progress.dlss_percent.load()},
