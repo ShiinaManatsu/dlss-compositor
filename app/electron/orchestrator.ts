@@ -309,6 +309,14 @@ export class PipelineOrchestrator {
   private blender: ChildProcess | null = null;
   private cli: ChildProcess | null = null;
   private rpc: StdioRpcClient | null = null;
+  /** Dedicated CLI process for the NR/FG tool. Process isolation keeps the
+   *  tool independent of the job lifecycle (its NGX/Vulkan state and running
+   *  guard are per-process): the tool opens while a job runs — or winds down
+   *  after a stop — and the job's stop can never hit a tool export. */
+  private nrCli: ChildProcess | null = null;
+  private nrRpc: StdioRpcClient | null = null;
+  private nrCliPath: string | null = null;
+  private nrStderrFd: number | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private nrPollTimer: NodeJS.Timeout | null = null;
   private nrPollInFlight = false;
@@ -669,6 +677,9 @@ export class PipelineOrchestrator {
       warning = 'RPC 连接已关闭';
     }
     this.running = false;
+    // A stopped export leaves a usable guidance buffer minus the tail frame;
+    // persist the camera data so the NR/FG tool can still run FG on it.
+    this.persistDlssconfig();
     if (hadWork) {
       this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
       void this.sweepRamDir();
@@ -676,20 +687,89 @@ export class PipelineOrchestrator {
     return {ok: true, unmounted: false};
   }
 
-  // ── NR tool (standalone DLSSNR compositor pass) ───────────────────────────
+  // ── NR tool (standalone DLSSNR pass over its own CLI process) ──────────────
+
+  private nrAlive(): boolean {
+    return Boolean(this.nrCli && this.nrCli.exitCode === null && this.nrRpc?.writable());
+  }
+
+  /** Spawn the tool's dedicated CLI (lazy, one per app session). */
+  private async ensureNrCli(cli: string): Promise<StdioRpcClient> {
+    if (this.nrAlive() && this.nrCliPath === cli && this.nrRpc) {
+      return this.nrRpc;
+    }
+    this.discardNrCli();
+    const logs = logRoot();
+    fs.mkdirSync(logs, {recursive: true});
+    const stderrPath = path.join(logs, 'cli.stderr.log');
+    if (this.cliLog) {
+      this.nrStderrFd = fs.openSync(stderrPath, 'w');
+      this.nrCli = spawn(cli, ['--rpc-stdio'], {
+        cwd: path.dirname(cli),
+        stdio: ['pipe', 'pipe', this.nrStderrFd],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          // Release CLI defaults logs to off; keep stderr useful for the tool.
+          DLSS_COMPOSITOR_LOG: process.env.DLSS_COMPOSITOR_LOG || 'info',
+        },
+      });
+      this.emit({type: 'nr_cli_pid', pid: this.nrCli.pid, stderr: stderrPath});
+    } else {
+      this.nrCli = spawn(cli, ['--rpc-stdio'], {
+        cwd: path.dirname(cli),
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+        env: process.env,
+      });
+      this.emit({type: 'nr_cli_pid', pid: this.nrCli.pid});
+    }
+    this.nrCliPath = cli;
+    const child = this.nrCli;
+    child.on('error', (err) => debug(`nr cli spawn error: ${err.message}`));
+    child.on('exit', (code, signal) => {
+      debug(`nr cli exit code=${code} signal=${signal}`);
+      if (this.nrCli === child) {
+        this.nrRpc = null;
+        this.nrCli = null;
+        this.nrCliPath = null;
+      }
+    });
+    this.nrRpc = new StdioRpcClient(this.nrCli);
+    debug(`nr cli pid=${this.nrCli.pid}`);
+    return this.nrRpc;
+  }
+
+  private discardNrCli(): void {
+    try {
+      this.nrRpc?.close();
+    } catch {
+      /* ignore */
+    }
+    this.nrRpc = null;
+    killTree(this.nrCli);
+    this.nrCli = null;
+    this.nrCliPath = null;
+    if (this.nrStderrFd != null) {
+      try {
+        fs.closeSync(this.nrStderrFd);
+      } catch {
+        /* ignore */
+      }
+      this.nrStderrFd = null;
+    }
+  }
 
   /** Open an NR session over a color source, optionally a dlssnrbuffer
-   *  guidance dir (no buffer = guidance mode 无 only). Boots the CLI on
-   *  demand (the NR tool works without an open project). */
+   *  guidance dir (no buffer = guidance mode 无 only). Boots the tool's
+   *  dedicated CLI on demand (the NR tool works without an open project). */
   async nrOpen(params: {
     color_source: string;
     buffer_dir?: string;
   }): Promise<Record<string, unknown>> {
     const cli = findCli(undefined, backendDir ?? undefined);
     if (!cli) return {ok: false, error: '找不到 dlss-compositor-cli.exe'};
-    const logs = logRoot();
-    fs.mkdirSync(logs, {recursive: true});
-    const rpc = await this.ensureCli(cli, logs);
+    const rpc = await this.ensureNrCli(cli);
     return rpc.request('nrtool_open', params, 120000);
   }
 
@@ -697,16 +777,16 @@ export class PipelineOrchestrator {
     frame: number,
     settings: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    if (!this.rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
-    return this.rpc.request('nrtool_preview', {frame, ...settings}, 120000);
+    if (!this.nrRpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    return this.nrRpc.request('nrtool_preview', {frame, ...settings}, 120000);
   }
 
   /** Start an NR export and poll progress until it settles, forwarding
    *  nrtool_progress / nrtool_export_done / nrtool_export_error events. */
   async nrExport(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (!this.rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    if (!this.nrRpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
     this.nrStopRequested = false;
-    const result = await this.rpc.request('nrtool_export', params, 30000);
+    const result = await this.nrRpc.request('nrtool_export', params, 30000);
     if (this.nrPollTimer) clearInterval(this.nrPollTimer);
     this.nrPollInFlight = false;
     this.nrPollTimer = setInterval(() => void this.nrPollOnce(), 400);
@@ -718,22 +798,22 @@ export class PipelineOrchestrator {
       clearInterval(this.nrPollTimer);
       this.nrPollTimer = null;
     }
-    if (!this.rpc?.writable()) return {ok: true};
-    return this.rpc.request('nrtool_close', {}, 30000);
+    if (!this.nrRpc?.writable()) return {ok: true};
+    return this.nrRpc.request('nrtool_close', {}, 30000);
   }
 
-  /** Cancel a running NR export via the shared stop RPC. */
+  /** Cancel a running NR export via the tool process's stop RPC. */
   async nrStop(): Promise<Record<string, unknown>> {
     this.nrStopRequested = true;
-    if (!this.rpc?.writable()) return {ok: true};
-    return this.rpc.request('stop', {}, 5000);
+    if (!this.nrRpc?.writable()) return {ok: true};
+    return this.nrRpc.request('stop', {}, 5000);
   }
 
   private async nrPollOnce(): Promise<void> {
-    if (!this.rpc?.writable() || this.nrPollInFlight) return;
+    if (!this.nrRpc?.writable() || this.nrPollInFlight) return;
     this.nrPollInFlight = true;
     try {
-      const progress = await this.rpc.request('progress', {}, 5000);
+      const progress = await this.nrRpc.request('progress', {}, 5000);
       const state = progress.state;
       this.emit({type: 'nrtool_progress', ...progress});
       if (state === 2 || state === 'done') {
@@ -768,6 +848,21 @@ export class PipelineOrchestrator {
     }
   }
 
+  /** Copy the per-frame camera data next to the guidance buffer — the NR/FG
+   *  tool needs it for FG. Called when a job settles (success) and when the
+   *  user stops one (a stopped export must stay FG-capable too). */
+  private persistDlssconfig(): void {
+    if (!this.nrBufferDir || !this.ramDir) return;
+    try {
+      const cfgSrc = path.join(this.ramDir, 'dlssconfig.json');
+      if (existsFile(cfgSrc)) {
+        fs.copyFileSync(cfgSrc, path.join(this.nrBufferDir, 'dlssconfig.json'));
+      }
+    } catch (err) {
+      debug(`dlssconfig copy into buffer dir failed: ${String(err)}`);
+    }
+  }
+
   /**
    * Delete leftover input frames once a job settles. Anything the pipeline did not
    * consume (failed decodes, tail frames written after the engine stopped) is
@@ -798,8 +893,9 @@ export class PipelineOrchestrator {
       this.shutdownPromise = (async () => {
         this.stopNrPoll();
         await this.stop();
-        // Kill the CLI before unmounting: its RAM-disk watcher/file handles
-        // would make the graceful imdisk detach fail.
+        // Kill both CLIs before unmounting: their RAM-disk watcher/file
+        // handles would make the graceful imdisk detach fail.
+        this.discardNrCli();
         this.discardCli();
         await this.releaseRamdisk();
       })();
@@ -1214,19 +1310,7 @@ export class PipelineOrchestrator {
       }
       this.running = false;
       if (failed) this.abandonBlender();
-      // Persist the per-frame camera data next to the guidance buffer before
-      // anything can go away — the NR/FG tool needs it for FG (RAM disk may
-      // unmount at quit; cache dirs get swept).
-      if (!failed && this.nrBufferDir && this.ramDir) {
-        try {
-          const cfgSrc = path.join(this.ramDir, 'dlssconfig.json');
-          if (existsFile(cfgSrc)) {
-            fs.copyFileSync(cfgSrc, path.join(this.nrBufferDir, 'dlssconfig.json'));
-          }
-        } catch (err) {
-          debug(`dlssconfig copy into buffer dir failed: ${String(err)}`);
-        }
-      }
+      this.persistDlssconfig();
       void this.sweepRamDir();
       if (!this.exportSettled) {
         this.exportSettled = true;
