@@ -704,8 +704,10 @@ NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, con
     const double tReadback = msSince();
 
     // Interp and real JPEG encodes are independent CPU work — overlap them.
+    // NOTE: they used to run on threads and hard-crashed the process —
+    // concurrent OIIO ImageOutput ("jpg") writes are not safe in this build.
+    // Keep them sequential on this thread.
     PreviewReadback interp;
-    std::thread interpEncoder;
     if (fg.enabled && !reset && !interps.empty()) {
         interp = m_previewPass->renderAndReadback(
             interps[0], PreviewInputMode::DisplayReady, /*hdr=*/false,
