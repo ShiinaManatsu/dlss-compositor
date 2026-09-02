@@ -336,6 +336,10 @@ export class PipelineOrchestrator {
   private session = 0;
   private pollInFlight = false;
   private exportSettled = false;
+  /** Set while a user stop is draining (writer close + mov trailer); pollOnce
+   *  keeps polling and emits the single 'stopped' when the CLI settles. */
+  private stopping = false;
+  private stopDeadline = 0;
   private ramDir: string | null = null;
   private nrBufferDir: string | null = null;
   private ramdiskManaged = false;
@@ -530,6 +534,8 @@ export class PipelineOrchestrator {
     const session = this.session;
     this.pollInFlight = false;
     this.exportSettled = false;
+    this.stopping = false;   // a prior drain-in-progress must not kill this job
+    this.stopDeadline = 0;
     this.running = true;
     this.emit({
       type: 'export_start',
@@ -587,6 +593,10 @@ export class PipelineOrchestrator {
       } else {
         this.nrBufferDir = null;
       }
+      // Unified export bar, phase 1 of 3: prep (写 dlssconfig/LUT) owns the
+      // first 10%. percent stays 0 until inject.py's first bake_progress event
+      // arrives — the GUI shows an indeterminate bar until then.
+      this.emit({type: 'engine_progress', percent: 0, phase: 'prepare'});
       await this.bakeConfig(blender, req, ramDir, pct);
       if (!existsFile(path.join(ramDir, 'dlssconfig.json'))) {
         throw new Error('inject 未写出 dlssconfig.json');
@@ -651,6 +661,11 @@ export class PipelineOrchestrator {
       debug(`start failed: ${message}`);
       this.running = false;
       this.abandonBlender();
+      if (this.stopping) {
+        // User stop during bake: killing blender surfaces here as a bake
+        // failure — stop() already emitted 'stopped', don't stack an error.
+        return {ok: false, error: message};
+      }
       this.emit({type: 'error', message});
       return {ok: false, error: message};
     }
@@ -658,11 +673,6 @@ export class PipelineOrchestrator {
 
   async stop(): Promise<{ok: boolean; unmounted: false}> {
     const hadWork = this.running || this.blender != null || this.pollTimer != null;
-    this.session += 1;
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
     this.abandonBlender();
     let warning: string | undefined;
     if (this.rpc?.writable()) {
@@ -677,12 +687,21 @@ export class PipelineOrchestrator {
       warning = 'RPC 连接已关闭';
     }
     this.running = false;
-    // A stopped export leaves a usable guidance buffer minus the tail frame;
-    // persist the camera data so the NR/FG tool can still run FG on it.
-    this.persistDlssconfig();
-    if (hadWork) {
-      this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
-      void this.sweepRamDir();
+    if (hadWork && this.pollTimer) {
+      // Keep the poll alive through the writer drain: the bar keeps moving
+      // (finalize slice) and 'stopped' fires once the mov trailer actually
+      // landed. pollOnce owns the settle; 60s deadline guards a dead CLI.
+      this.stopping = true;
+      this.stopDeadline = Date.now() + 60000;
+    } else {
+      // Nothing polling (bake phase / idle): settle immediately. Bump the
+      // session so the in-flight start() flow stops emitting events.
+      this.session += 1;
+      this.stopping = false;
+      if (hadWork) {
+        this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
+        void this.sweepRamDir();
+      }
     }
     return {ok: true, unmounted: false};
   }
@@ -1263,6 +1282,12 @@ export class PipelineOrchestrator {
       if (stripped.startsWith('DLSS_EVENT:')) {
         try {
           const payload = JSON.parse(stripped.slice('DLSS_EVENT:'.length)) as Record<string, unknown>;
+          // Bake (写 dlssconfig) streams per-frame progress — fold it into the
+          // unified export bar as the first 10% (phase "prepare").
+          if (payload.event === 'bake_progress') {
+            const pct = Math.min(1, Math.max(0, Number(payload.percent) || 0));
+            this.emit({type: 'engine_progress', percent: pct, phase: 'prepare'});
+          }
           this.emit({type: String(payload.event ?? 'blender'), ...payload});
         } catch {
           this.emit({type: 'blender_log', line: stripped.slice(0, 300)});
@@ -1277,30 +1302,48 @@ export class PipelineOrchestrator {
     if (session !== this.session || !this.rpc?.writable() || this.pollInFlight || this.exportSettled) {
       return;
     }
+    // Stopping must settle even if the CLI stopped answering: force at 60s.
+    if (this.stopping && Date.now() > this.stopDeadline) {
+      this.finishStopped(session, undefined, /*force=*/ true);
+      return;
+    }
     this.pollInFlight = true;
     try {
       const progress = await this.rpc.request('progress', {}, 5000);
       if (session !== this.session) return;
-      this.emit({type: 'engine_progress', ...progress});
+      // Unified export bar (single source per phase): render/finalize map the
+      // CLI's encode-based percent (0-100 on the job path) into 10-90 / 90-100.
+      // Prepare (bake) arrives separately as phase "prepare" from blender.
+      const rawPct = typeof progress.percent === 'number' ? progress.percent : 0;
+      const cliPct = Math.min(1, Math.max(0, rawPct / 100));
+      const finalize = progress.phase === 1 || progress.phase === 'finalize';
+      this.emit({
+        type: 'engine_progress',
+        percent: cliPct,
+        phase: finalize ? 'finalize' : 'render',
+      });
       const state = progress.state;
       const failed = state === 3 || state === 'error';
       const finished = state === 2 || state === 'done';
-      const blenderDone = this.blender == null || this.blender.exitCode !== null;
-      const settled = failed || (blenderDone && finished);
+      // RunEvent::Cancelled leaves state Idle (0) — a settled stop.
+      const cancelled = state === 0;
+      const settled = failed || finished || cancelled;
       if (!settled) {
         // Preview pull only while the job is alive. It must not sit between
         // the progress read and the state check: a dead engine makes EVERY
         // preview_frame throw, which previously skipped the failed-branch on
         // every poll and left the GUI "running" forever (2026-08-31 user run).
-        try {
-          const preview = await this.rpc.request('preview_frame', {}, 5000);
-          if (session !== this.session) return;
-          if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
-            this.emit({type: 'preview_frame', jpeg_b64: preview.jpeg_b64, width: preview.width, height: preview.height});
+        if (!this.stopping) {
+          try {
+            const preview = await this.rpc.request('preview_frame', {}, 5000);
+            if (session !== this.session) return;
+            if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
+              this.emit({type: 'preview_frame', jpeg_b64: preview.jpeg_b64, width: preview.width, height: preview.height});
+            }
+          } catch (err) {
+            if (session !== this.session) return;
+            this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
           }
-        } catch (err) {
-          if (session !== this.session) return;
-          this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
         }
         return;
       }
@@ -1314,26 +1357,56 @@ export class PipelineOrchestrator {
       void this.sweepRamDir();
       if (!this.exportSettled) {
         this.exportSettled = true;
-        const engineDetail = typeof progress.error === 'string' && progress.error
-          ? String(progress.error)
-          : '';
-        const logHint = this.cliLog ? '（详见导出目录 cli.stderr.log）' : '';
-        this.emit({
-          type: failed ? 'export_error' : 'export_done',
-          message: failed
-            ? engineDetail
-              ? `DLSS 引擎失败：${engineDetail}${logHint}`
-              : `DLSS 引擎失败${logHint}`
-            : undefined,
-          ...progress,
-        });
+        if (this.stopping || cancelled) {
+          // User stop (or a cancel from the CLI side): the drain just
+          // finished, so the stopped transition happens now, after the mov
+          // trailer — not before the file actually landed.
+          this.finishStopped(session, undefined);
+        } else {
+          const engineDetail = typeof progress.error === 'string' && progress.error
+            ? String(progress.error)
+            : '';
+          const logHint = this.cliLog ? '（详见导出目录 cli.stderr.log）' : '';
+          this.emit({
+            type: failed ? 'export_error' : 'export_done',
+            message: failed
+              ? engineDetail
+                ? `DLSS 引擎失败：${engineDetail}${logHint}`
+                : `DLSS 引擎失败${logHint}`
+              : undefined,
+            ...progress,
+          });
+        }
       }
     } catch (err) {
       if (session !== this.session) return;
+      if (this.stopping && Date.now() > this.stopDeadline - 55000) {
+        // Swallowed RPC failures while stopping are fine — keep polling until
+        // the deadline; only a dead connection needs the force path.
+        if (!this.rpc?.writable()) this.finishStopped(session, undefined, true);
+        return;
+      }
       this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
     } finally {
       this.pollInFlight = false;
     }
+  }
+
+  /** Settle a stopping job: stop polling, emit the single 'stopped' event. */
+  private finishStopped(session: number, warning: string | undefined, force = false): void {
+    if (session !== this.session) return;
+    if (force) debug('stop settle forced (deadline)');
+    this.stopping = false;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.running = false;
+    this.exportSettled = true;
+    this.abandonBlender();
+    this.persistDlssconfig();
+    void this.sweepRamDir();
+    this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
   }
 }
 

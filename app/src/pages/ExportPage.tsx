@@ -166,6 +166,8 @@ export function ExportPage() {
     busy,
     message,
     error,
+    exportPhase,
+    phaseRatio,
     displayFrame,
     frameEnd: jobFrameEnd,
     frameStart: jobFrameStart,
@@ -192,13 +194,19 @@ export function ExportPage() {
 
   const progressLabel = error
     ? error
-    : busy
-      ? `第 ${String(displayFrame).padStart(4, '0')} / ${String(jobFrameEnd).padStart(4, '0')} 帧${
-          etaText ? ` · ${etaText}` : ''
-        }`
-      : message && message !== '就绪'
-        ? message
-        : `共 ${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
+    : busy && exportPhase === 'prepare'
+      ? '准备导出'
+      : busy && exportPhase === 'finalize'
+        ? '正在写 MOV'
+        : busy
+          ? `第 ${String(displayFrame).padStart(4, '0')} / ${String(jobFrameEnd).padStart(4, '0')} 帧${
+              etaText ? ` · ${etaText}` : ''
+            }`
+          : message && message !== '就绪'
+            ? message
+            : `共 ${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
+  // Bake 进度事件到达前没有可量化的准备进度 — 转圈而不是钉死的 0%。
+  const preparing = busy && exportPhase === 'prepare' && phaseRatio <= 0;
 
   return (
     <div className="export-body">
@@ -526,6 +534,7 @@ export function ExportPage() {
               aria-label="导出进度"
               label={progressLabel}
               value={progressPercent}
+              isIndeterminate={preparing}
               size="S"
               staticColor="white"
               styles={style({width: 'full'})}
