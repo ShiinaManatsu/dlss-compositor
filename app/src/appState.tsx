@@ -515,7 +515,7 @@ export function useAppState() {
       }
       if (!rrAllowed(next.engine) && mode === 'rr') setMode('sr');
     }
-    setMessage(`已读取场景 · ${engineLabel(next.engine)}`);
+    setMessage('就绪');
     setProjectReady(true);
   }
 
@@ -1093,12 +1093,10 @@ export function useAppState() {
         recordJobResult(activeJobIdRef.current, 'error');
       }
       if (event.type === 'stopped') {
+        // 中止后回到刚加载项目的空闲态：进度条归零、文案就绪。
         setStatus((prev) => (prev === 'running' ? 'idle' : prev));
-        setMessage((prev) =>
-          prev.endsWith('导出中') || prev.startsWith('第 ') || prev === '准备导出' || prev === '正在写 MOV'
-            ? '已停止'
-            : prev
-        );
+        setMessage('就绪');
+        setPlayhead(frameStart);
         setExportPhase(null);
         clearFrameTiming();
         if (typeof event.warning === 'string' && event.warning) {

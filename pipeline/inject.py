@@ -491,6 +491,147 @@ def write_atomic_json(path: Path, data: dict[str, Any]) -> None:
     os.replace(tmp_path, path)
 
 
+# ── Camera depsgraph isolation ────────────────────────────────────────────────
+# The bake only reads the camera's transform/projection per frame, but
+# scene.frame_set() re-evaluates the whole scene (modifiers, sims, rigs).
+# Hiding every object outside the camera's dependency closure drops them from
+# the viewport depsgraph, making frame_set cost only the camera chain.
+
+
+def _driver_target_ids(animation_data: Any) -> list[Any]:
+    """IDs referenced by driver variables on this datablock."""
+    refs: list[Any] = []
+    if animation_data is None:
+        return refs
+    for fcurve in animation_data.drivers:
+        try:
+            for var in fcurve.driver.variables:
+                for target in var.targets:
+                    if target.id is not None:
+                        refs.append(target.id)
+        except Exception:
+            continue
+    return refs
+
+
+def _driver_reaches_bpy(animation_data: Any) -> bool:
+    """Python driver expressions can reach bpy.data directly — references the
+    static analysis below cannot see, so their presence disables isolation."""
+    if animation_data is None:
+        return False
+    for fcurve in animation_data.drivers:
+        try:
+            expression = fcurve.driver.expression or ""
+        except Exception:
+            continue
+        if "bpy" in expression:
+            return True
+    return False
+
+
+def _constraint_target_objects(constraint: Any) -> list[Any]:
+    """Every Object pointer on a constraint (target, shrinkwrap mesh, …)."""
+    refs: list[Any] = []
+    for prop in constraint.bl_rna.properties:
+        if prop.type != "POINTER":
+            continue
+        try:
+            value = getattr(constraint, prop.identifier)
+        except Exception:
+            continue
+        if isinstance(value, bpy.types.Object):
+            refs.append(value)
+    return refs
+
+
+# Sims on the camera chain may read hidden objects (collision/emit partners) —
+# their per-frame result would silently change, so isolation bails instead.
+_SIM_MODIFIER_TYPES = {
+    "CLOTH",
+    "SOFT_BODY",
+    "FLUID",
+    "FLUID_SIMULATION",
+    "PARTICLE_SYSTEM",
+    "DYNAMIC_PAINT",
+}
+
+
+def camera_dependency_closure(scene: bpy.types.Scene) -> set | None:
+    """Objects that can affect the camera's per-frame transform/projection:
+    the camera, its parent chain, constraint targets, DOF focus object and
+    every Object referenced by drivers on the closure's objects or data
+    datablocks. None = closure not provably complete (python drivers reaching
+    bpy.data, or a simulation on the chain)."""
+    camera = scene.camera
+    if camera is None:
+        return None
+    unsafe = False
+    seen: set = {camera}
+    queue = [camera]
+    while queue:
+        obj = queue.pop()
+        datas = [obj.animation_data]
+        if obj.data is not None:
+            datas.append(getattr(obj.data, "animation_data", None))
+        for anim in datas:
+            if anim is None:
+                continue
+            if _driver_reaches_bpy(anim):
+                unsafe = True
+            for ref in _driver_target_ids(anim):
+                if isinstance(ref, bpy.types.Object) and ref not in seen:
+                    seen.add(ref)
+                    queue.append(ref)
+        for constraint in obj.constraints:
+            for ref in _constraint_target_objects(constraint):
+                if ref not in seen:
+                    seen.add(ref)
+                    queue.append(ref)
+        if obj.type == "CAMERA" and obj.data is not None:
+            focus = obj.data.dof.focus_object
+            if focus is not None and focus not in seen:
+                seen.add(focus)
+                queue.append(focus)
+        parent = obj.parent
+        if parent is not None and parent not in seen:
+            seen.add(parent)
+            queue.append(parent)
+        if obj.rigid_body is not None or obj.rigid_body_constraint is not None:
+            unsafe = True
+        for modifier in obj.modifiers:
+            if modifier.type in _SIM_MODIFIER_TYPES:
+                unsafe = True
+    return None if unsafe else seen
+
+
+def apply_camera_isolation(scene: bpy.types.Scene) -> list[tuple[Any, bool]]:
+    """Hide every object outside the camera's dependency closure. Returns the
+    (object, previous state) pairs to restore — empty when skipped."""
+    closure = camera_dependency_closure(scene)
+    if closure is None:
+        emit("bake_isolation", applied=False, reason="unsafe-dependency")
+        return []
+    hidden: list[tuple[Any, bool]] = []
+    for obj in scene.objects:
+        if obj in closure or obj.hide_viewport:
+            continue
+        try:
+            hidden.append((obj, bool(obj.hide_viewport)))
+            obj.hide_viewport = True
+        except Exception:
+            continue  # linked/read-only objects stay evaluated — conservative
+    emit("bake_isolation", applied=True, hidden=len(hidden), total=len(scene.objects))
+    return hidden
+
+
+def restore_camera_isolation(hidden: list[tuple[Any, bool]]) -> None:
+    for obj, state in hidden:
+        try:
+            obj.hide_viewport = state
+        except Exception:
+            pass
+
+
 def write_dlssconfig(
     output_dir: Path,
     scene: bpy.types.Scene,
@@ -523,13 +664,19 @@ def write_dlssconfig(
     # progress so the GUI can show it (orchestrator maps it into the first 10%).
     total_bake = frame_end - frame_start + 1
     emit_every = max(1, total_bake // 100)
-    for i, frame_num in enumerate(range(frame_start, frame_end + 1)):
-        scene.frame_set(frame_num)
-        jitter_x, jitter_y = jitter_for_frame_number(ngx_quality, frame_num)
-        frames[f"{frame_num:04d}"] = collect_camera_data(scene, jitter_x, jitter_y, depsgraph)
-        if i % emit_every == 0 or i == total_bake - 1:
-            emit("bake_progress", percent=(i + 1) / total_bake, frame=frame_num)
-    scene.frame_set(saved_frame)
+    # Drop everything the camera cannot see from the depsgraph: with the rest
+    # of the scene hidden, frame_set only evaluates the camera chain.
+    hidden = apply_camera_isolation(scene)
+    try:
+        for i, frame_num in enumerate(range(frame_start, frame_end + 1)):
+            scene.frame_set(frame_num)
+            jitter_x, jitter_y = jitter_for_frame_number(ngx_quality, frame_num)
+            frames[f"{frame_num:04d}"] = collect_camera_data(scene, jitter_x, jitter_y, depsgraph)
+            if i % emit_every == 0 or i == total_bake - 1:
+                emit("bake_progress", percent=(i + 1) / total_bake, frame=frame_num)
+        scene.frame_set(saved_frame)
+    finally:
+        restore_camera_isolation(hidden)
 
     luts = generate_tonemap_lut(scene, str(output_dir))
     config = {

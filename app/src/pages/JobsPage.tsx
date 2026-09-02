@@ -117,7 +117,7 @@ export function JobsPage() {
           <IllustratedMessage size="L">
             <FileVideo />
             <Heading>还没有导出产物</Heading>
-            <Content>发起任务后，这里会列出项目生成的序列与视频。</Content>
+            <Content>导出后，这里会列出项目生成的序列与视频。</Content>
           </IllustratedMessage>
         )}>
         {rows.map((row) => (

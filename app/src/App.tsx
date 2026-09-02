@@ -29,7 +29,7 @@ function Shell() {
     titleAction = app.busy ? (
       <Button variant="secondary" size="S" onPress={() => void app.stopExport()}>
         <StopProcessing />
-        <Text>停止</Text>
+        <Text>中止</Text>
       </Button>
     ) : (
       <Button
@@ -37,7 +37,7 @@ function Shell() {
         size="S"
         isDisabled={!app.canStart}
         onPress={() => void app.startExport()}>
-        <Text>发起任务</Text>
+        <Text>导出</Text>
       </Button>
     );
   } else if (app.route === 'nrtool') {
