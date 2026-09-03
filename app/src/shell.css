@@ -70,8 +70,7 @@ body,
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  background: conic-gradient(from 210deg, #ff5c87, #ffb156, #7ee06e, #4cc3ff, #b07cff, #ff5c87);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 22%);
+  background: url('../assets/icon.png') center / contain no-repeat;
 }
 
 .titlebar-title {
