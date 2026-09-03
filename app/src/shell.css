@@ -225,17 +225,22 @@ body,
    to its right and nothing ever reflows. */
 .rail > button div[slot='icon'],
 .rail [role='radio'] div[slot='icon'] {
+  /* ActionButton's slot renders display:block (Button's is inline flex) —
+     make the zone a flex box so the glyph centers in both axes. */
+  display: flex;
   width: 52px;
   flex: none;
   align-self: stretch;
+  align-items: center;
   justify-content: center;
 }
 
 /* Collapse toggle (Actionbutton): keeps the collapsed rail's 52px
-   footprint in both states, so it never moves or stretches — the 52px
-   icon zone centers the glyph. */
+   footprint in both states as a square, so it never moves or stretches —
+   the 52px icon zone centers the glyph. */
 .rail > button:not(:first-child) {
   width: 52px;
+  height: 52px;
 }
 
 /* Primary action: 52px tall in both states with full pill radius — S2's
