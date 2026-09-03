@@ -56,7 +56,12 @@ export function Rail() {
     <nav className={`chrome rail${collapsed ? ' is-collapsed' : ''}`} aria-label="主导航">
       <Button variant="accent" aria-label="新建" onPress={() => void newProject()}>
         <Add />
-        {collapsed ? null : <Text>新建</Text>}
+        {/* Labels stay mounted: the rail's flex-basis transition clips them,
+            so the icon slot never reflows (no wrap mid-expand, no twitch on
+            collapse). */}
+        <span className="rail-label">
+          <Text>新建</Text>
+        </span>
       </Button>
       <ToggleButtonGroup
         aria-label="页面"
@@ -72,23 +77,33 @@ export function Rail() {
         }}>
         <ToggleButton id="project">
           <Filmstrip />
-          {collapsed ? null : <Text>项目</Text>}
+          <span className="rail-label">
+            <Text>项目</Text>
+          </span>
         </ToggleButton>
         <ToggleButton id="export" isDisabled={!hasProject}>
           <Export />
-          {collapsed ? null : <Text>导出</Text>}
+          <span className="rail-label">
+            <Text>导出</Text>
+          </span>
         </ToggleButton>
         <ToggleButton id="jobs" isDisabled={!hasProject}>
           <ViewList />
-          {collapsed ? null : <Text>Jobs</Text>}
+          <span className="rail-label">
+            <Text>Jobs</Text>
+          </span>
         </ToggleButton>
         <ToggleButton id="nrtool">
           <Brush />
-          {collapsed ? null : <Text>NR / FG</Text>}
+          <span className="rail-label">
+            <Text>NR / FG</Text>
+          </span>
         </ToggleButton>
         <ToggleButton id="settings">
           <Settings />
-          {collapsed ? null : <Text>设置</Text>}
+          <span className="rail-label">
+            <Text>设置</Text>
+          </span>
         </ToggleButton>
       </ToggleButtonGroup>
       <div className="rail-spacer" />

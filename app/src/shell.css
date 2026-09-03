@@ -193,23 +193,30 @@ body,
   app-region: no-drag;
 }
 
-/* Collapsed: buttons hug their icon and center in the rail (Adobe responsive rail);
-   the accent button collapses to a circle. */
+/* Collapsed: narrower rail only — icon x stays put so nothing reflows
+   (Adobe responsive rail); labels are always mounted and get clipped by
+   the width transition. */
 .rail.is-collapsed {
   flex-basis: 76px;
-  align-items: center;
-}
-
-.rail:not(.is-collapsed) > button,
-.rail:not(.is-collapsed) [role='radio'] {
-  width: 100%;
-  justify-content: start;
 }
 
 .rail > button,
 .rail [role='radio'] {
+  width: 100%;
+  justify-content: start;
   overflow: clip;
   flex-shrink: 0;
+}
+
+/* The label sits in an S2 flex container that wraps when the rail is
+   mid-transition — clamp it and let the rail width do the clipping. */
+.rail-label {
+  white-space: nowrap;
+  transition: opacity 150ms;
+}
+
+.rail.is-collapsed .rail-label {
+  opacity: 0;
 }
 
 .rail [role='radiogroup'] {

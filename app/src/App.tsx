@@ -27,14 +27,13 @@ function Shell() {
   let titleAction: ReactNode = null;
   if (app.route === 'export' && app.hasProject) {
     titleAction = app.busy ? (
-      <Button variant="secondary" size="S" onPress={() => void app.stopExport()}>
+      <Button variant="secondary" onPress={() => void app.stopExport()}>
         <StopProcessing />
         <Text>中止</Text>
       </Button>
     ) : (
       <Button
         variant="accent"
-        size="S"
         isDisabled={!app.canStart}
         onPress={() => void app.startExport()}>
         <Text>导出</Text>
@@ -42,14 +41,13 @@ function Shell() {
     );
   } else if (app.route === 'nrtool') {
     titleAction = nr.exporting ? (
-      <Button variant="secondary" size="S" onPress={() => void nr.stopExport()}>
+      <Button variant="secondary" onPress={() => void nr.stopExport()}>
         <StopProcessing />
         <Text>停止</Text>
       </Button>
     ) : (
       <Button
         variant="accent"
-        size="S"
         isDisabled={nr.opening || !nr.info || !nr.exportTrigger}
         onPress={() => nr.exportTrigger?.()}>
         <Text>{nr.opening ? '打开中…' : '导出'}</Text>
