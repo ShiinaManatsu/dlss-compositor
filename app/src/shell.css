@@ -103,14 +103,12 @@ body,
 }
 
 .window-btn {
-  /* Adobe-style caption button: a 48px rounded hit area centered in the
-     titlebar, not a full-height slab. */
+  /* Adobe/Windows caption style: flush full-height cell, square corners,
+     the hover fill spans the whole 48px column. */
   width: 48px;
-  height: 48px;
-  align-self: center;
+  align-self: stretch;
   border: 0;
   padding: 0;
-  border-radius: 8px;
   background: transparent;
   color: inherit;
   display: grid;
@@ -256,21 +254,40 @@ body,
   margin-top: 8px;
 }
 
-.rail [role='radio'][data-selected='true'] {
+.rail [role='radio'] {
+  /* Nav items carry no fill in any state (S2's hover/selected backgrounds
+     are layered, so an unlayered transparent wins); the left indicator
+     below carries hover/selected state instead. */
   background: transparent;
+}
+
+.rail [role='radio'][data-selected='true'] {
   color: inherit;
 }
 
-.rail [role='radio'][data-selected='true']::before {
+.rail [role='radio']::before {
   content: '';
   position: absolute;
   inset-inline-start: 6px;
   top: 50%;
   width: 3px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 2px;
+  background: color-mix(in srgb, canvastext 45%, transparent);
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.rail [role='radio']:hover::before {
+  opacity: 1;
+}
+
+.rail [role='radio'][data-selected='true']::before {
   height: 16px;
   margin-top: -8px;
-  border-radius: 2px;
   background: currentColor;
+  opacity: 1;
 }
 
 .rail-spacer {
