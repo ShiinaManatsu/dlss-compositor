@@ -48,8 +48,9 @@ body,
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  height: 48px;
-  padding-inline-start: 14px;
+  /* Tall enough that the 52px brand mark matches the rail's accent button. */
+  height: 72px;
+  padding-inline-start: 12px;
   gap: 10px;
   -webkit-app-region: drag;
   app-region: drag;
@@ -61,15 +62,15 @@ body,
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 52px;
+  height: 52px;
 }
 
 .brand-tile {
   display: block;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
   background: url('../assets/icon.png') center / contain no-repeat;
 }
 
@@ -96,7 +97,6 @@ body,
 
 .window-controls {
   display: flex;
-  height: 48px;
   align-self: stretch;
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -104,7 +104,7 @@ body,
 
 .window-btn {
   width: 46px;
-  height: 48px;
+  align-self: stretch;
   border: 0;
   padding: 0;
   background: transparent;
@@ -208,8 +208,31 @@ body,
 .rail [role='radio'] {
   width: 100%;
   justify-content: start;
+  /* S2's default align-items is baseline, which rides the glyph high in the
+     tall accent button — center everything instead. */
+  align-items: center;
+  /* The 52px icon zone below provides the inset; S2's own 16px padding would
+     offset it. */
+  padding-inline-start: 0;
   overflow: clip;
   flex-shrink: 0;
+}
+
+/* Icon zone: fixed 52px wide (= collapsed content width) with the glyph
+   centered, so icon x is IDENTICAL collapsed and expanded — labels reveal
+   to its right and nothing ever reflows. */
+.rail > button div[slot='icon'],
+.rail [role='radio'] div[slot='icon'] {
+  width: 52px;
+  flex: none;
+  align-self: stretch;
+  justify-content: center;
+}
+
+/* Primary action: 52px tall in both states — collapsed it is exactly the
+   52px content square, so the pill radius renders a circle. */
+.rail > button:first-child {
+  height: 52px;
 }
 
 /* The label sits in an S2 flex container that wraps when the rail is
@@ -221,18 +244,6 @@ body,
 
 .rail.is-collapsed .rail-label {
   opacity: 0;
-}
-
-/* Collapsed accent (新建) becomes a circle — label out of layout, icon
-   centered. Icons in the nav items keep their fixed slot; only this
-   button re-shapes. */
-.rail.is-collapsed > button:first-child {
-  height: 52px;
-  justify-content: center;
-}
-
-.rail.is-collapsed > button:first-child .rail-label {
-  display: none;
 }
 
 .rail [role='radiogroup'] {
@@ -247,7 +258,7 @@ body,
 .rail [role='radio'][data-selected='true']::before {
   content: '';
   position: absolute;
-  inset-inline-start: 4px;
+  inset-inline-start: 6px;
   top: 50%;
   width: 3px;
   height: 16px;
