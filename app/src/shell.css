@@ -103,10 +103,14 @@ body,
 }
 
 .window-btn {
+  /* Adobe-style caption button: a 48px rounded hit area centered in the
+     titlebar, not a full-height slab. */
   width: 48px;
-  align-self: stretch;
+  height: 48px;
+  align-self: center;
   border: 0;
   padding: 0;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   display: grid;
@@ -229,14 +233,12 @@ body,
   justify-content: center;
 }
 
-/* Primary action: 52px tall in both states. S2's radius token is a fixed
-   13px (rounded square); collapsed the 52px square becomes a true circle. */
+/* Primary action: 52px tall in both states with full pill radius — S2's
+   radius token is a fixed 13px, so ends would otherwise read as rounded
+   corners; 999px gives semicircular ends expanded and a circle collapsed. */
 .rail > button:first-child {
   height: 52px;
-}
-
-.rail.is-collapsed > button:first-child {
-  border-radius: 50%;
+  border-radius: 999px;
 }
 
 /* The label sits in an S2 flex container that wraps when the rail is
