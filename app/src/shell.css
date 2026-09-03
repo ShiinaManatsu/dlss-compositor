@@ -231,6 +231,13 @@ body,
   justify-content: center;
 }
 
+/* Collapse toggle (Actionbutton): keeps the collapsed rail's 52px
+   footprint in both states, so it never moves or stretches — the 52px
+   icon zone centers the glyph. */
+.rail > button:not(:first-child) {
+  width: 52px;
+}
+
 /* Primary action: 52px tall in both states with full pill radius — S2's
    radius token is a fixed 13px, so ends would otherwise read as rounded
    corners; 999px gives semicircular ends expanded and a circle collapsed. */
