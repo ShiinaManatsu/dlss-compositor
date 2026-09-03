@@ -180,6 +180,10 @@ body,
 
 .rail {
   flex: 0 0 200px;
+  /* Labels are always mounted (nowrap) — without this the automatic
+     min-content floor would clamp flex-basis and the collapsed rail
+     could never reach 76px. */
+  min-width: 0;
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -219,6 +223,18 @@ body,
   opacity: 0;
 }
 
+/* Collapsed accent (新建) becomes a circle — label out of layout, icon
+   centered. Icons in the nav items keep their fixed slot; only this
+   button re-shapes. */
+.rail.is-collapsed > button:first-child {
+  height: 52px;
+  justify-content: center;
+}
+
+.rail.is-collapsed > button:first-child .rail-label {
+  display: none;
+}
+
 .rail [role='radiogroup'] {
   margin-top: 8px;
 }
@@ -231,7 +247,7 @@ body,
 .rail [role='radio'][data-selected='true']::before {
   content: '';
   position: absolute;
-  inset-inline-start: 0;
+  inset-inline-start: 4px;
   top: 50%;
   width: 3px;
   height: 16px;
