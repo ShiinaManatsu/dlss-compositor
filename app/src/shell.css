@@ -103,8 +103,7 @@ body,
 }
 
 .window-btn {
-  /* Square caption buttons (Adobe reference), stretching with the titlebar. */
-  width: 72px;
+  width: 48px;
   align-self: stretch;
   border: 0;
   padding: 0;
@@ -230,16 +229,14 @@ body,
   justify-content: center;
 }
 
-/* Primary action: 52px tall in both states — collapsed it is exactly the
-   52px content square. S2's pill radius (height/2) would render that a
-   circle; keep it a rounded square instead (same 13px family as the
-   titlebar brand tile). */
+/* Primary action: 52px tall in both states. S2's radius token is a fixed
+   13px (rounded square); collapsed the 52px square becomes a true circle. */
 .rail > button:first-child {
   height: 52px;
 }
 
 .rail.is-collapsed > button:first-child {
-  border-radius: 13px;
+  border-radius: 50%;
 }
 
 /* The label sits in an S2 flex container that wraps when the rail is
