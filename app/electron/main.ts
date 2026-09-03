@@ -192,6 +192,8 @@ function createWindow(): BrowserWindow {
     frame: false,
     backgroundColor: '#0b0b0b',
     autoHideMenuBar: true,
+    // Packaged windows take the exe's icon; dev needs it spelled out.
+    icon: app.isPackaged ? undefined : path.join(app.getAppPath(), 'assets', 'icon.png'),
     paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
