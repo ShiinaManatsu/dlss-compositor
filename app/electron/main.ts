@@ -515,6 +515,32 @@ app.whenReady().then(() => {
     const finishShot = async (delayMs: number) => {
       await new Promise((r) => setTimeout(r, delayMs));
       await capture();
+      // `--dump-style=<selector>`: computed-style probe for the harness —
+      // the F12 panel for offscreen runs. Writes <shot>.styles.json with
+      // geometry + a fixed style whitelist (including ::before, which the
+      // rail indicators are drawn with).
+      const dumpSelector = typeof flags['dump-style'] === 'string' ? flags['dump-style'] : '';
+      if (dumpSelector && !win.isDestroyed()) {
+        const dump = await win.webContents.executeJavaScript(
+          `(() => {
+            const PROPS = ['display','position','width','height','boxSizing','padding','borderRadius','backgroundColor','backgroundImage','alignItems','justifyContent','gap','opacity','color','overflow','insetInlineStart','insetInlineEnd','flexBasis','flexShrink','flex','minWidth','transition'];
+            const pick = (cs) => Object.fromEntries(PROPS.map((p) => [p, String(cs[p] ?? '')]));
+            return JSON.stringify([...document.querySelectorAll(${JSON.stringify(dumpSelector)})].map((el) => {
+              const r = el.getBoundingClientRect();
+              return {
+                tag: el.tagName.toLowerCase(),
+                cls: el.getAttribute('class'),
+                slot: el.getAttribute('slot'),
+                aria: el.getAttribute('aria-label'),
+                rect: {x: r.x, y: r.y, w: r.width, h: r.height},
+                style: pick(getComputedStyle(el)),
+                before: (() => { const p = getComputedStyle(el, '::before'); return {content: p.content, width: p.width, height: p.height, opacity: p.opacity, background: p.backgroundColor, insetInlineStart: p.insetInlineStart, top: p.top}; })(),
+              };
+            }));
+          })()`,
+        );
+        await fs.writeFile(shotPath.replace(/\.png$/i, '') + '.styles.json', dump);
+      }
       if (flags['quit-on-shot']) {
         app.quit();
       }
