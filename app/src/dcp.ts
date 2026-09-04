@@ -143,6 +143,15 @@ export type DcpProject = {
   nrBuffer: boolean;
   /** 0 = off; 2..6 matches CLI `--fg` / RPC `fg` / `fg_multiplier`. */
   fg: number;
+  /** Session perf fallbacks（可选：旧工程缺省走 appState 默认值）. */
+  perfPersistent?: boolean;
+  perfCameraCull?: boolean;
+  perfCameraCullMarginOverride?: boolean;
+  perfCameraCullMargin?: number;
+  perfDistanceCull?: boolean;
+  perfDistanceCullMarginOverride?: boolean;
+  perfDistanceCullMargin?: number;
+  perfTileSize?: number;
   splitters: Splitters;
   preview?: string | null;
   history?: JobRecord[];
@@ -441,6 +450,14 @@ export function parseDcp(raw: string): ParseDcpResult {
       cachePath: str(obj.cachePath, ''),
       nativeResBuffers: bool(obj.nativeResBuffers, false),
       nrBuffer: bool(obj.nrBuffer, false),
+      perfPersistent: bool(obj.perfPersistent, true),
+      perfCameraCull: bool(obj.perfCameraCull, true),
+      perfCameraCullMarginOverride: bool(obj.perfCameraCullMarginOverride, false),
+      perfCameraCullMargin: num(obj.perfCameraCullMargin, 0.1),
+      perfDistanceCull: bool(obj.perfDistanceCull, true),
+      perfDistanceCullMarginOverride: bool(obj.perfDistanceCullMarginOverride, false),
+      perfDistanceCullMargin: num(obj.perfDistanceCullMargin, 10),
+      perfTileSize: num(obj.perfTileSize, 4096),
       fg: parseFg(obj.fg ?? obj.fg_multiplier),
       splitters: clampSplitters(isRecord(obj.splitters) ? (obj.splitters as Partial<Splitters>) : undefined),
       preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null,

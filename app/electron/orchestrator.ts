@@ -118,6 +118,13 @@ export type ExportRequest = {
   nativeResBuffers?: boolean;
   /** Export dlssnrbuffer_####.exr (MV+depth guidance) for the NR tool. */
   nrBuffer?: boolean;
+  /** Session perf fallbacks for inject.py (defaults match its fallback set). */
+  perfPersistent?: boolean;
+  perfCameraCull?: boolean;
+  cameraCullMargin?: number;
+  perfDistanceCull?: boolean;
+  distanceCullMargin?: number;
+  perfTileSize?: number;
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
@@ -1006,6 +1013,22 @@ export class PipelineOrchestrator {
       ov.useDenoising = false;
     }
     pushOverrideArgs(args, ov);
+  // Perf fallbacks: renderer sends explicit values; inject.py applies the
+  // same defaults when the args are absent (direct CLI use).
+  if (req.perfPersistent != null) {
+    args.push('--perf-persistent', req.perfPersistent ? 'true' : 'false');
+  }
+  if (req.perfCameraCull != null) {
+    args.push('--perf-camera-cull', req.perfCameraCull ? 'true' : 'false');
+  }
+  if (req.cameraCullMargin != null) args.push('--camera-cull-margin', String(req.cameraCullMargin));
+  if (req.perfDistanceCull != null) {
+    args.push('--perf-distance-cull', req.perfDistanceCull ? 'true' : 'false');
+  }
+  if (req.distanceCullMargin != null) {
+    args.push('--distance-cull-margin', String(req.distanceCullMargin));
+  }
+  if (req.perfTileSize != null) args.push('--tile-size', String(req.perfTileSize));
     if (req.mode === 'rr') {
       // DLSS-RR §3.5: white-noise-like sampling; BLUE_NOISE correlates pixels and
       // is tuned for Blender's own temporal accumulation.

@@ -148,6 +148,15 @@ export function useAppState() {
   const [cliLog, setCliLogState] = useState(true);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
   const [nrBuffer, setNrBuffer] = useState(false);
+  // 性能兜底（inject.py 同款默认）：边距不勾 = 沿用 blend 值。
+  const [perfPersistent, setPerfPersistent] = useState(true);
+  const [perfCameraCull, setPerfCameraCull] = useState(true);
+  const [perfCameraCullMarginOverride, setPerfCameraCullMarginOverride] = useState(false);
+  const [perfCameraCullMargin, setPerfCameraCullMargin] = useState(0.1);
+  const [perfDistanceCull, setPerfDistanceCull] = useState(true);
+  const [perfDistanceCullMarginOverride, setPerfDistanceCullMarginOverride] = useState(false);
+  const [perfDistanceCullMargin, setPerfDistanceCullMargin] = useState(10);
+  const [perfTileSize, setPerfTileSize] = useState(4096);
   const [fg, setFg] = useState(0);
   const [status, setStatus] = useState<JobStatus>('idle');
   /** 导出进度分段：准备（写 dlssconfig）→ 帧导出 → 落盘（mov 收尾）。 */
@@ -361,6 +370,14 @@ export function useAppState() {
       overrides,
       nativeResBuffers: nativeResEnabled && nativeResBuffers,
       nrBuffer,
+      perfPersistent,
+      perfCameraCull,
+      cameraCullMargin:
+        perfCameraCull && perfCameraCullMarginOverride ? perfCameraCullMargin : undefined,
+      perfDistanceCull,
+      distanceCullMargin:
+        perfDistanceCull && perfDistanceCullMarginOverride ? perfDistanceCullMargin : undefined,
+      perfTileSize,
       fg: fgMultiplier,
       effectivePercentage: pins.percentage ? percentage : (scene?.resolution_percentage ?? percentage)
     };
@@ -391,6 +408,14 @@ export function useAppState() {
     nativeResBuffers,
     nativeResEnabled,
     nrBuffer,
+    perfPersistent,
+    perfCameraCull,
+    perfCameraCullMarginOverride,
+    perfCameraCullMargin,
+    perfDistanceCull,
+    perfDistanceCullMarginOverride,
+    perfDistanceCullMargin,
+    perfTileSize,
     fgMultiplier,
     scene
   ]);
@@ -426,6 +451,14 @@ export function useAppState() {
       cachePath,
       nativeResBuffers,
       nrBuffer,
+      perfPersistent,
+      perfCameraCull,
+      perfCameraCullMarginOverride,
+      perfCameraCullMargin,
+      perfDistanceCull,
+      perfDistanceCullMarginOverride,
+      perfDistanceCullMargin,
+      perfTileSize,
       fg: fgMultiplier,
       splitters: {...DEFAULT_SPLITTERS},
       history: history.length ? history : undefined
@@ -461,6 +494,14 @@ export function useAppState() {
     setCachePath(project.cachePath);
     setNativeResBuffers(Boolean(project.nativeResBuffers));
     setNrBuffer(Boolean(project.nrBuffer));
+    setPerfPersistent(project.perfPersistent ?? true);
+    setPerfCameraCull(project.perfCameraCull ?? true);
+    setPerfCameraCullMarginOverride(Boolean(project.perfCameraCullMarginOverride));
+    setPerfCameraCullMargin(project.perfCameraCullMargin ?? 0.1);
+    setPerfDistanceCull(project.perfDistanceCull ?? true);
+    setPerfDistanceCullMarginOverride(Boolean(project.perfDistanceCullMarginOverride));
+    setPerfDistanceCullMargin(project.perfDistanceCullMargin ?? 10);
+    setPerfTileSize(project.perfTileSize ?? 4096);
     setFg(fgAllowed(nextMode) ? parseFg(project.fg) : 0);
     setHistory(project.history ?? []);
     playheadRef.current = project.frameStart;
@@ -801,6 +842,14 @@ export function useAppState() {
     cachePath,
     nativeResBuffers,
     nrBuffer,
+    perfPersistent,
+    perfCameraCull,
+    perfCameraCullMarginOverride,
+    perfCameraCullMargin,
+    perfDistanceCull,
+    perfDistanceCullMarginOverride,
+    perfDistanceCullMargin,
+    perfTileSize,
     fg,
     history
   ]);
@@ -1181,6 +1230,22 @@ export function useAppState() {
     nativeResEnabled,
     nrBuffer,
     setNrBuffer,
+    perfPersistent,
+    setPerfPersistent,
+    perfCameraCull,
+    setPerfCameraCull,
+    perfCameraCullMarginOverride,
+    setPerfCameraCullMarginOverride,
+    perfCameraCullMargin,
+    setPerfCameraCullMargin,
+    perfDistanceCull,
+    setPerfDistanceCull,
+    perfDistanceCullMarginOverride,
+    setPerfDistanceCullMarginOverride,
+    perfDistanceCullMargin,
+    setPerfDistanceCullMargin,
+    perfTileSize,
+    setPerfTileSize,
     fgEnabled,
     fgMultiplier,
     setFg,

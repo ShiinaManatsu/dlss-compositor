@@ -148,6 +148,22 @@ export function ExportPage() {
     nativeResEnabled,
     nrBuffer,
     setNrBuffer,
+    perfPersistent,
+    setPerfPersistent,
+    perfCameraCull,
+    setPerfCameraCull,
+    perfCameraCullMarginOverride,
+    setPerfCameraCullMarginOverride,
+    perfCameraCullMargin,
+    setPerfCameraCullMargin,
+    perfDistanceCull,
+    setPerfDistanceCull,
+    perfDistanceCullMarginOverride,
+    setPerfDistanceCullMarginOverride,
+    perfDistanceCullMargin,
+    setPerfDistanceCullMargin,
+    perfTileSize,
+    setPerfTileSize,
     fgEnabled,
     fgMultiplier,
     setFg,
@@ -347,6 +363,48 @@ export function ExportPage() {
               ) : null}
             </>
           )}
+        </SettingsSection>
+        <Divider size="S" />
+        <SettingsSection title="性能">
+          <Switch size="S" isSelected={perfPersistent} onChange={setPerfPersistent} isDisabled={busy}>
+            持久化数据
+          </Switch>
+          <Switch size="S" isSelected={perfCameraCull} onChange={setPerfCameraCull} isDisabled={busy}>
+            相机剔除
+          </Switch>
+          <OverrideNumber
+            label="相机边距"
+            checked={perfCameraCullMarginOverride}
+            onChecked={setPerfCameraCullMarginOverride}
+            value={perfCameraCullMargin}
+            onChange={setPerfCameraCullMargin}
+            disabled={!perfCameraCull || busy}
+            min={0}
+            formatOptions={{minimumFractionDigits: 0, maximumFractionDigits: 2}}
+          />
+          <Switch size="S" isSelected={perfDistanceCull} onChange={setPerfDistanceCull} isDisabled={busy}>
+            距离剔除
+          </Switch>
+          <OverrideNumber
+            label="距离边距"
+            checked={perfDistanceCullMarginOverride}
+            onChecked={setPerfDistanceCullMarginOverride}
+            value={perfDistanceCullMargin}
+            onChange={setPerfDistanceCullMargin}
+            disabled={!perfDistanceCull || busy}
+            min={0}
+            formatOptions={{minimumFractionDigits: 0, maximumFractionDigits: 1}}
+          />
+          <NumberField
+            label="Tile 大小"
+            size="S"
+            value={perfTileSize}
+            onChange={setPerfTileSize}
+            minValue={1}
+            maxValue={8192}
+            hideStepper
+            isDisabled={busy}
+          />
         </SettingsSection>
         <Divider size="S" />
         <SettingsSection title="DLSS" defaultExpanded>

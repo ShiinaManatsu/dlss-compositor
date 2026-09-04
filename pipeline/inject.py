@@ -164,6 +164,42 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--denoiser", default=None, help="OPENIMAGEDENOISE | OPTIX")
     parser.add_argument(
+        "--perf-persistent",
+        type=parse_bool,
+        default=None,
+        help="render.use_persistent_data; default true (perf fallback)",
+    )
+    parser.add_argument(
+        "--perf-camera-cull",
+        type=parse_bool,
+        default=None,
+        help="cycles.use_camera_cull; default true (perf fallback)",
+    )
+    parser.add_argument(
+        "--camera-cull-margin",
+        type=float,
+        default=None,
+        help="cycles.camera_cull_margin; omit to keep blend value",
+    )
+    parser.add_argument(
+        "--perf-distance-cull",
+        type=parse_bool,
+        default=None,
+        help="cycles.use_distance_cull; default true (perf fallback)",
+    )
+    parser.add_argument(
+        "--distance-cull-margin",
+        type=float,
+        default=None,
+        help="cycles.distance_cull_margin; omit to keep blend value",
+    )
+    parser.add_argument(
+        "--tile-size",
+        type=int,
+        default=None,
+        help="cycles.tile_size; default 4096 (perf fallback)",
+    )
+    parser.add_argument(
         "--sampling-pattern",
         dest="sampling_pattern",
         default=None,
@@ -348,6 +384,43 @@ def insert_file_output(
             linked.append(name)
 
     return fo, linked
+
+
+def apply_perf_fallbacks(scene: bpy.types.Scene, args: argparse.Namespace) -> None:
+    """Session-only render speed fallbacks (never saved into the blend).
+
+    The per-frame "Initializing" phase dominates animation exports on heavy
+    scenes; these shrink the sync/BVH/upload work Cycles redoes each frame.
+    Switches default on; margins follow the blend unless overridden; tile
+    defaults to 4096. All guarded — older Blenders just skip missing attrs.
+    """
+    render = scene.render
+    cycles = getattr(scene, "cycles", None)
+    # Keep render data resident between frames: skips per-frame scene sync and
+    # BVH rebuild for everything static.
+    if hasattr(render, "use_persistent_data"):
+        render.use_persistent_data = True if args.perf_persistent is None else args.perf_persistent
+    if cycles is not None:
+        # Cull objects outside the camera frustum / beyond the distance margin
+        # before sync: less geometry to sync and BVH per frame.
+        for attr, value in (
+            ("use_camera_cull", args.perf_camera_cull),
+            ("use_distance_cull", args.perf_distance_cull),
+        ):
+            if hasattr(cycles, attr):
+                setattr(cycles, attr, True if value is None else value)
+        if args.camera_cull_margin is not None and hasattr(cycles, "camera_cull_margin"):
+            cycles.camera_cull_margin = args.camera_cull_margin
+        if args.distance_cull_margin is not None and hasattr(cycles, "distance_cull_margin"):
+            cycles.distance_cull_margin = args.distance_cull_margin
+        # 4K frames exceed the 2048 default: one tile avoids per-tile overhead
+        # (denoiser/filter setup per tile) on GPU renders.
+        tile = 4096 if args.tile_size is None else args.tile_size
+        if hasattr(cycles, "tile_size"):
+            try:
+                cycles.tile_size = tile
+            except TypeError:
+                pass
 
 
 def enable_passes(scene: bpy.types.Scene, mode: str = "sr", sampling_pattern: str | None = None) -> None:
@@ -842,6 +915,7 @@ def main() -> int:
     )
 
     enable_passes(scene, args.mode, sampling_pattern=getattr(args, "sampling_pattern", None))
+    apply_perf_fallbacks(scene, args)
     tree = compositor_tree(scene)
     preexisting = existing_file_outputs(tree)
     buffer_pass = str(getattr(args, "buffer_pass", "combined") or "combined")
