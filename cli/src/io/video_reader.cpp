@@ -70,19 +70,32 @@ void VideoReader::open(const std::filesystem::path& file) {
         fail("VideoReader: zero dimensions: " + file.string());
     }
 
-    // CFR assumption. avg_frame_rate is DERIVED (frames / stream duration) and
-    // comes out wrong when the muxer stored packets without durations (stream
-    // duration then ends at the last PTS — measured 45/1 on a 30/1 3-frame
-    // ProRes, 2026-08-31). r_frame_rate is the codec timing and is the honest
-    // rate for CFR sources; keep avg only when the two agree within 1%.
+    // CFR assumption. Two demuxer-derived rates, both can lie:
+    //   avg_frame_rate is DERIVED (frames / stream duration) and comes out
+    //   wrong when the muxer stored packets without durations (stream
+    //   duration then ends at the last PTS — measured 45/1 on a 30/1 3-frame
+    //   ProRes, 2026-08-31).
+    //   r_frame_rate is the codec timing — but the mov demuxer echoes the
+    //   track tick rate through it when stts carries no real sample
+    //   durations (our fragmented ProRes MOVs: 1-tick stts → r = 1/tb =
+    //   15360 while avg is the honest 30; spotted via "landed on 512").
+    // When r echoes 1/time_base it carries no timing information: trust avg.
+    // Otherwise keep r only when the two agree within 1%; on disagreement r
+    // is the honest CFR rate for normally-muxed files.
     {
         const AVRational avg = st->avg_frame_rate;
         const AVRational r   = st->r_frame_rate;
+        const AVRational tb  = st->time_base;
         const double avgFps  = avg.num > 0 ? static_cast<double>(avg.num) / avg.den : 0.0;
         const double rFps    = r.num > 0 ? static_cast<double>(r.num) / r.den : 0.0;
+        const double tbFps   = tb.num > 0 ? static_cast<double>(tb.den) / tb.num : 0.0;
+        const bool rEchoesTb = rFps > 0.0 && tbFps > 0.0 &&
+                               std::fabs(rFps - tbFps) <= 0.01 * tbFps;
         const bool agree = avgFps > 0.0 && rFps > 0.0 &&
                            std::fabs(avgFps - rFps) <= 0.01 * rFps;
-        const AVRational fr = agree ? avg : (r.num > 0 ? r : avg);
+        const AVRational fr = rEchoesTb
+            ? avg
+            : (agree ? avg : (r.num > 0 ? r : avg));
         m_fps = fr.num > 0 ? static_cast<double>(fr.num) / static_cast<double>(fr.den) : 0.0;
     }
     if (m_fps <= 0.0) fail("VideoReader: unknown frame rate: " + file.string());

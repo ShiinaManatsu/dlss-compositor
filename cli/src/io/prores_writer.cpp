@@ -403,7 +403,14 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     if (isHdr) {
         addHdr10SideData(m_impl->stream, m_impl->hdrMasteringNits);
     }
-    m_impl->stream->time_base = m_impl->codec->time_base;
+    // High-res track timescale (the MOV/ProRes convention, 1/15360 s ticks):
+    // av_packet_rescale_ts below then stamps both PTS and the per-sample
+    // duration as the TRUE frame period in these ticks. With the codec tb
+    // {1, fps} the muxer wrote 1-tick stts durations — demuxers then report
+    // r_frame_rate as the 15360 tick echo instead of the frame rate, and
+    // VideoReader misframed every seek ("skipped past frame ... landed on
+    // 512").
+    m_impl->stream->time_base = AVRational{1, 15360};
 
     // Write packets through to the file as they encode. The MOV muxer still
     // keeps a small interleave window, but the encoded bitstream must not
@@ -551,6 +558,14 @@ void ProResWriter::encodeFrame(void* rawFrame)
             m_impl->packet->duration = 1;
         }
         av_packet_rescale_ts(m_impl->packet, m_impl->codec->time_base, m_impl->stream->time_base);
+        // movenc rescales PTS/DTS into the track timescale but copies the
+        // packet duration into stts/trun VERBATIM (observed: rescaled pts
+        // 0/512/1024 next to 1-tick durations). Hand it the true frame period
+        // in the 15360-tick timescale directly — a 1-tick stts makes demuxers
+        // report r_frame_rate as the tick echo (15360) instead of the fps,
+        // which broke VideoReader's CFR seek math.
+        m_impl->packet->duration =
+            av_rescale_q(1, m_impl->codec->time_base, AVRational{1, 15360});
         m_impl->packet->stream_index = m_impl->stream->index;
         err = av_interleaved_write_frame(m_impl->format, m_impl->packet);
         av_packet_unref(m_impl->packet);
