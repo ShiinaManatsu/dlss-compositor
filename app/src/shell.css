@@ -48,9 +48,10 @@ body,
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  /* Tall enough that the 52px brand mark matches the rail's accent button. */
-  height: 72px;
-  padding-inline-start: 12px;
+  /* Standard caption height: the 48px square window buttons fill it flush.
+     Brand mark centers on x=28, the same axis as the rail's icon column. */
+  height: 48px;
+  padding-inline-start: 16px;
   gap: 10px;
   -webkit-app-region: drag;
   app-region: drag;
@@ -62,15 +63,15 @@ body,
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 52px;
-  height: 52px;
+  width: 24px;
+  height: 24px;
 }
 
 .brand-tile {
   display: block;
-  width: 52px;
-  height: 52px;
-  border-radius: 13px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   background: url('../assets/icon.png') center / contain no-repeat;
 }
 
@@ -203,7 +204,7 @@ body,
    (Adobe responsive rail); labels are always mounted and get clipped by
    the width transition. */
 .rail.is-collapsed {
-  flex-basis: 76px;
+  flex-basis: 56px;
 }
 
 .rail > button,
@@ -220,34 +221,34 @@ body,
   flex-shrink: 0;
 }
 
-/* Icon zone: fixed 52px wide (= collapsed content width) with the glyph
+/* Icon zone: fixed 32px wide (= collapsed content width) with the glyph
    centered, so icon x is IDENTICAL collapsed and expanded — labels reveal
-   to its right and nothing ever reflows. */
+   to its right and nothing ever reflows. All rail rows share the 32px
+   height of S2's standard control. */
 .rail > button div[slot='icon'],
 .rail [role='radio'] div[slot='icon'] {
   /* ActionButton's slot renders display:block (Button's is inline flex) —
      make the zone a flex box so the glyph centers in both axes. */
   display: flex;
-  width: 52px;
+  width: 32px;
   flex: none;
   align-self: stretch;
   align-items: center;
   justify-content: center;
 }
 
-/* Collapse toggle (Actionbutton): keeps the collapsed rail's 52px
-   footprint in both states as a square, so it never moves or stretches —
-   the 52px icon zone centers the glyph. */
+/* Collapse toggle (Actionbutton): keeps the collapsed rail's 32px
+   footprint in both states as a square, so it never moves or stretches. */
 .rail > button:not(:first-child) {
-  width: 52px;
-  height: 52px;
+  width: 32px;
+  height: 32px;
 }
 
-/* Primary action: 52px tall in both states with full pill radius — S2's
+/* Primary action: 32px tall in both states with full pill radius — S2's
    radius token is a fixed 13px, so ends would otherwise read as rounded
    corners; 999px gives semicircular ends expanded and a circle collapsed. */
 .rail > button:first-child {
-  height: 52px;
+  height: 32px;
   border-radius: 999px;
 }
 
@@ -280,7 +281,9 @@ body,
 .rail [role='radio']::before {
   content: '';
   position: absolute;
-  inset-inline-start: 6px;
+  /* Zone is 32px wide with a 20px glyph centered (glyph x 6..26): the
+     indicator hugs the zone's left edge to keep clear of it. */
+  inset-inline-start: 0;
   top: 50%;
   width: 3px;
   height: 10px;
