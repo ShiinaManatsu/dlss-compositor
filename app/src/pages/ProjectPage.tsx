@@ -93,7 +93,9 @@ export function ProjectPage() {
         </ButtonGroup>
       </div>
       <div className="project-grid" ref={gridRef}>
-        <div className="project-grid-inner" style={gridWidth ? {width: gridWidth} : undefined}>
+        <div
+          className="project-grid-inner"
+          style={gridWidth && recents.length ? {width: gridWidth} : undefined}>
           <CardView
             aria-label="最近工程"
             items={recents.map((item) => ({...item, id: item.path}))}
