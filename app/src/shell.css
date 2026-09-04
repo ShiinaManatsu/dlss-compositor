@@ -97,16 +97,16 @@ body,
 
 .window-controls {
   display: flex;
-  align-self: stretch;
+  /* Square 48px cells anchored flush to the window's top-right corner —
+     stretch would make them 72 tall (the brand-tile titlebar height). */
+  align-self: flex-start;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .window-btn {
-  /* Adobe/Windows caption style: flush full-height cell, square corners,
-     the hover fill spans the whole 48px column. */
   width: 48px;
-  align-self: stretch;
+  height: 48px;
   border: 0;
   padding: 0;
   background: transparent;
