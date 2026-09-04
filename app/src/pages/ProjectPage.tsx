@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {
   Button,
   ButtonGroup,
@@ -29,9 +29,37 @@ function formatStamp(mtime: number) {
   });
 }
 
+// S2's CardView grid sizes each card as containerWidth/columns − 16px
+// gutter (clamped to 200..280), so toggling the rail — which changes the
+// page width — resizes every card. Snapping the grid to an exact multiple
+// of the 216px column step (200px card + 16px gutter) makes
+// width/columns − 16 = 200 exactly: card size stays constant, only the
+// column count changes. Matches CardView size="M" regular-density options.
+const CARD_MIN = 200;
+const CARD_GAP = 16;
+const CARD_STEP = CARD_MIN + CARD_GAP;
+
 export function ProjectPage() {
   const {recents, openDcp, pickOpenDcp, newProject} = useApp();
   const [previews, setPreviews] = useState<Record<string, string | null>>({});
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [gridWidth, setGridWidth] = useState<number>();
+
+  useLayoutEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const snap = () => {
+      const cs = getComputedStyle(el);
+      const available =
+        el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const cols = Math.max(1, Math.floor(available / CARD_STEP));
+      setGridWidth(cols * CARD_STEP);
+    };
+    snap();
+    const ro = new ResizeObserver(snap);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,40 +92,42 @@ export function ProjectPage() {
           </Button>
         </ButtonGroup>
       </div>
-      <div className="project-grid">
-        <CardView
-          aria-label="最近工程"
-          items={recents.map((item) => ({...item, id: item.path}))}
-          layout="grid"
-          size="M"
-          onAction={(key) => void openDcp(String(key))}
-          styles={style({width: 'full', height: 'full'})}
-          renderEmptyState={() => (
-            <IllustratedMessage size="L">
-              <FileVideo />
-              <Heading>没有最近工程</Heading>
-              <Content>打开一个 .dcp 工程，或从 .blend 新建。</Content>
-            </IllustratedMessage>
-          )}>
-          {(item: RecentProject) => (
-            <AssetCard id={item.path} textValue={item.name} size="S">
-              <CardPreview>
-                {previews[item.path] ? (
-                  <Image src={previews[item.path] ?? ''} alt="" />
-                ) : (
-                  <FileVideo />
-                )}
-              </CardPreview>
-              <Content>
-                <Text slot="title">{item.name}</Text>
-                <Text slot="description">
-                  {(item.mode || 'dcp').toUpperCase()}
-                  {item.mtime ? ` · ${formatStamp(item.mtime)}` : ''}
-                </Text>
-              </Content>
-            </AssetCard>
-          )}
-        </CardView>
+      <div className="project-grid" ref={gridRef}>
+        <div className="project-grid-inner" style={gridWidth ? {width: gridWidth} : undefined}>
+          <CardView
+            aria-label="最近工程"
+            items={recents.map((item) => ({...item, id: item.path}))}
+            layout="grid"
+            size="M"
+            onAction={(key) => void openDcp(String(key))}
+            styles={style({width: 'full', height: 'full'})}
+            renderEmptyState={() => (
+              <IllustratedMessage size="L">
+                <FileVideo />
+                <Heading>没有最近工程</Heading>
+                <Content>打开一个 .dcp 工程，或从 .blend 新建。</Content>
+              </IllustratedMessage>
+            )}>
+            {(item: RecentProject) => (
+              <AssetCard id={item.path} textValue={item.name} size="S">
+                <CardPreview>
+                  {previews[item.path] ? (
+                    <Image src={previews[item.path] ?? ''} alt="" />
+                  ) : (
+                    <FileVideo />
+                  )}
+                </CardPreview>
+                <Content>
+                  <Text slot="title">{item.name}</Text>
+                  <Text slot="description">
+                    {(item.mode || 'dcp').toUpperCase()}
+                    {item.mtime ? ` · ${formatStamp(item.mtime)}` : ''}
+                  </Text>
+                </Content>
+              </AssetCard>
+            )}
+          </CardView>
+        </div>
       </div>
     </div>
   );

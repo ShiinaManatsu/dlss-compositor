@@ -361,6 +361,13 @@ body,
   display: flex;
 }
 
+/* Snapped-width block (see ProjectPage): centered so the dead space the
+   column snap leaves is split evenly. */
+.project-grid-inner {
+  margin: 0 auto;
+  min-width: 0;
+}
+
 /* ---------- export page ---------- */
 
 .export-body {
