@@ -523,7 +523,7 @@ app.whenReady().then(() => {
       if (dumpSelector && !win.isDestroyed()) {
         const dump = await win.webContents.executeJavaScript(
           `(() => {
-            const PROPS = ['display','position','width','height','boxSizing','padding','borderRadius','backgroundColor','backgroundImage','alignItems','justifyContent','gap','opacity','color','overflow','insetInlineStart','insetInlineEnd','flexBasis','flexShrink','flex','minWidth','transition'];
+            const PROPS = ['display','position','width','height','boxSizing','padding','margin','marginInlineEnd','marginInlineStart','borderRadius','backgroundColor','backgroundImage','alignItems','justifyContent','gap','opacity','color','overflow','insetInlineStart','insetInlineEnd','flexBasis','flexShrink','flex','minWidth','transition'];
             const pick = (cs) => Object.fromEntries(PROPS.map((p) => [p, String(cs[p] ?? '')]));
             return JSON.stringify([...document.querySelectorAll(${JSON.stringify(dumpSelector)})].map((el) => {
               const r = el.getBoundingClientRect();

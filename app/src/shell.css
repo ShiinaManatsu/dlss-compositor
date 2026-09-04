@@ -237,6 +237,13 @@ body,
   justify-content: center;
 }
 
+/* S2's icon class carries margin-left: -2px (optical alignment next to a
+   label); inside the fixed icon zone it shifts glyphs 1px off center. */
+.rail > button div[slot='icon'] svg,
+.rail [role='radio'] div[slot='icon'] svg {
+  margin: 0;
+}
+
 /* Collapse toggle (Actionbutton): keeps the collapsed rail's 32px
    footprint in both states as a square, so it never moves or stretches. */
 .rail > button:not(:first-child) {
