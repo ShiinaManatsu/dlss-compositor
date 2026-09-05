@@ -110,16 +110,6 @@ std::vector<std::pair<int, std::string>> sortedFrameKeys(const DlssConfig& cfg) 
     return keys;
 }
 
-std::vector<std::filesystem::path> buildFramePaths(
-        const DlssConfig& cfg, const std::filesystem::path& baseDir) {
-    std::vector<std::filesystem::path> paths;
-    const std::string pattern = cfg.filename_pattern.empty() ? "####.exr" : cfg.filename_pattern;
-    for (const auto& [num, _] : sortedFrameKeys(cfg)) {
-        paths.emplace_back(baseDir / AsyncFrameWriter::formatPath(pattern, num));
-    }
-    return paths;
-}
-
 const CameraData* findCamera(const DlssConfig& cfg, const std::string& key) {
     auto it = cfg.frames.find(key);
     return it != cfg.frames.end() ? &it->second : nullptr;
@@ -357,6 +347,37 @@ struct Stopwatch {
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Frame-window planning (shared with the RPC layer)
+// ─────────────────────────────────────────────────────────────────────────────
+
+FrameWindowStats frameWindowStats(const DlssConfig& cfg,
+                                  std::int64_t begin, std::int64_t end,
+                                  std::int64_t outputBegin,
+                                  bool withFg, int fgMult) {
+    FrameWindowStats s{0, 0, 0, 0};
+    for (const auto& [num, _] : sortedFrameKeys(cfg)) {
+        if (begin > 0 && num < begin) continue;
+        if (end > 0 && num > end) continue;
+        s.inputFrames++;
+        if (outputBegin > 0 && num < outputBegin) s.warmupInputs++;
+    }
+    s.realInputs = s.inputFrames - s.warmupInputs;
+    if (s.realInputs <= 0) return s;
+    // FG emits interp frames keyed on the current input frame: a real frame
+    // preceded by a warmup frame also emits its (fg-1) boundary interpolations,
+    // so a segment with warmup produces fg per real input while a cold start
+    // (first segment / plain run) produces fg*N - (fg-1) — both matching what
+    // one continuous run over the same output range would write.
+    if (withFg)
+        s.expectedOutputs = s.warmupInputs > 0
+            ? fgMult * s.realInputs
+            : fgMult * s.realInputs - (fgMult - 1);
+    else
+        s.expectedOutputs = s.realInputs;
+    return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -383,7 +404,16 @@ void Pipeline::run(const PipelineConfig& config) {
     const bool exrOut = (config.outputFormat == OutputFormat::ExrLinear);
 
     const DlssConfig& dlssCfg = config.dlssConfig;
-    const auto frameKeys = sortedFrameKeys(dlssCfg);
+    const auto frameKeys = [&] {
+        std::vector<std::pair<int, std::string>> keys;
+        keys.reserve(dlssCfg.frames.size());
+        for (const auto& [num, key] : sortedFrameKeys(dlssCfg)) {
+            if (config.inputFrameBegin > 0 && num < config.inputFrameBegin) continue;
+            if (config.inputFrameEnd > 0 && num > config.inputFrameEnd) continue;
+            keys.emplace_back(num, key);
+        }
+        return keys;
+    }();
     const int inputFrames = static_cast<int>(frameKeys.size());
     if (inputFrames == 0)
         throw std::runtime_error("Pipeline: dlssConfig has no frames");
@@ -391,7 +421,15 @@ void Pipeline::run(const PipelineConfig& config) {
         throw std::runtime_error("Pipeline: fps must be positive");
 
     const int fgMult = useFG ? std::max(2, std::min(6, config.fgMultiplier)) : 1;
-    const int outputFrames = useFG ? (fgMult * inputFrames - (fgMult - 1)) : inputFrames;
+    const FrameWindowStats window = frameWindowStats(
+        dlssCfg, config.inputFrameBegin, config.inputFrameEnd, config.outputFrameBegin,
+        useFG, fgMult);
+    if (window.realInputs <= 0)
+        throw std::runtime_error("Pipeline: frame window has no output frames "
+                                 "(input " + std::to_string(config.inputFrameBegin) + ".." +
+                                 std::to_string(config.inputFrameEnd) + ", output from " +
+                                 std::to_string(config.outputFrameBegin) + ")");
+    const int outputFrames = window.expectedOutputs;
     const float frameTimeMs = 1000.0f / static_cast<float>(dlssCfg.fps); // DLSS §3.14 — from fps
 
     if (useNR && dlssCfg.is_hdr) {
@@ -551,7 +589,9 @@ void Pipeline::run(const PipelineConfig& config) {
         VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
 
         // ── Output frame counter / progress ───────────────────────────────────
-        int  outputFrameIdx = 0;
+        // outputFrameStartIndex lets parallel segments continue the output
+        // numbering of the slices before them (1 = plain single-run behavior).
+        int  outputFrameIdx = std::max(1, config.outputFrameStartIndex) - 1;
         std::atomic<int> writtenFrames{0};
 
         const bool keepInput  = shouldKeepInput();
@@ -624,7 +664,18 @@ void Pipeline::run(const PipelineConfig& config) {
         // be fully written by Blender before decoding — EXR IO overlaps GPU work
         // instead of serializing in the frame loop. The pipeline still deletes via
         // onInputConsumed after CPU decode (RAM-disk watermark).
-        const auto framePaths = buildFramePaths(dlssCfg, inputDir);
+        // Paths follow the WINDOWED key list, not all of dlssconfig: a segment's
+        // buffer dir only ever holds its own slice, and a wait-for-appearances
+        // watcher pointed at frames outside the window would stall forever.
+        std::vector<std::filesystem::path> framePaths;
+        framePaths.reserve(frameKeys.size());
+        {
+            const std::string pattern =
+                dlssCfg.filename_pattern.empty() ? "####.exr" : dlssCfg.filename_pattern;
+            for (const auto& [num, _] : frameKeys) {
+                framePaths.emplace_back(inputDir / AsyncFrameWriter::formatPath(pattern, num));
+            }
+        }
         const int prefetchDepth = std::max(1, config.prefetchDepth);
 
         std::unique_ptr<FramePrefetcher>   srPrefetcher;
@@ -640,6 +691,12 @@ void Pipeline::run(const PipelineConfig& config) {
         for (int fi = 0; fi < inputFrames && !m_stop.load(std::memory_order_acquire); ++fi) {
             Stopwatch frameSw;
             const auto t0 = std::chrono::steady_clock::now();
+
+            // Segment warmup gate: frames below outputFrameBegin run the full
+            // GPU chain (NGX history build) but enqueue no output below.
+            const std::int64_t frameNum = frameKeys[static_cast<size_t>(fi)].first;
+            const bool warmupFrame = config.outputFrameBegin > 0 &&
+                                     frameNum < config.outputFrameBegin;
 
             // ── [1] Decode EXR ─────────────────────────────────────────────────
             std::filesystem::path sourcePath;
@@ -1017,36 +1074,40 @@ void Pipeline::run(const PipelineConfig& config) {
             const auto tPreview = std::chrono::steady_clock::now();
 
             // ── [9] Write output frames ────────────────────────────────────────
-            const bool writeInterp = useFG && fi > 0 && !reset;
-            if (writeInterp) {
-                for (auto& h : tex.interpFrames) {
-                    enqueueOutput(h,
-                        exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                               : VK_IMAGE_LAYOUT_GENERAL, /*isGenerated=*/true);
+            // Warmup frames skip the writers entirely: outputFrameIdx must not
+            // advance or the numbering offset for later segments would drift.
+            if (!warmupFrame) {
+                const bool writeInterp = useFG && fi > 0 && !reset;
+                if (writeInterp) {
+                    for (auto& h : tex.interpFrames) {
+                        enqueueOutput(h,
+                            exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                   : VK_IMAGE_LAYOUT_GENERAL, /*isGenerated=*/true);
+                    }
                 }
-            }
-            enqueueOutput(displayOut,
-                exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                       : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
+                enqueueOutput(displayOut,
+                    exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                           : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
 
-            // dlssnrbuffer rides along at the same frame index (FG must be off —
-            // dispatcher validates — so output idx == input idx). Lives in its
-            // own folder (nrBufferDir, named after the video) so multiple
-            // exports don't mix guidance sequences in one directory.
-            if (config.nrBuffer && !nrBufferPixels.empty()) {
-                WriteJob bufJob;
-                bufJob.format         = OutputFormat::ExrNrBuffer;
-                bufJob.outputPath     = std::filesystem::path(config.nrBufferDir) /
-                    AsyncFrameWriter::formatPath("dlssnrbuffer_####.exr", outputFrameIdx);
-                bufJob.width          = rW;
-                bufJob.height         = rH;
-                bufJob.fps            = dlssCfg.fps;
-                bufJob.is_hdr         = false;
-                bufJob.pixelEncoding  = PixelEncoding::SceneLinear;  // ignored by data encoder
-                bufJob.encoderOptions = config.encoderOptions;
-                bufJob.overwriteMode  = config.overwriteMode;
-                bufJob.pixels         = std::move(nrBufferPixels);
-                frameWriter.enqueue(std::move(bufJob));
+                // dlssnrbuffer rides along at the same frame index (FG must be off —
+                // dispatcher validates — so output idx == input idx). Lives in its
+                // own folder (nrBufferDir, named after the video) so multiple
+                // exports don't mix guidance sequences in one directory.
+                if (config.nrBuffer && !nrBufferPixels.empty()) {
+                    WriteJob bufJob;
+                    bufJob.format         = OutputFormat::ExrNrBuffer;
+                    bufJob.outputPath     = std::filesystem::path(config.nrBufferDir) /
+                        AsyncFrameWriter::formatPath("dlssnrbuffer_####.exr", outputFrameIdx);
+                    bufJob.width          = rW;
+                    bufJob.height         = rH;
+                    bufJob.fps            = dlssCfg.fps;
+                    bufJob.is_hdr         = false;
+                    bufJob.pixelEncoding  = PixelEncoding::SceneLinear;  // ignored by data encoder
+                    bufJob.encoderOptions = config.encoderOptions;
+                    bufJob.overwriteMode  = config.overwriteMode;
+                    bufJob.pixels         = std::move(nrBufferPixels);
+                    frameWriter.enqueue(std::move(bufJob));
+                }
             }
 
             // ── [10] Fire frame event ──────────────────────────────────────────

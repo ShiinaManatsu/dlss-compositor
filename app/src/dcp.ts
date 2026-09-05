@@ -152,6 +152,10 @@ export type DcpProject = {
   perfDistanceCullMarginOverride?: boolean;
   perfDistanceCullMargin?: number;
   perfTileSize?: number;
+  /** 分段并行渲染：0 = 关；2..6 = 段数（每个段一个 Blender/CLI 实例）。 */
+  parallelSegments?: number;
+  /** 分段前多渲染的历史积累帧（NGX 收敛用），默认 16。 */
+  parallelWarmup?: number;
   splitters: Splitters;
   preview?: string | null;
   history?: JobRecord[];
@@ -458,6 +462,8 @@ export function parseDcp(raw: string): ParseDcpResult {
       perfDistanceCullMarginOverride: bool(obj.perfDistanceCullMarginOverride, false),
       perfDistanceCullMargin: num(obj.perfDistanceCullMargin, 10),
       perfTileSize: num(obj.perfTileSize, 4096),
+      parallelSegments: Math.min(6, Math.max(0, Math.trunc(num(obj.parallelSegments, 0)))),
+      parallelWarmup: Math.min(64, Math.max(0, Math.trunc(num(obj.parallelWarmup, 16)))),
       fg: parseFg(obj.fg ?? obj.fg_multiplier),
       splitters: clampSplitters(isRecord(obj.splitters) ? (obj.splitters as Partial<Splitters>) : undefined),
       preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null,
@@ -521,6 +527,8 @@ export function emptyProject(blend: string): DcpProject {
     cachePath: '',
     nativeResBuffers: false,
     nrBuffer: false,
+    parallelSegments: 0,
+    parallelWarmup: 16,
     fg: 0,
     splitters: {...DEFAULT_SPLITTERS},
     preview: null

@@ -11,6 +11,7 @@
 #include "../dlss/ngx_wrapper.h"
 #include "../gpu/vulkan_context.h"
 #include "../io/encoder_registry.h"
+#include "../io/mov_concat.h"
 
 #include <algorithm>
 #include <cctype>
@@ -135,6 +136,7 @@ nlohmann::json RpcDispatcher::dispatch(const std::string& method, const nlohmann
         if (method == "nrtool_preview")     return handleNrToolPreview(params);
         if (method == "nrtool_export")      return handleNrToolExport(params);
         if (method == "nrtool_close")       return handleNrToolClose(params);
+        if (method == "mov_concat")         return handleMovConcat(params);
 
         // Legacy two-step API (MethodChannel compat)
         if (method == "setTask")               return handleSetTask(params);
@@ -440,6 +442,31 @@ nlohmann::json RpcDispatcher::handleNrToolClose(const nlohmann::json& /*p*/) {
 }
 
 // =============================================================================
+// Segmented rendering: stream-copy concat of the per-segment videos
+// =============================================================================
+
+nlohmann::json RpcDispatcher::handleMovConcat(const nlohmann::json& p) {
+    if (!p.contains("inputs") || !p["inputs"].is_array() || p["inputs"].size() < 2) {
+        throw std::runtime_error("mov_concat: inputs must be an array of at least 2 file paths");
+    }
+    std::vector<std::filesystem::path> inputs;
+    for (const auto& item : p["inputs"]) {
+        if (!item.is_string() || item.get<std::string>().empty())
+            throw std::runtime_error("mov_concat: every input must be a non-empty path string");
+        inputs.emplace_back(item.get<std::string>());
+    }
+    if (!p.contains("output") || !p["output"].is_string() || p["output"].get<std::string>().empty()) {
+        throw std::runtime_error("mov_concat: output path is required");
+    }
+    const std::filesystem::path output = p["output"].get<std::string>();
+    if (std::filesystem::is_regular_file(output)) {
+        throw std::runtime_error("mov_concat: output already exists: " + output.string());
+    }
+    const std::int64_t frames = concatVideoFiles(inputs, output);
+    return {{"ok", true}, {"frames", frames}, {"output", output.string()}};
+}
+
+// =============================================================================
 // PipelineConfig builder
 // =============================================================================
 
@@ -499,6 +526,20 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.writerQueueMultiplier = std::max(1, wrQueueMul);
     cfg.watchInput         = watchInput;
 
+    // ── Segmented rendering window (0 = unbounded / plain single-run) ─────────
+    cfg.inputFrameBegin      = p.value("input_frame_begin", (std::int64_t)0);
+    cfg.inputFrameEnd        = p.value("input_frame_end", (std::int64_t)0);
+    cfg.outputFrameBegin     = p.value("output_frame_begin", (std::int64_t)0);
+    cfg.outputFrameStartIndex = std::max(1, p.value("output_frame_start_index", 1));
+    if (cfg.inputFrameBegin < 0 || cfg.inputFrameEnd < 0 || cfg.outputFrameBegin < 0 ||
+        (cfg.inputFrameEnd > 0 && cfg.inputFrameEnd < cfg.inputFrameBegin)) {
+        throw std::runtime_error("invalid frame window: input_frame_end must be >= input_frame_begin");
+    }
+    if (cfg.outputFrameBegin > 0 && cfg.inputFrameBegin > 0 &&
+        cfg.outputFrameBegin < cfg.inputFrameBegin) {
+        throw std::runtime_error("invalid frame window: output_frame_begin must be >= input_frame_begin");
+    }
+
     // ── NR (experimental; feature bits carry the on/off) ──────────────────────
     const NrSettings nrS = parseNrSettings(p);
     cfg.nrStyle          = static_cast<int>(nrS.style);
@@ -548,11 +589,16 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     else                                              cfg.rrPreset = RrPreset::F;
 
     // ── Wire callbacks to RenderProgress atomics ──────────────────────────────
-    const int totalInput  = static_cast<int>(cfg.dlssConfig.frames.size());
+    // Frame-window aware totals: segmented rendering narrows the consumed set
+    // (input_frame_begin/end) and holds back warmup frames (output_frame_begin),
+    // so the progress bar counts real outputs only.
     const bool useFg      = (cfg.features & kFG) != 0;
     const int fgFactor    = useFg ? cfg.fgMultiplier : 1;
-    // FG emits (N-1)*(mult-1) interpolated frames + N real frames = N*mult - (mult-1).
-    const int totalOutput = useFg ? (fgFactor * totalInput - (fgFactor - 1)) : totalInput;
+    const FrameWindowStats win = frameWindowStats(
+        cfg.dlssConfig, cfg.inputFrameBegin, cfg.inputFrameEnd, cfg.outputFrameBegin,
+        useFg, fgFactor);
+    const int totalInput  = win.realInputs;
+    const int totalOutput = win.expectedOutputs;
 
     m_progress.current_frame.store(0);
     m_progress.total_frames.store(totalOutput);

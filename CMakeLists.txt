@@ -208,6 +208,7 @@ add_library(dlss_engine_lib STATIC
     cli/src/io/async_writer.cpp
     cli/src/io/prores_writer.cpp
     cli/src/io/video_reader.cpp
+    cli/src/io/mov_concat.cpp
     cli/src/io/nr_buffer_reader.cpp
     cli/src/pipeline/fg_camera.cpp
     cli/src/pipeline/fg_only_pipeline.cpp

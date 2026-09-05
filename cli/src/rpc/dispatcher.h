@@ -116,6 +116,8 @@ private:
     nlohmann::json handleNrToolPreview(const nlohmann::json& p);
     nlohmann::json handleNrToolExport(const nlohmann::json& p);
     nlohmann::json handleNrToolClose(const nlohmann::json& p);
+    // Segmented rendering: stream-copy concat of ProRes/H265 segment files
+    nlohmann::json handleMovConcat(const nlohmann::json& p);
     // Status / debug
     nlohmann::json handleGetStatus(const nlohmann::json& p);
     nlohmann::json handleGetTaskState(const nlohmann::json& p);

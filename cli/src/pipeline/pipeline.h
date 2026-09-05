@@ -95,6 +95,23 @@ inline std::string validateFeatures(PipelineFeatures f) {
     return {};
 }
 
+/// Frame-window planning shared by Pipeline::run (consumption loop) and the
+/// RPC layer (progress totals) so both count the exact same frames.
+struct FrameWindowStats {
+    int inputFrames;    ///< dlssconfig frames inside the [begin, end] window
+    int warmupInputs;   ///< window frames below outputFrameBegin (history only)
+    int realInputs;     ///< window frames that produce output
+    int expectedOutputs;///< FG-aware output total (boundary interpolation included)
+};
+
+/// Split dlssconfig keys into window/warmup/output counts. begin/end/outputBegin
+/// of 0 mean unbounded / no warmup. withFg must match the run's kFG bit and
+/// fgMultiplier its clamped value.
+FrameWindowStats frameWindowStats(const DlssConfig& cfg,
+                                  std::int64_t begin, std::int64_t end,
+                                  std::int64_t outputBegin,
+                                  bool withFg, int fgMult);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Front-end communication callbacks
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,6 +207,20 @@ struct PipelineConfig {
     /// names it after the video (template minus the frame token) so buffers
     /// from different exports don't mix in one folder.
     std::string nrBufferDir;
+
+    // ── Segmented rendering (parallel Blender/CLI instances over one job) ─────
+    /// Inclusive frame-number window over dlssconfig.frames (0 = unbounded).
+    /// Each segment CLI consumes only its slice; the shared dlssconfig still
+    /// covers the whole job so jitter/camera data stay absolute-frame aligned.
+    std::int64_t inputFrameBegin = 0;
+    std::int64_t inputFrameEnd   = 0;
+    /// First frame NUMBER that produces output. Earlier frames inside the input
+    /// window run through SR/RR to build NGX history (segment warmup) but write
+    /// nothing. 0 = every consumed frame outputs (plain single-run behavior).
+    std::int64_t outputFrameBegin = 0;
+    /// 1-based offset for the output frame counter so parallel segments number
+    /// their sequence files (and dlssnrbuffer) exactly like one continuous run.
+    int outputFrameStartIndex = 1;
 
     // ── Output ────────────────────────────────────────────────────────────────
     OutputFormat    outputFormat = OutputFormat::ExrLinear;

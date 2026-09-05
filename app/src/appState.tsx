@@ -157,6 +157,9 @@ export function useAppState() {
   const [perfDistanceCullMarginOverride, setPerfDistanceCullMarginOverride] = useState(false);
   const [perfDistanceCullMargin, setPerfDistanceCullMargin] = useState(10);
   const [perfTileSize, setPerfTileSize] = useState(4096);
+  // 分段并行：0 = 关；2..6 = 段数。预热帧 = 段首多渲染的历史积累帧。
+  const [parallelSegments, setParallelSegments] = useState(0);
+  const [parallelWarmup, setParallelWarmup] = useState(16);
   const [fg, setFg] = useState(0);
   const [status, setStatus] = useState<JobStatus>('idle');
   /** 导出进度分段：准备（写 dlssconfig）→ 帧导出 → 落盘（mov 收尾）。 */
@@ -378,6 +381,8 @@ export function useAppState() {
       distanceCullMargin:
         perfDistanceCull && perfDistanceCullMarginOverride ? perfDistanceCullMargin : undefined,
       perfTileSize,
+      parallelSegments: parallelSegments >= 2 ? Math.min(6, parallelSegments) : undefined,
+      parallelWarmup: parallelSegments >= 2 ? Math.max(0, Math.min(64, parallelWarmup)) : undefined,
       fg: fgMultiplier,
       effectivePercentage: pins.percentage ? percentage : (scene?.resolution_percentage ?? percentage)
     };
@@ -416,6 +421,8 @@ export function useAppState() {
     perfDistanceCullMarginOverride,
     perfDistanceCullMargin,
     perfTileSize,
+    parallelSegments,
+    parallelWarmup,
     fgMultiplier,
     scene
   ]);
@@ -459,6 +466,8 @@ export function useAppState() {
       perfDistanceCullMarginOverride,
       perfDistanceCullMargin,
       perfTileSize,
+      parallelSegments,
+      parallelWarmup,
       fg: fgMultiplier,
       splitters: {...DEFAULT_SPLITTERS},
       history: history.length ? history : undefined
@@ -502,6 +511,8 @@ export function useAppState() {
     setPerfDistanceCullMarginOverride(Boolean(project.perfDistanceCullMarginOverride));
     setPerfDistanceCullMargin(project.perfDistanceCullMargin ?? 10);
     setPerfTileSize(project.perfTileSize ?? 4096);
+    setParallelSegments(Math.min(6, Math.max(0, Math.trunc(project.parallelSegments ?? 0))));
+    setParallelWarmup(Math.min(64, Math.max(0, Math.trunc(project.parallelWarmup ?? 16))));
     setFg(fgAllowed(nextMode) ? parseFg(project.fg) : 0);
     setHistory(project.history ?? []);
     playheadRef.current = project.frameStart;
@@ -850,6 +861,8 @@ export function useAppState() {
     perfDistanceCullMarginOverride,
     perfDistanceCullMargin,
     perfTileSize,
+    parallelSegments,
+    parallelWarmup,
     fg,
     history
   ]);
@@ -1246,6 +1259,10 @@ export function useAppState() {
     setPerfDistanceCullMargin,
     perfTileSize,
     setPerfTileSize,
+    parallelSegments,
+    setParallelSegments,
+    parallelWarmup,
+    setParallelWarmup,
     fgEnabled,
     fgMultiplier,
     setFg,

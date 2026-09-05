@@ -125,6 +125,10 @@ export type ExportRequest = {
   perfDistanceCull?: boolean;
   distanceCullMargin?: number;
   perfTileSize?: number;
+  /** 分段并行渲染：段数（2..6）；缺省/1 = 关（单实例连续渲染）。 */
+  parallelSegments?: number;
+  /** 分段预热帧：段首往前多渲染的历史积累帧（默认 16），输出时丢弃。 */
+  parallelWarmup?: number;
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
@@ -154,6 +158,28 @@ export type ProbeResult = {
 export type PipelineEvent = {
   type: string;
   [key: string]: unknown;
+};
+
+/** One parallel segment: its own Blender (EXR producer) + CLI (NGX consumer). */
+type SegRuntime = {
+  index: number;
+  cli: ChildProcess | null;
+  rpc: StdioRpcClient | null;
+  blender: ChildProcess | null;
+  stderrFd: number | null;
+  bufferDir: string;
+  segVideoPath: string | null;   // ProRes/H265 segments; null for sequence output
+  segStart: number;
+  segEnd: number;
+  renderStart: number;
+  /** Outputs written by earlier segments — CLI progress is absolute-indexed. */
+  outputOffset: number;
+  expectedOutputs: number;
+  outputsDone: number;
+  done: boolean;
+  failed: boolean;
+  cancelled: boolean;
+  errorDetail: string;
 };
 
 const NR_RESERVED = 'DLSS5-NR 模型未到，接口已预留';
@@ -304,6 +330,14 @@ async function runCommand(
   });
 }
 
+/** Per-segment video filename: `<stem>__seg<i><ext>` next to the final output. */
+function segVideoName(exportDir: string, outputTemplate: string, index: number): string {
+  const dot = outputTemplate.lastIndexOf('.');
+  const stem = dot > 0 ? outputTemplate.slice(0, dot) : outputTemplate;
+  const ext = dot > 0 ? outputTemplate.slice(dot) : '';
+  return path.join(exportDir, `${stem}__seg${index}${ext}`);
+}
+
 export class PipelineOrchestrator {
   /**
    * @param autoRamdisk packaged builds auto-create/unmount the DLSSRAM disk
@@ -351,6 +385,18 @@ export class PipelineOrchestrator {
   private nrBufferDir: string | null = null;
   private ramdiskManaged = false;
   private lastRamdiskBytes = 0;
+  // ── Segmented parallel rendering state ─────────────────────────────────────
+  private segs: SegRuntime[] = [];
+  private segTimer: NodeJS.Timeout | null = null;
+  private segPollInFlight = false;
+  private segOutputsTotal = 0;
+  private segLastOutputs = -1;
+  private segLastProgressAt = 0;
+  private segLastSyntheticFrame = 0;
+  private segJobRange = {start: 0, end: 0, totalInputs: 0};
+  private segFinalVideoPath: string | null = null;
+  private segLineBufs = new Map<number, string>();
+  private segStopDeadline = 0;
 
   onEvent(listener: (event: PipelineEvent) => void): () => void {
     this.listeners.add(listener);
@@ -609,6 +655,17 @@ export class PipelineOrchestrator {
         throw new Error('inject 未写出 dlssconfig.json');
       }
 
+      // 分段并行：N 个 Blender/CLI 实例各跑一段（dlssconfig 由 bake 写全量，
+      // 段间共享；jitter 按绝对帧号索引，天然对齐）。串行主流程继续走下方。
+      const segCount = Math.max(0, Math.trunc(req.parallelSegments ?? 0));
+      if (segCount >= 2) {
+        if (native) {
+          throw new Error('分段并行不支持原生分辨率缓冲，请先关闭该选项');
+        }
+        await this.startSegments(req, blender, cli, ramDir, exportDir, outputTemplate, fg, pct, segCount, session);
+        return {ok: true};
+      }
+
       const jobParams: Record<string, unknown> = {
         mode: req.mode,
         input_dir: ramDir,
@@ -679,10 +736,23 @@ export class PipelineOrchestrator {
   }
 
   async stop(): Promise<{ok: boolean; unmounted: false}> {
-    const hadWork = this.running || this.blender != null || this.pollTimer != null;
+    const hadWork = this.running || this.blender != null || this.pollTimer != null || this.segTimer != null;
     this.abandonBlender();
     let warning: string | undefined;
-    if (this.rpc?.writable()) {
+    if (this.segs.length > 0) {
+      // 分段并行：请求每个存活段停止、杀各段 Blender，轮询继续等各 CLI
+      // 收尾（writer drain + mov trailer）后再落 'stopped'。
+      await Promise.all(this.segs.map(async (seg) => {
+        killTree(seg.blender);
+        if (seg.rpc?.writable()) {
+          try {
+            await seg.rpc.request('stop', {}, 5000);
+          } catch (err) {
+            debug(`seg${seg.index} stop: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }));
+    } else if (this.rpc?.writable()) {
       try {
         await this.rpc.request('stop', {}, 5000);
       } catch (err) {
@@ -700,12 +770,17 @@ export class PipelineOrchestrator {
       // landed. pollOnce owns the settle; 60s deadline guards a dead CLI.
       this.stopping = true;
       this.stopDeadline = Date.now() + 60000;
+    } else if (hadWork && this.segTimer) {
+      this.stopping = true;
+      this.segStopDeadline = Date.now() + 60000;
     } else {
       // Nothing polling (bake phase / idle): settle immediately. Bump the
       // session so the in-flight start() flow stops emitting events.
       this.session += 1;
       this.stopping = false;
       if (hadWork) {
+        this.discardSegs();
+        this.cleanupSegs();
         this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter, warning});
         void this.sweepRamDir();
       }
@@ -918,10 +993,15 @@ export class PipelineOrchestrator {
     if (!this.shutdownPromise) {
       this.shutdownPromise = (async () => {
         this.stopNrPoll();
+        if (this.segTimer) {
+          clearInterval(this.segTimer);
+          this.segTimer = null;
+        }
         await this.stop();
         // Kill both CLIs before unmounting: their RAM-disk watcher/file
         // handles would make the graceful imdisk detach fail.
         this.discardNrCli();
+        this.discardSegs();
         this.discardCli();
         await this.releaseRamdisk();
       })();
@@ -1204,6 +1284,488 @@ export class PipelineOrchestrator {
         frame_end: winEnd,
       });
     }
+  }
+
+  // ── Segmented parallel rendering ─────────────────────────────────────────────
+  //
+  // Splits [frameStart, frameEnd] into N contiguous slices and runs one
+  // Blender + one CLI per slice concurrently. The per-frame "Initializing"
+  // depsgraph sync is CPU-bound and leaves the GPU idle; N instances overlap
+  // sync-of-A with render-of-B. Each later slice renders `warmup` frames
+  // before its output range so NGX history converges before the first emitted
+  // frame (the CLI's output_frame_begin holds those writes back), and every
+  // slice continues the shared output numbering via output_frame_start_index —
+  // merged results match one continuous run exactly. Sequence formats land in
+  // the export dir directly (absolute numbering, no merge); ProRes/H265
+  // segments are stream-copy concatenated via mov_concat, then deleted.
+
+  private async startSegments(
+    req: ExportRequest,
+    blenderExe: string,
+    cliPath: string,
+    ramDir: string,
+    exportDir: string,
+    outputTemplate: string,
+    fg: number,
+    pct: number,
+    segCount: number,
+    session: number
+  ): Promise<void> {
+    const warmupPref = Math.max(0, Math.trunc(req.parallelWarmup ?? 16));
+    const total = req.frameEnd - req.frameStart + 1;
+    const count = Math.max(2, Math.min(segCount, total));
+    const fgMult = fg >= 2 ? fg : 1;
+    const isVideo = req.outputFormat === 'prores_422hq' || req.outputFormat === 'h265_hevc';
+    const segDirs: string[] = [];
+
+    try {
+      this.discardSegs();
+      // 段缓冲目录 + 段视频残留清理（上次崩溃可能留下旧 EXR / 旧段 MOV）。
+      const segDirs: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const dir = path.join(ramDir, `seg${i}`);
+        fs.rmSync(dir, {recursive: true, force: true});
+        fs.mkdirSync(dir, {recursive: true});
+        segDirs.push(dir);
+      }
+      let finalVideoPath: string | null = null;
+      if (isVideo) {
+        const dot = outputTemplate.lastIndexOf('.');
+        const stem = dot > 0 ? outputTemplate.slice(0, dot) : outputTemplate;
+        const ext = dot > 0 ? outputTemplate.slice(dot) : '';
+        finalVideoPath = path.join(exportDir, outputTemplate);
+        this.segFinalVideoPath = finalVideoPath;
+        try {
+          for (const name of fs.readdirSync(exportDir)) {
+            if (name.startsWith(`${stem}__seg`) && name.toLowerCase().endsWith(ext.toLowerCase())) {
+              fs.rmSync(path.join(exportDir, name), {force: true});
+            }
+          }
+        } catch {
+          /* export dir scan best-effort; writers overwrite anyway */
+        }
+      }
+
+      // 均分段：rem 个段多一帧。renderStart 往前借 warmup 帧喂 NGX 历史
+      // （clamp 到任务起点；第 0 段就是连续渲染的真实起点，无需预热）。
+      const base = Math.floor(total / count);
+      const rem = total % count;
+      let cursor = req.frameStart;
+      const plan: Array<{segStart: number; segEnd: number; renderStart: number; expected: number; offset: number}> = [];
+      for (let i = 0; i < count; i++) {
+        const size = base + (i < rem ? 1 : 0);
+        const segStart = cursor;
+        const segEnd = cursor + size - 1;
+        cursor += size;
+        const renderStart = i === 0
+          ? segStart
+          : Math.max(req.frameStart, segStart - Math.min(warmupPref, segStart - req.frameStart));
+        const warmupHere = segStart - renderStart;
+        const expected = fgMult >= 2
+          ? (warmupHere > 0 ? fgMult * size : fgMult * size - (fgMult - 1))
+          : size;
+        const offset = 1 + (segStart - req.frameStart) * fgMult;
+        plan.push({segStart, segEnd, renderStart, expected, offset});
+      }
+      this.segOutputsTotal = plan.reduce((sum, p) => sum + p.expected, 0);
+      this.segJobRange = {start: req.frameStart, end: req.frameEnd, totalInputs: total};
+      this.segLastOutputs = -1;
+      this.segLastSyntheticFrame = 0;
+      this.segLastProgressAt = Date.now();
+
+      // x 个 CLI 进程（NGX 上下文彼此独立，历史不跨界）。
+      const spawned: SegRuntime[] = [];
+      for (let i = 0; i < count; i++) {
+        const p = plan[i];
+        const segVideoPath = isVideo ? segVideoName(exportDir, outputTemplate, i) : null;
+        const seg: SegRuntime = {
+          index: i,
+          cli: null,
+          rpc: null,
+          blender: null,
+          stderrFd: null,
+          bufferDir: segDirs[i],
+          segVideoPath,
+          segStart: p.segStart,
+          segEnd: p.segEnd,
+          renderStart: p.renderStart,
+          outputOffset: p.offset - 1,
+          expectedOutputs: p.expected,
+          outputsDone: 0,
+          done: false,
+          failed: false,
+          cancelled: false,
+          errorDetail: '',
+        };
+        const {cli, rpc, stderrFd} = this.spawnSegCli(cliPath, i, exportDir);
+        seg.cli = cli;
+        seg.rpc = rpc;
+        seg.stderrFd = stderrFd;
+        spawned.push(seg);
+      }
+      this.segs = spawned;
+
+      // x 个 start_job（窗口 + 输出门 + 续号），共享 ramDir 根的 dlssconfig。
+      for (let i = 0; i < this.segs.length; i++) {
+        const seg = this.segs[i];
+        const p = plan[i];
+        const jobParams: Record<string, unknown> = {
+          mode: req.mode,
+          input_dir: seg.bufferDir,
+          output_dir: exportDir,
+          output_format: req.outputFormat,
+          output_template: seg.segVideoPath ? path.basename(seg.segVideoPath) : outputTemplate,
+          frame_start: seg.segStart,
+          frame_end: seg.segEnd,
+          input_frame_begin: seg.renderStart,
+          input_frame_end: seg.segEnd,
+          output_frame_begin: seg.segStart,
+          output_frame_start_index: p.offset,
+          window: req.window ?? 6,
+          watch: true,
+          wait_for_appearance: true,
+          delete_consumed: true,
+          native_res_buffers: false,
+          nr_buffer: Boolean(req.nrBuffer),
+          nr_buffer_dir: this.nrBufferDir ?? undefined,
+          config: path.join(ramDir, 'dlssconfig.json'),
+          rr_preset: 'F',
+          overwrite_mode: 'overwrite',
+        };
+        if (fg >= 2) jobParams.fg_multiplier = fg;
+        await this.startJob(seg.rpc!, jobParams);
+      }
+
+      // x 个 Blender 注入进程：各自渲染自己的段（含预热帧）。
+      for (const seg of this.segs) {
+        const args = this.buildInjectArgs(req, seg.bufferDir, 'combined', pct, {
+          frameStart: seg.renderStart,
+          frameEnd: seg.segEnd,
+          skipConfig: true,
+          configDir: ramDir,
+        });
+        this.spawnSegBlender(seg, blenderExe, args);
+      }
+
+      debug(`segments: ${this.segs.map((s) =>
+        `#${s.index}[${s.renderStart}..${s.segEnd} out@${s.segStart}]`
+      ).join(' ')} totalOutputs=${this.segOutputsTotal}`);
+
+      // NGX 状态卡只报一次（每段 CLI 都有自己的上下文，状态一致）。
+      try {
+        const ngx = await this.segs[0].rpc!.request('getStatus', {}, 15000);
+        this.emit({type: 'ngx_status', ...ngx, cli: cliPath});
+      } catch (err) {
+        debug(`getStatus: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      this.segTimer = setInterval(() => void this.pollSegments(session), 400);
+    } catch (err) {
+      // 部分段已起的失败：全部回收，异常继续抛给 start() 的统一错误出口。
+      for (const s of this.segs) killTree(s.blender);
+      this.discardSegs();
+      for (const dir of segDirs) {
+        try { fs.rmSync(dir, {recursive: true, force: true}); } catch { /* ignore */ }
+      }
+      this.segs = [];
+      throw err;
+    }
+  }
+
+  /** Spawn one CLI for a segment (mirrors ensureCli's stderr handling, per seg). */
+  private spawnSegCli(cliPath: string, index: number, exportDir: string):
+    {cli: ChildProcess; rpc: StdioRpcClient; stderrFd: number | null} {
+    let stderrFd: number | null = null;
+    let child: ChildProcess;
+    if (this.cliLog) {
+      const stderrPath = path.join(exportDir, `cli.seg${index}.stderr.log`);
+      stderrFd = fs.openSync(stderrPath, 'w');
+      child = spawn(cliPath, ['--rpc-stdio'], {
+        cwd: path.dirname(cliPath),
+        stdio: ['pipe', 'pipe', stderrFd],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          DLSS_COMPOSITOR_LOG: process.env.DLSS_COMPOSITOR_LOG || 'info',
+        },
+      });
+      this.emit({type: 'cli_pid', segment: index, pid: child.pid, stderr: stderrPath});
+    } else {
+      child = spawn(cliPath, ['--rpc-stdio'], {
+        cwd: path.dirname(cliPath),
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+        env: process.env,
+      });
+      this.emit({type: 'cli_pid', segment: index, pid: child.pid});
+    }
+    const proc = child;
+    proc.on('error', (err) => debug(`seg${index} cli spawn error: ${err.message}`));
+    proc.on('exit', (code, signal) => debug(`seg${index} cli exit code=${code} signal=${signal}`));
+    return {cli: child, rpc: new StdioRpcClient(child), stderrFd};
+  }
+
+  private spawnSegBlender(seg: SegRuntime, blenderExe: string, args: string[]): void {
+    debug(`seg${seg.index} inject ${JSON.stringify(args)}`);
+    seg.blender = spawn(blenderExe, args, {cwd: backendRoot(), windowsHide: true});
+    this.emit({type: 'blender_pid', segment: seg.index, pid: seg.blender.pid, cmd: args});
+    seg.blender.stdout?.on('data', (chunk: Buffer) => this.onSegBlenderChunk(seg, chunk.toString('utf8')));
+    seg.blender.stderr?.on('data', (chunk: Buffer) => this.onSegBlenderChunk(seg, chunk.toString('utf8')));
+    seg.blender.on('close', (code) => {
+      this.emit({type: 'blender_exit', segment: seg.index, code});
+      if (code !== 0 && !seg.done && !seg.failed && !seg.cancelled) {
+        seg.failed = true;
+        seg.errorDetail = `Blender 退出（${code}）`;
+      }
+    });
+  }
+
+  /** Segment blender lines: forward buffer backpressure, drop per-frame
+   *  events (the aggregate CLI progress drives the playhead in parallel mode). */
+  private onSegBlenderChunk(seg: SegRuntime, text: string): void {
+    let buf = (this.segLineBufs.get(seg.index) ?? '') + text;
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop() ?? '';
+    this.segLineBufs.set(seg.index, buf);
+    for (const line of lines) {
+      const stripped = line.trim();
+      if (!stripped.startsWith('DLSS_EVENT:')) continue;
+      try {
+        const payload = JSON.parse(stripped.slice('DLSS_EVENT:'.length)) as Record<string, unknown>;
+        const ev = String(payload.event ?? '');
+        if (ev === 'progress' || ev === 'frame_done' || ev === 'bake_progress') continue;
+        if (ev === 'buffer_full' || ev === 'buffer_recovered') {
+          this.emit({type: ev, segment: seg.index, ...payload});
+        } else {
+          debug(`seg${seg.index} blender event: ${ev}`);
+        }
+      } catch {
+        /* malformed event line — ignore */
+      }
+    }
+  }
+
+  private async pollSegments(session: number): Promise<void> {
+    if (session !== this.session || this.segPollInFlight || this.segs.length === 0) return;
+    if (this.stopping && Date.now() > this.segStopDeadline) {
+      this.finishSegmentsStopped(session, /*force=*/ true);
+      return;
+    }
+    this.segPollInFlight = true;
+    try {
+      let outputsDone = 0;
+      let settledCount = 0;
+      for (const seg of this.segs) {
+        if (seg.done || seg.failed || seg.cancelled) {
+          outputsDone += seg.outputsDone;
+          settledCount++;
+          continue;
+        }
+        if (!seg.rpc?.writable()) {
+          seg.failed = true;
+          seg.errorDetail = 'CLI 进程退出';
+          outputsDone += seg.outputsDone;
+          settledCount++;
+          continue;
+        }
+        try {
+          const progress = await seg.rpc.request('progress', {}, 5000);
+          if (session !== this.session) return;
+          const state = progress.state;
+          if (state === 2 || state === 'done') {
+            seg.done = true;
+            seg.outputsDone = seg.expectedOutputs;
+          } else if (state === 3 || state === 'error') {
+            seg.failed = true;
+            seg.errorDetail = typeof progress.error === 'string' && progress.error
+              ? String(progress.error)
+              : 'DLSS 引擎失败';
+          } else if (state === 0) {
+            seg.cancelled = true;
+          } else {
+            // CLI current_frame is the absolute output index (segments continue
+            // the shared numbering) — subtract earlier segments' outputs.
+            const absolute = Number(progress.current_frame) || 0;
+            seg.outputsDone = Math.max(
+              0, Math.min(seg.expectedOutputs, absolute - seg.outputOffset));
+            if (!this.stopping) await this.pullSegPreview(seg);
+          }
+        } catch (err) {
+          debug(`seg${seg.index} progress: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        outputsDone += seg.outputsDone;
+        if (seg.done || seg.failed || seg.cancelled) settledCount++;
+      }
+      if (session !== this.session) return;
+
+      const failedSeg = this.segs.find((s) => s.failed);
+      if (failedSeg && !this.stopping) {
+        this.finishSegmentsError(session, failedSeg);
+        return;
+      }
+
+      const anyBlenderAlive = this.segs.some((s) => s.blender && s.blender.exitCode === null);
+      if (outputsDone !== this.segLastOutputs || anyBlenderAlive) {
+        this.segLastProgressAt = Date.now();
+      }
+      this.segLastOutputs = outputsDone;
+      // 所有 Blender 都退出了但消费进度停摆 2 分钟 → 段缺帧 / CLI 卡死，报错。
+      if (!anyBlenderAlive && settledCount < this.segs.length &&
+          Date.now() - this.segLastProgressAt > 120000) {
+        const stuck = this.segs.find((s) => !s.done && !s.failed && !s.cancelled);
+        if (stuck) {
+          stuck.failed = true;
+          stuck.errorDetail = '帧缺失或引擎卡死（Blender 已退出但分段长时间无进展）';
+          this.finishSegmentsError(session, stuck);
+          return;
+        }
+      }
+
+      const frac = this.segOutputsTotal > 0 ? Math.min(1, outputsDone / this.segOutputsTotal) : 0;
+      this.emit({type: 'engine_progress', percent: frac, phase: 'render'});
+      // 汇总播放头：把聚合输出比例折算成绝对帧号驱动统一的进度条/ETA。
+      const frame = this.segJobRange.start +
+        Math.min(this.segJobRange.totalInputs - 1,
+                 Math.floor(frac * this.segJobRange.totalInputs));
+      if (frame > this.segLastSyntheticFrame) {
+        this.segLastSyntheticFrame = frame;
+        this.emit({type: 'progress', frame, total: this.segJobRange.totalInputs});
+      }
+
+      if (settledCount === this.segs.length) {
+        await this.settleSegments(session);
+      }
+    } finally {
+      this.segPollInFlight = false;
+    }
+  }
+
+  private async pullSegPreview(seg: SegRuntime): Promise<void> {
+    if (!seg.rpc?.writable()) return;
+    try {
+      const preview = await seg.rpc.request('preview_frame', {}, 5000);
+      if (preview && preview.ok && typeof preview.jpeg_b64 === 'string' && preview.jpeg_b64) {
+        this.emit({
+          type: 'preview_frame',
+          jpeg_b64: preview.jpeg_b64,
+          width: preview.width,
+          height: preview.height,
+        });
+      }
+    } catch {
+      /* preview is best-effort */
+    }
+  }
+
+  private async settleSegments(session: number): Promise<void> {
+    if (this.segTimer) {
+      clearInterval(this.segTimer);
+      this.segTimer = null;
+    }
+    const failedSeg = this.segs.find((s) => s.failed);
+    if (failedSeg) {
+      this.finishSegmentsError(session, failedSeg);
+      return;
+    }
+    const segCount = this.segs.length;
+    if (this.stopping || this.segs.some((s) => s.cancelled)) {
+      this.finishSegmentsStopped(session);
+      return;
+    }
+    const videoSegs = this.segs.filter((s) => s.segVideoPath);
+    if (videoSegs.length >= 2 && this.segFinalVideoPath) {
+      this.emit({type: 'engine_progress', percent: 0, phase: 'finalize'});
+      const first = videoSegs[0];
+      try {
+        if (!first.rpc?.writable()) throw new Error('CLI 已退出');
+        await first.rpc.request('mov_concat', {
+          inputs: videoSegs.map((s) => s.segVideoPath),
+          output: this.segFinalVideoPath,
+        }, 600000);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        first.failed = true;
+        first.errorDetail = `分段合并失败：${detail}`;
+        this.finishSegmentsError(session, first);
+        return;
+      }
+      if (session !== this.session) return;
+      debug(`mov_concat done -> ${this.segFinalVideoPath}`);
+    }
+    this.running = false;
+    this.cleanupSegs();
+    this.persistDlssconfig();
+    this.emit({type: 'export_done', segments: segCount});
+  }
+
+  private finishSegmentsError(session: number, seg: SegRuntime): void {
+    if (session !== this.session) return;
+    if (this.segTimer) {
+      clearInterval(this.segTimer);
+      this.segTimer = null;
+    }
+    this.running = false;
+    this.stopping = false;
+    // fail loud: 停所有 CLI、杀所有 Blender，再回收段产物（半截 MOV/EXR 是垃圾）。
+    const totalSegs = this.segs.length;
+    for (const s of this.segs) {
+      if (s.rpc?.writable()) {
+        void s.rpc.request('stop', {}, 3000).catch(() => {});
+      }
+      killTree(s.blender);
+    }
+    this.discardSegs();
+    this.cleanupSegs();
+    const logHint = this.cliLog ? '（详见导出目录 cli.stderr.log）' : '';
+    const detail = seg.errorDetail || 'DLSS 引擎失败';
+    const message = seg.index >= 0 && totalSegs > 1
+      ? `分段 ${seg.index + 1}/${totalSegs} 失败：${detail}${logHint}`
+      : `${detail}${logHint}`;
+    this.emit({type: 'export_error', message});
+  }
+
+  private finishSegmentsStopped(session: number, force = false): void {
+    if (session !== this.session) return;
+    if (force) debug('segment stop settle forced (deadline)');
+    if (this.segTimer) {
+      clearInterval(this.segTimer);
+      this.segTimer = null;
+    }
+    this.running = false;
+    this.stopping = false;
+    this.discardSegs();
+    this.cleanupSegs();
+    this.persistDlssconfig();
+    this.emit({type: 'stopped', ramdiskUnmounted: false, letter: this.ramLetter});
+  }
+
+  /** Kill/close every segment process; keeps the segs array for file cleanup. */
+  private discardSegs(): void {
+    for (const s of this.segs) {
+      try { s.rpc?.close(); } catch { /* ignore */ }
+      killTree(s.cli);
+      killTree(s.blender);
+      s.rpc = null;
+      s.cli = null;
+      if (s.stderrFd != null) {
+        try { fs.closeSync(s.stderrFd); } catch { /* ignore */ }
+        s.stderrFd = null;
+      }
+    }
+    this.segLineBufs.clear();
+  }
+
+  /** Delete segment buffer dirs + leftover segment videos, then drop the plan. */
+  private cleanupSegs(): void {
+    for (const s of this.segs) {
+      try { fs.rmSync(s.bufferDir, {recursive: true, force: true}); } catch { /* ramdir gone */ }
+      if (s.segVideoPath) {
+        try { fs.rmSync(s.segVideoPath, {force: true}); } catch { /* ignore */ }
+      }
+    }
+    this.segs = [];
+    this.segFinalVideoPath = null;
+    this.segLineBufs.clear();
   }
 
   private cliAlive(): boolean {

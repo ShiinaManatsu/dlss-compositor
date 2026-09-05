@@ -164,6 +164,10 @@ export function ExportPage() {
     setPerfDistanceCullMargin,
     perfTileSize,
     setPerfTileSize,
+    parallelSegments,
+    setParallelSegments,
+    parallelWarmup,
+    setParallelWarmup,
     fgEnabled,
     fgMultiplier,
     setFg,
@@ -366,6 +370,37 @@ export function ExportPage() {
         </SettingsSection>
         <Divider size="S" />
         <SettingsSection title="性能">
+          <Switch
+            size="S"
+            isSelected={parallelSegments >= 2}
+            onChange={(next) => setParallelSegments(next ? 2 : 0)}
+            isDisabled={busy}>
+            分段并行渲染
+          </Switch>
+          {parallelSegments >= 2 ? (
+            <>
+              <NumberField
+                label="段数"
+                size="S"
+                value={parallelSegments}
+                onChange={(next) => setParallelSegments(Math.max(2, Math.min(6, Math.trunc(next) || 2)))}
+                minValue={2}
+                maxValue={6}
+                hideStepper
+                isDisabled={busy}
+              />
+              <NumberField
+                label="预热帧"
+                size="S"
+                value={parallelWarmup}
+                onChange={(next) => setParallelWarmup(Math.max(0, Math.min(64, Math.trunc(next) || 0)))}
+                minValue={0}
+                maxValue={64}
+                hideStepper
+                isDisabled={busy}
+              />
+            </>
+          ) : null}
           <Switch size="S" isSelected={perfPersistent} onChange={setPerfPersistent} isDisabled={busy}>
             持久化数据
           </Switch>
@@ -460,7 +495,7 @@ export function ExportPage() {
               size="S"
               isSelected={nativeResBuffers}
               onChange={setNativeResBuffers}
-              isDisabled={busy}>
+              isDisabled={busy || parallelSegments >= 2}>
               使用原生分辨率缓冲
             </Checkbox>
           ) : null}
