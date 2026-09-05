@@ -66,6 +66,14 @@ void verifyCompat(const SegmentInput& first, const SegmentInput& next, std::size
         fail("segment " + std::to_string(index) + " pixel format mismatch");
     if (a->extradata_size != b->extradata_size)
         fail("segment " + std::to_string(index) + " extradata size mismatch (different encoder settings?)");
+    // Timings must line up too — every packet is stamped with segment 0's
+    // frame period (see ticksPerFrame below).
+    AVRational fa = first.stream->avg_frame_rate;
+    AVRational fb = next.stream->avg_frame_rate;
+    if (fa.num <= 0) fa = first.stream->r_frame_rate;
+    if (fb.num <= 0) fb = next.stream->r_frame_rate;
+    if (av_cmp_q(fa, fb) != 0)
+        fail("segment " + std::to_string(index) + " frame rate mismatch");
 }
 
 } // namespace
@@ -120,6 +128,17 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
         std::int64_t frames = 0;
         AVPacket* pkt = av_packet_alloc();
         if (!pkt) { avformat_free_context(out); fail("cannot allocate packet"); }
+        // Stamp every packet with the frame period (in the OUTPUT track time
+        // base). Fragmented MOVs carry sample durations in tfhd/trun and movenc
+        // passes pkt->duration through verbatim — never rescales — so this is
+        // the same rule the prores writer follows. Packets read back from a
+        // fragmented MOV have no usable duration; without the stamp samples
+        // land at 1 tick, the demuxer reports the tb-echo frame rate plus a
+        // skewed avg, and CFR seeking drifts onto the wrong frame.
+        AVRational fr = outStream->avg_frame_rate;
+        if (fr.num <= 0) fr = outStream->r_frame_rate;
+        const std::int64_t ticksPerFrame =
+            fr.num > 0 ? av_rescale_q(1, av_inv_q(fr), outStream->time_base) : 0;
         // Each segment's own timeline starts at PTS 0 — writing them back to
         // back would rewind DTS and the muxer rejects that (EINVAL). Shift every
         // packet by the accumulated duration of all previous segments (in the
@@ -138,6 +157,7 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
                 }
                 pkt->stream_index = outStream->index;
                 av_packet_rescale_ts(pkt, srcTb, outStream->time_base);
+                if (ticksPerFrame > 0) pkt->duration = ticksPerFrame;
                 if (pkt->pts != AV_NOPTS_VALUE) {
                     if (firstPts == AV_NOPTS_VALUE) firstPts = pkt->pts;
                     lastPts = pkt->pts;
@@ -155,17 +175,11 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
                 ++frames;
                 ++segFrames;
             }
-            if (firstPts >= 0 && lastPts >= 0) {
-                // Fragmented MOVs carry no per-packet duration (ffprobe shows
-                // N/A) — derive the frame period from the frame rate instead:
-                // advance = frames * (1/fps) in output tb ticks.
-                AVRational fr = outStream->avg_frame_rate;
-                if (fr.num <= 0) fr = outStream->r_frame_rate;
-                std::int64_t ticksPerFrame = fr.num > 0
-                    ? av_rescale_q(1, av_inv_q(fr), outStream->time_base)
-                    : lastDur;
-                if (ticksPerFrame <= 0) ticksPerFrame = (lastPts - firstPts) + 1;
+            if (ticksPerFrame > 0) {
                 tsOffset += segFrames * ticksPerFrame;
+            } else if (firstPts >= 0 && lastPts >= 0) {
+                // No frame rate anywhere — fall back to the observed pts span.
+                tsOffset += (lastPts - firstPts) + (lastDur > 0 ? lastDur : 1);
             }
             LOG_INFO("[MovConcat] segment {}: {} frames, +{} ticks offset now {}",
                      i, segFrames, tsOffset, tsOffset);
