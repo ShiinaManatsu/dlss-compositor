@@ -94,7 +94,7 @@ export function ProjectPage() {
       </div>
       <div className="project-grid" ref={gridRef}>
         <div
-          className="project-grid-inner"
+          className={recents.length ? 'project-grid-inner' : 'project-grid-inner is-empty'}
           style={gridWidth && recents.length ? {width: gridWidth} : undefined}>
           <CardView
             aria-label="最近工程"
@@ -102,7 +102,7 @@ export function ProjectPage() {
             layout="grid"
             size="M"
             onAction={(key) => void openDcp(String(key))}
-            styles={style({width: 'full', height: 'full'})}
+            styles={recents.length ? style({width: 'full', height: 'full'}) : undefined}
             renderEmptyState={() => (
               <IllustratedMessage size="L">
                 <FileVideo />

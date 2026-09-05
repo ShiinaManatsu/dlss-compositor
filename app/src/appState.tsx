@@ -164,7 +164,10 @@ export function useAppState() {
   const [status, setStatus] = useState<JobStatus>('idle');
   /** 导出进度分段：准备（写 dlssconfig）→ 帧导出 → 落盘（mov 收尾）。 */
   const [exportPhase, setExportPhase] = useState<'prepare' | 'render' | 'finalize' | null>(null);
-  const [phaseRatio, setPhaseRatio] = useState(0);
+  /** bake（写 dlssconfig）段内比例；渲染开始后 prepare 段视为完成。 */
+  const [prepareRatio, setPrepareRatio] = useState(0);
+  /** 分段并行：每段各自的完成比例（engine_progress.segFracs），空 = 非分段。 */
+  const [segFracs, setSegFracs] = useState<number[] | null>(null);
   const [currentFrame, setCurrentFrame] = useState(1);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewBitmapRef = useRef<ImageBitmap | null>(null);
@@ -198,17 +201,8 @@ export function useAppState() {
   const outputFrames = outputFrameCount(frameCount, fgMultiplier);
   const displayFrame = Math.min(frameEnd, Math.max(frameStart, currentFrame));
   const playhead = playheadRatio(displayFrame, frameStart, frameEnd);
-  /** 统一导出进度条：准备（写 dlssconfig）0–10%，帧导出 10–90%，落盘 90–100%。
-   *  phase 由 orchestrator 按 CLI/烘焙事件归一后下发；render 段继续用 blender
-   *  帧的 playhead 驱动（ETA 时钟不受影响）。空闲时保持旧行为（时间轴比例）。 */
-  const progressPercent =
-    exportPhase === 'prepare'
-      ? Math.round(10 * phaseRatio)
-      : exportPhase === 'finalize'
-        ? 90 + Math.round(10 * phaseRatio)
-        : busy
-          ? 10 + Math.round(80 * playhead)
-          : Math.round(playhead * 100);
+  /** 空闲时进度条显示时间轴播放位置；任务中的进度由分段进度条接管。 */
+  const progressPercent = Math.round(playhead * 100);
   const remainingFrames = Math.max(0, frameEnd - displayFrame + 1);
   /** 发起任务前置校验：场景就绪 + 输入缓冲选好（内存盘需管理员，路径模式需缓存路径）。 */
   const bufferReady = useRamdisk && elevated ? true : cachePath.trim() !== '';
@@ -1083,16 +1077,16 @@ export function useAppState() {
       if (event.type === 'export_start' || event.type === 'job_started') {
         setStatus('running');
         setError(null);
+        setPrepareRatio(0);
+        setSegFracs(null);
         if (event.fg != null) setFg(parseFg(event.fg));
         resetFrameTiming(frameStart);
         if (event.type === 'export_start') {
           // 帧导出前的 bake（写 dlssconfig/LUT）先行，占进度前 10%。
           setExportPhase('prepare');
-          setPhaseRatio(0);
           setMessage('准备导出');
         } else {
           setExportPhase('render');
-          setPhaseRatio(0);
           setMessage(event.mode === 'rr' ? 'RR 导出中' : 'SR 导出中');
         }
         ensureActiveJob({
@@ -1101,13 +1095,19 @@ export function useAppState() {
         });
       }
       if (event.type === 'engine_progress' && typeof event.percent === 'number') {
-        // orchestrator 归一后的分段进度：prepare/finalize 的 percent 为段内
-        // 0–1；render 段的条由 blender 帧驱动，这里只记录段相位。
+        // orchestrator 归一后的相位进度：prepare/finalize 的 percent 为段内
+        // 0–1；分段模式下另有每段各自的 segFracs（分段进度条的小条）。
         const phase = event.phase === 'prepare' || event.phase === 'finalize' ? event.phase : 'render';
         setExportPhase(phase);
-        setPhaseRatio(Math.min(1, Math.max(0, event.percent)));
-        if (phase === 'prepare') setMessage('准备导出');
-        else if (phase === 'finalize') setMessage('正在写 MOV');
+        if (phase === 'prepare') {
+          setPrepareRatio(Math.min(1, Math.max(0, event.percent)));
+          setMessage('准备导出');
+        } else if (phase === 'finalize') {
+          setMessage('正在写 MOV');
+        }
+        if (Array.isArray(event.segFracs)) {
+          setSegFracs(event.segFracs.map((v) => Math.min(1, Math.max(0, Number(v) || 0))));
+        }
       }
       if (event.type === 'preview_frame' && typeof event.jpeg_b64 === 'string' && event.jpeg_b64) {
         const canvas = previewCanvasRef.current;
@@ -1139,6 +1139,8 @@ export function useAppState() {
         setPlayhead(frameEnd);
         clearFrameTiming();
         setExportPhase(null);
+        setPrepareRatio(0);
+        setSegFracs(null);
         setOutputVersion((prev) => nextOutputVersion(prev));
         setMessage(`已写入 ${exportDir}`);
         patchJob(activeJobIdRef.current, {status: 'done'});
@@ -1150,6 +1152,8 @@ export function useAppState() {
         setError(text);
         setMessage(text);
         setExportPhase(null);
+        setPrepareRatio(0);
+        setSegFracs(null);
         clearFrameTiming();
         patchJob(activeJobIdRef.current, {status: 'error'});
         recordJobResult(activeJobIdRef.current, 'error');
@@ -1160,6 +1164,8 @@ export function useAppState() {
         setMessage('就绪');
         setPlayhead(frameStart);
         setExportPhase(null);
+        setPrepareRatio(0);
+        setSegFracs(null);
         clearFrameTiming();
         if (typeof event.warning === 'string' && event.warning) {
           setError(userErrorMessage(event.warning));
@@ -1292,7 +1298,8 @@ export function useAppState() {
     playhead,
     progressPercent,
     exportPhase,
-    phaseRatio,
+    prepareRatio,
+    segFracs,
     remainingFrames,
     canStart,
     etaText,

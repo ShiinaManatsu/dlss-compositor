@@ -28,6 +28,49 @@ import {
   cyclesDeviceMeta,
   formatLabel,
 } from '../dcp';
+
+type ProgressCell = {
+  key: string;
+  label: string;
+  /** 0..1；indeterminate 时忽略。 */
+  frac: number;
+  indeterminate: boolean;
+};
+
+/** 任务中的分段进度条单元格：导出相机数据 → 各段（并行）/ 渲染 → 视频收尾。 */
+function progressCells(opts: {
+  exportPhase: 'prepare' | 'render' | 'finalize' | null;
+  prepareRatio: number;
+  segFracs: number[] | null;
+  playhead: number;
+  isVideo: boolean;
+}): ProgressCell[] {
+  const {exportPhase, prepareRatio, segFracs, playhead, isVideo} = opts;
+  const cells: ProgressCell[] = [
+    {
+      key: 'prepare',
+      label: '导出相机数据',
+      frac: exportPhase === 'prepare' ? prepareRatio : 1,
+      // Bake 进度事件到达前没有可量化的准备进度 — 转圈而不是钉死的 0%。
+      indeterminate: exportPhase === 'prepare' && prepareRatio <= 0,
+    }
+  ];
+  if (segFracs && segFracs.length > 0) {
+    segFracs.forEach((frac, i) =>
+      cells.push({key: `seg${i}`, label: `第 ${i + 1} 段`, frac, indeterminate: false}));
+  } else {
+    cells.push({key: 'render', label: '渲染', frac: playhead, indeterminate: false});
+  }
+  if (isVideo) {
+    cells.push({
+      key: 'finalize',
+      label: segFracs ? '合并视频' : '写视频',
+      frac: 0,
+      indeterminate: exportPhase === 'finalize',
+    });
+  }
+  return cells;
+}
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
 
@@ -187,8 +230,9 @@ export function ExportPage() {
     message,
     error,
     exportPhase,
-    phaseRatio,
-    displayFrame,
+    prepareRatio,
+    segFracs,
+    playhead,
     frameEnd: jobFrameEnd,
     frameStart: jobFrameStart,
     outputFrames,
@@ -214,19 +258,20 @@ export function ExportPage() {
 
   const progressLabel = error
     ? error
-    : busy && exportPhase === 'prepare'
-      ? '准备导出'
-      : busy && exportPhase === 'finalize'
-        ? '正在写 MOV'
-        : busy
-          ? `第 ${String(displayFrame).padStart(4, '0')} / ${String(jobFrameEnd).padStart(4, '0')} 帧${
-              etaText ? ` · ${etaText}` : ''
-            }`
-          : message && message !== '就绪'
-            ? message
-            : `共 ${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
-  // Bake 进度事件到达前没有可量化的准备进度 — 转圈而不是钉死的 0%。
-  const preparing = busy && exportPhase === 'prepare' && phaseRatio <= 0;
+    : message && message !== '就绪'
+      ? message
+      : `共 ${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
+  const jobCells = busy
+    ? progressCells({
+        exportPhase,
+        prepareRatio,
+        segFracs,
+        playhead,
+        isVideo: outputFormat === 'prores_422hq' || outputFormat === 'h265_hevc',
+      })
+    : null;
+  // 任务中的进度由分段进度条接管（bake → 各段/渲染 → 视频收尾）；
+  // 空闲与出错时回退到单条 ProgressBar（时间轴位置 / 错误文案）。
 
   return (
     <div className="export-body">
@@ -623,15 +668,35 @@ export function ExportPage() {
             <canvas ref={registerPreviewCanvas} className="preview-image" aria-label="当前预览帧" />
           </div>
           <div className="preview-progress">
-            <ProgressBar
-              aria-label="导出进度"
-              label={progressLabel}
-              value={progressPercent}
-              isIndeterminate={preparing}
-              size="S"
-              staticColor="white"
-              styles={style({width: 'full'})}
-            />
+            {jobCells ? (
+              <>
+                {etaText ? <div className="segbar-eta">{etaText}</div> : null}
+                <div className="segbar" role="progressbar" aria-label="导出进度">
+                  {jobCells.map((cell) => (
+                    <div className="segbar-cell" key={cell.key}>
+                      <div className="segbar-track">
+                        <div
+                          className={cell.indeterminate ? 'segbar-fill is-indeterminate' : 'segbar-fill'}
+                          style={
+                            cell.indeterminate ? undefined : {width: `${Math.round(cell.frac * 100)}%`}
+                          }
+                        />
+                      </div>
+                      <div className="segbar-label">{cell.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <ProgressBar
+                aria-label="导出进度"
+                label={progressLabel}
+                value={progressPercent}
+                size="S"
+                staticColor="white"
+                styles={style({width: 'full'})}
+              />
+            )}
           </div>
         </div>
       </section>

@@ -1588,7 +1588,9 @@ export class PipelineOrchestrator {
             const absolute = Number(progress.current_frame) || 0;
             seg.outputsDone = Math.max(
               0, Math.min(seg.expectedOutputs, absolute - seg.outputOffset));
-            if (!this.stopping) await this.pullSegPreview(seg);
+            // 预览只跟第一段：各段输出按共享编号交错落盘，轮流拉取会让
+            // 预览在段之间来回跳。
+            if (!this.stopping && seg.index === 0) await this.pullSegPreview(seg);
           }
         } catch (err) {
           debug(`seg${seg.index} progress: ${err instanceof Error ? err.message : String(err)}`);
@@ -1622,7 +1624,14 @@ export class PipelineOrchestrator {
       }
 
       const frac = this.segOutputsTotal > 0 ? Math.min(1, outputsDone / this.segOutputsTotal) : 0;
-      this.emit({type: 'engine_progress', percent: frac, phase: 'render'});
+      this.emit({
+        type: 'engine_progress',
+        percent: frac,
+        phase: 'render',
+        // 每段各自的完成比例（0..1），驱动分段进度条的各个小条。
+        segFracs: this.segs.map((s) =>
+          s.expectedOutputs > 0 ? Math.min(1, Math.max(0, s.outputsDone / s.expectedOutputs)) : 0),
+      });
       // 汇总播放头：把聚合输出比例折算成绝对帧号驱动统一的进度条/ETA。
       const frame = this.segJobRange.start +
         Math.min(this.segJobRange.totalInputs - 1,
