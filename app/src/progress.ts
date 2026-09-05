@@ -15,7 +15,9 @@ export function playheadRatio(current: number, start: number, end: number): numb
   return Math.min(1, Math.max(0, (current - start) / (end - start)));
 }
 
-const ROLLING_WINDOW = 8;
+// 帧时间与剩余估算都用最近 10 帧的平均 — 单帧间隔跳动太大（depsgraph 停顿、
+// 轮询粒度都会让某一帧翻倍）。
+const ROLLING_WINDOW = 10;
 
 export type FrameTiming = {
   samplesMs: number[];
@@ -80,8 +82,9 @@ export function formatCompactDuration(ms: number): string {
 }
 
 /**
- * Bottom-bar line after the first frame completes.
- * Uses last-frame duration for the rate and the rolling average for remaining.
+ * Bottom-bar line after the first frames complete.
+ * Both the rate and the remaining estimate use the rolling average of the
+ * last frames — the single-frame interval jumps too much to display.
  * Returns null before any sample exists — never a fake ETA.
  */
 export function formatEtaLine(
@@ -92,5 +95,5 @@ export function formatEtaLine(
   const avg = rollingAverageMs(timing);
   if (avg == null) return null;
   const remainingMs = avg * Math.max(0, remainingFrames);
-  return `${formatCompactDuration(timing.lastMs)}/帧 · 剩余 ${formatCompactDuration(remainingMs)}`;
+  return `${formatCompactDuration(avg)}/帧 · 剩余 ${formatCompactDuration(remainingMs)}`;
 }
