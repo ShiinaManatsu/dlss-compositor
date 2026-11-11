@@ -1,4 +1,5 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
+import {useNrSession} from './nrSession';
 import {
   emptyFrameTiming,
   exportProgressRatio,
@@ -108,20 +109,22 @@ export function percentError(outputW: number, outputH: number, percentage: numbe
 }
 
 export function useAppState() {
+  const {isExporting: isNrExporting} = useNrSession();
   const [route, setRouteState] = useState<Route>('project');
   const routeRef = useRef<Route>('project');
   const routeHistory = useRef<Route[]>([]);
   const setRoute = useCallback((next: Route) => {
-    if (next === routeRef.current) return;
+    if (next === routeRef.current || isNrExporting()) return;
     routeHistory.current.push(routeRef.current);
     routeRef.current = next;
     setRouteState(next);
-  }, []);
+  }, [isNrExporting]);
   const navigateBack = useCallback(() => {
+    if (isNrExporting()) return;
     const previous = routeHistory.current.pop() ?? 'project';
     routeRef.current = previous;
     setRouteState(previous);
-  }, []);
+  }, [isNrExporting]);
   const [colorScheme, setColorSchemeState] = useState<ColorSchemePref>('system');
   const [dcpPath, setDcpPath] = useState(null as string | null);
   const [recents, setRecents] = useState<RecentProject[]>([]);
@@ -644,7 +647,9 @@ export function useAppState() {
   }
 
   async function openDcp(filePath: string) {
+    if (isNrExporting()) return;
     const loaded = await window.dlss.loadDcp(filePath);
+    if (isNrExporting()) return;
     if (!loaded.ok || !loaded.project) {
       setError(loaded.error || '无法打开工程');
       setMessage(loaded.error || '无法打开工程');
@@ -944,6 +949,7 @@ export function useAppState() {
   }
 
   async function startExport() {
+    if (isNrExporting()) return;
     setError(null);
     if (mode === 'nr') {
       setError('DLSS5-NR 模型未到，接口已预留');

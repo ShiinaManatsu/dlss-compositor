@@ -16,9 +16,9 @@ const routeStyle = style({
 });
 
 /** A route rail, not a shrunken SideNav tree. Provider supplies router and locale. */
-export function ShellNavigation({items, selectedRoute, isExpanded, onExpandedChange,
+export function ShellNavigation({items, selectedRoute, isExpanded, isLocked, onExpandedChange,
   label = 'Primary navigation', expandLabel = 'Expand navigation', collapseLabel = 'Collapse navigation'}: {
-  items: NavigationItem[]; selectedRoute: string; isExpanded: boolean;
+  items: NavigationItem[]; selectedRoute: string; isExpanded: boolean; isLocked?: boolean;
   onExpandedChange: (value: boolean) => void; label?: string; expandLabel?: string; collapseLabel?: string;
 }) {
   const id = useId();
@@ -28,7 +28,7 @@ export function ShellNavigation({items, selectedRoute, isExpanded, onExpandedCha
     const active = current || (!isExpanded && containsRoute(item));
     return <li key={item.id} data-navigation-group>
       <TooltipTrigger placement="end">
-        <Link href={item.href} isDisabled={item.isDisabled} aria-label={item.label} aria-current={current ? 'page' : undefined}
+        <Link href={item.href} isDisabled={item.isDisabled || (isLocked && !current)} aria-label={item.label} aria-current={current ? 'page' : undefined}
           data-navigation-route data-active={active} data-depth={depth > 0 ? 'nested' : 'root'}
           className={state => routeStyle({...state, isActive: active})}>
           <span data-navigation-indicator aria-hidden="true" className={style({
@@ -45,7 +45,7 @@ export function ShellNavigation({items, selectedRoute, isExpanded, onExpandedCha
   return <nav aria-label={label} data-shell-navigation data-expanded={isExpanded}
     className={style({backgroundColor: 'base'})}>
     <div id={id} data-navigation-top><ul data-navigation-list>{items.map(item => renderItem(item))}</ul></div>
-    <div data-navigation-bottom><AnimatedPanelToggle isExpanded={isExpanded}
+    <div data-navigation-bottom><AnimatedPanelToggle isExpanded={isExpanded} isDisabled={isLocked}
       onExpandedChange={onExpandedChange} controls={id} expandLabel={expandLabel} collapseLabel={collapseLabel} /></div>
   </nav>;
 }

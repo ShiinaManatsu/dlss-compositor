@@ -20,18 +20,19 @@ export function useThemePreference(storageKey = 's2-theme') {
 }
 
 /** Current-mode icons are this app profile's convention. Localize labels at the caller. */
-export function ThemeCycleButton({preference, onChange,
+export function ThemeCycleButton({preference, onChange, isDisabled,
   names = {light: 'Light', dark: 'Dark', system: 'System'},
   formatLabel = (current, next) => `Theme: ${current}; switch to ${next}`,
   formatTooltip = (current, next) => `${current} · Switch to ${next}`}: {
   preference: ThemePreference; onChange: (value: ThemePreference) => void;
+  isDisabled?: boolean;
   names?: Record<ThemePreference, string>;
   formatLabel?: (current: string, next: string) => string;
   formatTooltip?: (current: string, next: string) => string;
 }) {
   const next = modes[(modes.indexOf(preference) + 1) % modes.length];
   const Icon = preference === 'light' ? Lighten : preference === 'dark' ? Contrast : BrightnessContrast;
-  return <TooltipTrigger><ActionButton isQuiet aria-label={formatLabel(names[preference], names[next])}
+  return <TooltipTrigger><ActionButton isQuiet isDisabled={isDisabled} aria-label={formatLabel(names[preference], names[next])}
     onPress={() => onChange(next)}><Icon /></ActionButton>
     <Tooltip>{formatTooltip(names[preference], names[next])}</Tooltip></TooltipTrigger>;
 }

@@ -1,4 +1,4 @@
-import {createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {userErrorMessage} from './errors';
 
 const PATHS_KEY = 'dc-nr-paths';
@@ -32,12 +32,13 @@ type NrSessionStore = {
   setMessage: (value: string) => void;
   setError: (value: string | null) => void;
   openSession: () => Promise<void>;
-  /** 离开页面时释放 CLI 侧的 NR/FG 会话（feature + 显存纹理）。 */
+  /** 清空色彩源时释放 CLI 会话。切页不关闭会话。 */
   closeSession: () => void;
   stopExport: () => Promise<void>;
   /** 导出发起前锁定 UI（标题栏停止、进度条交换）；RPC 失败用 endExport 回滚。 */
-  beginExport: () => void;
+  beginExport: () => boolean;
   endExport: () => void;
+  isExporting: () => boolean;
   /** 标题栏「导出」按钮触发页面里组装好参数的 startExport。 */
   exportTrigger: (() => void) | null;
   setExportTrigger: (fn: (() => void) | null) => void;
@@ -49,11 +50,21 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
   const [paths, setPathsState] = useState<StoredPaths>(loadPaths);
   const [info, setInfo] = useState<NrToolInfo | null>(null);
   const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
   const [exporting, setExporting] = useState(false);
+  const exportingRef = useRef(false);
   const [exportPercent, setExportPercent] = useState(0);
   const [message, setMessage] = useState('选择色彩源后自动打开会话，预览调整 NR / FG');
   const [error, setError] = useState(null as string | null);
-  const [exportTrigger, setExportTrigger] = useState<(() => void) | null>(null);
+  const [exportTrigger, setExportTriggerState] = useState<(() => void) | null>(null);
+  const setExportTrigger = useCallback((trigger: (() => void) | null) => {
+    setExportTriggerState(() => trigger);
+  }, []);
+  const isExporting = useCallback(() => exportingRef.current, []);
+  const endExport = useCallback(() => {
+    exportingRef.current = false;
+    setExporting(false);
+  }, []);
 
   // Persist paths so re-entering the tool restores the workspace.
   useEffect(() => {
@@ -68,30 +79,33 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
   useEffect(
     () =>
       window.dlss.onEvent((event) => {
+        if (!exportingRef.current) return;
         if (event.type === 'nrtool_progress' && typeof event.percent === 'number') {
           // 进度只进不退：任何上游双源/乱序都不该把条往回拽。
           const pct = Math.min(100, Math.round(event.percent * 100));
           setExportPercent((prev) => Math.max(prev, pct));
         } else if (event.type === 'nrtool_export_done') {
-          setExporting(false);
+          endExport();
           setExportPercent(100);
           setMessage('导出完成');
         } else if (event.type === 'nrtool_export_stopped') {
-          setExporting(false);
+          endExport();
           setMessage('已停止');
         } else if (event.type === 'nrtool_export_error') {
-          setExporting(false);
+          endExport();
           setError(userErrorMessage(String(event.message ?? '导出失败')));
         }
       }),
-    []
+    [endExport]
   );
 
   const openSession = useCallback(async () => {
+    if (openingRef.current || exportingRef.current) return;
     if (!paths.colorSource.trim()) {
       setError('请选择色彩源');
       return;
     }
+    openingRef.current = true;
     setOpening(true);
     setError(null);
     setInfo(null);
@@ -125,31 +139,40 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     } catch (err) {
       setError(userErrorMessage(err instanceof Error ? err.message : '打开失败'));
     } finally {
+      openingRef.current = false;
       setOpening(false);
     }
   }, [paths]);
 
   const closeSession = useCallback(() => {
-    void window.dlss.nrClose();
+    if (openingRef.current || exportingRef.current) return;
+    void window.dlss.nrClose().catch((err: unknown) => {
+      setError(userErrorMessage(err instanceof Error ? err.message : '关闭失败'));
+    });
     setInfo(null);
-    setExporting(false);
+    setError(null);
+    setMessage('选择色彩源后自动打开会话，预览调整 NR / FG');
   }, []);
 
   const stopExport = useCallback(async () => {
+    if (!exportingRef.current) return;
     try {
-      await window.dlss.nrStop();
+      const result = await window.dlss.nrStop();
+      if (!result.ok) setError(userErrorMessage(result.error ?? '停止失败'));
     } catch (err) {
       setError(userErrorMessage(err instanceof Error ? err.message : '停止失败'));
     }
   }, []);
 
   const beginExport = useCallback(() => {
+    if (openingRef.current || exportingRef.current) return false;
+    exportingRef.current = true;
     setExporting(true);
     setExportPercent(0);
     setError(null);
+    setMessage('准备导出…');
+    return true;
   }, []);
-
-  const endExport = useCallback(() => setExporting(false), []);
 
   const value = useMemo(
     () => ({
@@ -168,6 +191,7 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       stopExport,
       beginExport,
       endExport,
+      isExporting,
       exportTrigger,
       setExportTrigger
     }),
@@ -184,7 +208,9 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
       stopExport,
       beginExport,
       endExport,
-      exportTrigger
+      isExporting,
+      exportTrigger,
+      setExportTrigger
     ]
   );
 

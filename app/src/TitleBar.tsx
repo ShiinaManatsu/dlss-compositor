@@ -9,6 +9,7 @@ import icon from '../assets/icon.png';
 export function TitleBar({
   crumbs,
   children,
+  isLocked,
   maximized,
   onMinimize,
   onMaximize,
@@ -18,6 +19,7 @@ export function TitleBar({
 }: {
   crumbs: string[];
   children?: ReactNode;
+  isLocked?: boolean;
   maximized: boolean;
   onMinimize: () => void;
   onMaximize: () => void;
@@ -28,11 +30,11 @@ export function TitleBar({
   return (
     <header className="chrome titlebar">
       <div className="titlebar-brand">
-        {onBack ? <ActionButton aria-label="返回" onPress={onBack}><ChevronLeft /></ActionButton>
+        {onBack ? <ActionButton aria-label="返回" isDisabled={isLocked} onPress={onBack}><ChevronLeft /></ActionButton>
           : <Image src={icon} alt="DLSS Compositor" styles={style({width: 40, height: 40, backgroundColor: 'transparent'})} />}
       </div>
       <div className="titlebar-title">
-        {onBack ? <Breadcrumbs aria-label="位置" onAction={onParent}>
+        {onBack ? <Breadcrumbs aria-label="位置" isDisabled={isLocked} onAction={onParent}>
           {crumbs.map((label, index) => (
             <Breadcrumb id={index} key={`${label}-${index}`}>{label}</Breadcrumb>
           ))}
@@ -55,7 +57,7 @@ export function TitleBar({
           onClick={onMaximize}>
           <span className={maximized ? 'window-icon window-icon-restore' : 'window-icon window-icon-max'} />
         </button>
-        <button type="button" className="window-btn window-btn-close" aria-label="关闭" onClick={onClose}>
+        <button type="button" className="window-btn window-btn-close" aria-label="关闭" disabled={isLocked} onClick={onClose}>
           <span className="window-icon window-icon-close" />
         </button>
       </div>

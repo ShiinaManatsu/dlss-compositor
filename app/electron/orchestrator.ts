@@ -331,6 +331,8 @@ export class PipelineOrchestrator {
   private pollTimer: NodeJS.Timeout | null = null;
   private nrPollTimer: NodeJS.Timeout | null = null;
   private nrPollInFlight = false;
+  private nrPollFailures = 0;
+  private nrExportActive = false;
   private nrStopRequested = false;
   private running = false;
   private ramLetter: string | null = null;
@@ -852,9 +854,11 @@ export class PipelineOrchestrator {
     color_source: string;
     buffer_dir?: string;
   }): Promise<Record<string, unknown>> {
+    if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
     const cli = findCli(undefined, backendDir ?? undefined);
     if (!cli) return {ok: false, error: '找不到 dlss-compositor-cli.exe'};
     const rpc = await this.ensureNrCli(cli);
+    if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
     return rpc.request('nrtool_open', params, 120000);
   }
 
@@ -862,6 +866,7 @@ export class PipelineOrchestrator {
     frame: number,
     settings: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
+    if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
     if (!this.nrRpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
     return this.nrRpc.request('nrtool_preview', {frame, ...settings}, 120000);
   }
@@ -869,49 +874,59 @@ export class PipelineOrchestrator {
   /** Start an NR export and poll progress until it settles, forwarding
    *  nrtool_progress / nrtool_export_done / nrtool_export_error events. */
   async nrExport(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (!this.nrRpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
+    const rpc = this.nrRpc;
+    if (!rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    this.nrExportActive = true;
     this.nrStopRequested = false;
-    const result = await this.nrRpc.request('nrtool_export', params, 30000);
-    if (this.nrPollTimer) clearInterval(this.nrPollTimer);
-    this.nrPollInFlight = false;
-    this.nrPollTimer = setInterval(() => void this.nrPollOnce(), 400);
-    return result;
+    this.nrPollFailures = 0;
+    try {
+      const result = await rpc.request('nrtool_export', params, 30000);
+      this.nrPollTimer = setInterval(() => void this.nrPollOnce(), 400);
+      return result;
+    } catch (err) {
+      // A timed out start may have reached the worker. Release the process so
+      // an untracked export can't keep writing after the UI is unlocked.
+      if (!rpc.writable() || (err instanceof Error && err.message === 'RPC timeout')) this.discardNrCli();
+      this.nrExportActive = false;
+      throw err;
+    }
   }
 
   async nrClose(): Promise<Record<string, unknown>> {
-    if (this.nrPollTimer) {
-      clearInterval(this.nrPollTimer);
-      this.nrPollTimer = null;
-    }
+    if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
     if (!this.nrRpc?.writable()) return {ok: true};
     return this.nrRpc.request('nrtool_close', {}, 30000);
   }
 
   /** Cancel a running NR export via the tool process's stop RPC. */
   async nrStop(): Promise<Record<string, unknown>> {
+    if (!this.nrExportActive) return {ok: true};
     this.nrStopRequested = true;
     if (!this.nrRpc?.writable()) return {ok: true};
     return this.nrRpc.request('stop', {}, 5000);
   }
 
   private async nrPollOnce(): Promise<void> {
-    if (!this.nrRpc?.writable() || this.nrPollInFlight) return;
+    if (!this.nrExportActive || this.nrPollInFlight) return;
+    const rpc = this.nrRpc;
+    if (!rpc?.writable()) {
+      this.failNrConnection();
+      return;
+    }
     this.nrPollInFlight = true;
     try {
-      const progress = await this.nrRpc.request('progress', {}, 5000);
+      const progress = await rpc.request('progress', {}, 5000);
+      this.nrPollFailures = 0;
       const state = progress.state;
       this.emit({type: 'nrtool_progress', ...progress});
       if (state === 2 || state === 'done') {
-        this.stopNrPoll();
-        this.nrStopRequested = false;
-        this.emit({type: 'nrtool_export_done'});
+        this.finishNrExport({type: 'nrtool_export_done'});
       } else if (state === 3 || state === 'error') {
-        this.stopNrPoll();
         // The CLI reports a user stop as state 3 as well; disambiguate via
         // the stop flag so the UI shows 已停止 instead of a failure.
         const stopped = this.nrStopRequested;
-        this.nrStopRequested = false;
-        this.emit(
+        this.finishNrExport(
           stopped
             ? {type: 'nrtool_export_stopped'}
             : this.cliLog
@@ -921,9 +936,22 @@ export class PipelineOrchestrator {
       }
     } catch (err) {
       this.emit({type: 'rpc_warn', message: err instanceof Error ? err.message : String(err)});
+      if (!rpc.writable() || ++this.nrPollFailures >= 3) this.failNrConnection();
     } finally {
       this.nrPollInFlight = false;
     }
+  }
+
+  private failNrConnection(): void {
+    this.discardNrCli();
+    this.finishNrExport({type: 'nrtool_export_error', message: 'NR 引擎连接中断，请重新选择色彩源'});
+  }
+
+  private finishNrExport(event: PipelineEvent): void {
+    this.stopNrPoll();
+    this.nrExportActive = false;
+    this.nrStopRequested = false;
+    this.emit(event);
   }
 
   private stopNrPoll(): void {

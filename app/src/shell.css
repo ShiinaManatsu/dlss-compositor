@@ -46,6 +46,8 @@ body,
   padding: 0 var(--shell-gap) var(--shell-gap) 0;
 }
 
+.nr-page-host:not([hidden]) { display: contents; }
+
 /* ---------- title bar ---------- */
 
 .titlebar {
@@ -116,11 +118,13 @@ body,
   place-items: center;
 }
 
-.window-btn:hover {
+.window-btn:disabled { opacity: .4; }
+
+.window-btn:enabled:hover {
   background: color-mix(in srgb, canvastext 12%, transparent);
 }
 
-.window-btn-close:hover {
+.window-btn-close:enabled:hover {
   background: #e81123;
   color: #fff;
 }

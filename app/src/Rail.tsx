@@ -9,7 +9,7 @@ import {ShellNavigation} from './shell/ShellNavigation';
 
 const RAIL_KEY = 'dc-rail-collapsed';
 
-export function Rail() {
+export function Rail({isLocked}: {isLocked: boolean}) {
   const {route, hasProject} = useApp();
   const [expanded, setExpanded] = useState(() => {
     try { return localStorage.getItem(RAIL_KEY) === '0'; } catch { return false; }
@@ -20,7 +20,7 @@ export function Rail() {
     });
   }, []);
   return <div className={`rail${expanded ? '' : ' is-collapsed'}`}>
-    <ShellNavigation label="主导航" selectedRoute={`#/${route}`} isExpanded={expanded}
+    <ShellNavigation label="主导航" selectedRoute={`#/${route}`} isExpanded={expanded} isLocked={isLocked}
       expandLabel="展开导航" collapseLabel="收起导航"
       onExpandedChange={value => {
         setExpanded(value);

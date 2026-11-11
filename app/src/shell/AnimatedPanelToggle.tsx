@@ -21,17 +21,17 @@ const PanelIcon = createIcon(props => {
   </svg>;
 });
 
-export function AnimatedPanelToggle({isExpanded, onExpandedChange, controls,
+export function AnimatedPanelToggle({isExpanded, onExpandedChange, controls, isDisabled,
   expandLabel = 'Expand navigation', collapseLabel = 'Collapse navigation'}: {
-  isExpanded: boolean; onExpandedChange: (value: boolean) => void; controls?: string;
+  isExpanded: boolean; onExpandedChange: (value: boolean) => void; controls?: string; isDisabled?: boolean;
   expandLabel?: string; collapseLabel?: string;
 }) {
   const [preview, setPreview] = useState(false);
-  const {hoverProps} = useHover({onHoverChange: setPreview});
+  const {hoverProps} = useHover({isDisabled, onHoverChange: setPreview});
   const label = isExpanded ? collapseLabel : expandLabel;
   return <span {...hoverProps} data-panel-toggle className={style({display: 'inline-flex'})}>
     <PanelState.Provider value={{isExpanded, isPreviewExpanded: preview ? !isExpanded : isExpanded}}>
-      <TooltipTrigger><ActionButton isQuiet aria-label={label} aria-expanded={isExpanded} aria-controls={controls}
+      <TooltipTrigger><ActionButton isQuiet isDisabled={isDisabled} aria-label={label} aria-expanded={isExpanded} aria-controls={controls}
         onPress={() => {setPreview(false); onExpandedChange(!isExpanded);}}><PanelIcon /></ActionButton>
         <Tooltip>{label}</Tooltip></TooltipTrigger>
     </PanelState.Provider>

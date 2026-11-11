@@ -9,7 +9,7 @@ const MIN = 280;
 const DEFAULT = 320;
 
 /** Adjacent panels share one bounded splitter; media always gets the remainder. */
-export function Workbench({name, children}: {name: string; children: ReactNode}) {
+export function Workbench({name, children, controlsDisabled}: {name: string; children: ReactNode; controlsDisabled?: boolean}) {
   const root = useRef<HTMLDivElement>(null);
   const id = useId();
   const key = `dc-panel-width-${name}`;
@@ -28,7 +28,7 @@ export function Workbench({name, children}: {name: string; children: ReactNode})
   useEffect(() => {
     const observer = new ResizeObserver(() => {
       const el = root.current;
-      if (!el) return;
+      if (!el || !el.clientWidth || !el.clientHeight) return;
       const gutter = parseFloat(getComputedStyle(el).getPropertyValue('--shell-gap')) || 16;
       setGap(gutter);
       setMaximum(Math.max(MIN, Math.min(440, el.clientWidth - 360 - gutter)));
@@ -50,7 +50,7 @@ export function Workbench({name, children}: {name: string; children: ReactNode})
       style={compact ? undefined : {gridTemplateColumns: `${width}px ${gap}px minmax(0, 1fr)`}}>
       {compact ? <div className="workbench-tools">
         <DialogTrigger isOpen={dialogOpen} onOpenChange={setDialogOpen}>
-          <ActionButton><Properties /><Text>参数</Text></ActionButton>
+          <ActionButton isDisabled={controlsDisabled}><Properties /><Text>参数</Text></ActionButton>
           <Dialog isDismissible><Heading slot="title">{name === 'export' ? '导出参数' : 'NR / FG 参数'}</Heading>
             <Content><div className="workbench-dialog">{panels[0]}</div></Content>
           </Dialog>

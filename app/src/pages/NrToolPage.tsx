@@ -84,16 +84,19 @@ function SettingsSection({
   title,
   defaultExpanded,
   insetControls,
+  isDisabled,
   children
 }: {
   title: string;
   defaultExpanded?: boolean;
   insetControls?: boolean;
+  isDisabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <Disclosure
       defaultExpanded={defaultExpanded}
+      isDisabled={isDisabled}
       size="S"
       density="compact"
       isQuiet
@@ -106,9 +109,10 @@ function SettingsSection({
   );
 }
 
-export function NrToolPage() {
+export function NrToolPage({active}: {active: boolean}) {
   const nr = useNrSession();
-  const {paths, setPaths, info, opening, exporting, exportPercent, setError} = nr;
+  const {paths, setPaths, info, opening, exporting, exportPercent, setError, setMessage,
+    openSession, closeSession, isExporting, beginExport, endExport, setExportTrigger} = nr;
 
   // ── viewport / timeline ────────────────────────────────────────────────────
   const [frame, setFrame] = useState(0);
@@ -132,11 +136,11 @@ export function NrToolPage() {
   const infoRef = useRef<NrToolInfo | null>(null);
   const frameRef = useRef(0);
   const settingsRef = useRef(settings as StoredSettings);
-  const exportingRef = useRef(false);
+  const activeRef = useRef(active);
   infoRef.current = info;
   frameRef.current = frame;
   settingsRef.current = settings;
-  exportingRef.current = exporting;
+  activeRef.current = active;
 
   const settingsParams = useCallback(
     (s: StoredSettings) => ({
@@ -164,7 +168,7 @@ export function NrToolPage() {
     return Math.min(2560, Math.max(320, Math.round((canvas?.clientWidth || 1280) * dpr)));
   }, []);
 
-  const drawJpeg = useCallback(async (b64: string, srcWidth?: number) => {
+  const drawJpeg = useCallback(async (b64: string, srcWidth: number | undefined, session: NrToolInfo) => {
     try {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -178,7 +182,7 @@ export function NrToolPage() {
         : undefined;
       const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}), resize);
       const target = canvasRef.current;
-      if (!target) {
+      if (!target || !activeRef.current || isExporting() || infoRef.current !== session) {
         bitmap.close();
         return;
       }
@@ -190,7 +194,7 @@ export function NrToolPage() {
     } catch {
       /* malformed jpeg */
     }
-  }, [previewTargetWidth]);
+  }, [isExporting, previewTargetWidth]);
 
   const pump = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -201,33 +205,36 @@ export function NrToolPage() {
         if (!job) break;
         pendingRef.current = null;
         // 导出期间 CLI 拒绝预览 —— 静默退出，别刷一屏错误。
-        if (exportingRef.current) break;
+        const session = infoRef.current;
+        if (!activeRef.current || isExporting() || !session) break;
+        const canDraw = () => activeRef.current && !isExporting() && infoRef.current === session;
         try {
           const r = await window.dlss.nrPreview(job.frame, {
             ...job.settings,
             preview_max_long_edge: previewTargetWidth()
           });
+          if (!canDraw()) continue;
           if (r.ok && r.jpeg_b64) {
             // FG 只在播放时出插值帧：eval(N) 的插值位于 N-1 与 N 之间，
             // 先画插值再画实帧即得到 2x 顺序播放；seek/暂停只显示实帧。
             if (playingRef.current && r.interp_jpeg_b64) {
-              await drawJpeg(r.interp_jpeg_b64, r.width);
+              await drawJpeg(r.interp_jpeg_b64, r.width, session);
             }
-            await drawJpeg(r.jpeg_b64, r.width);
+            await drawJpeg(r.jpeg_b64, r.width, session);
             setEvalMs(r.eval_ms);
           } else if (r.error) {
-            if (!exportingRef.current) setError(userErrorMessage(r.error));
+            setError(userErrorMessage(r.error));
             break;
           }
         } catch (err) {
-          if (!exportingRef.current) {
+          if (canDraw()) {
             setError(userErrorMessage(err instanceof Error ? err.message : '预览失败'));
           }
           break;
         }
         // Chained playback: advance only when the previous frame settled, so
         // the clip plays at the speed the engine actually manages.
-        if (playingRef.current) {
+        if (canDraw() && playingRef.current) {
           const frames = infoRef.current?.frames ?? 0;
           if (frames > 1) {
             const next = (job.frame + 1) % frames;
@@ -240,27 +247,33 @@ export function NrToolPage() {
       inFlightRef.current = false;
       if (pendingRef.current) void pump();
     }
-  }, [drawJpeg, previewTargetWidth, settingsParams, setError]);
+  }, [drawJpeg, isExporting, previewTargetWidth, settingsParams, setError]);
 
   const requestPreview = useCallback(
     (next: number) => {
+      if (!activeRef.current || isExporting() || !infoRef.current) return;
       pendingRef.current = {frame: next, settings: settingsParams(settingsRef.current)};
       void pump();
     },
-    [pump, settingsParams]
+    [isExporting, pump, settingsParams]
   );
 
-  // Leaving the page releases the 4K NR/FG session (feature + textures) in the CLI.
-  // closeSession is useCallback([])-stable in the store, so this is unmount-only.
-  const {closeSession, setExportTrigger} = nr;
-  useEffect(
-    () => () => {
-      playingRef.current = false;
-      pendingRef.current = null;
-      void closeSession();
-    },
-    [closeSession]
-  );
+  // Keep the media, canvas and controls mounted while another page is visible.
+  // Pause playback and discard queued preview work while hidden.
+  useEffect(() => {
+    if (active) {
+      requestPreview(frameRef.current);
+      return;
+    }
+    playingRef.current = false;
+    setPlaying(false);
+    pendingRef.current = null;
+  }, [active, requestPreview]);
+  useEffect(() => () => {
+    playingRef.current = false;
+    pendingRef.current = null;
+    bitmapRef.current?.close();
+  }, []);
 
   // Persist tuning so re-entering the tool restores the workspace (paths live
   // in the session store).
@@ -276,21 +289,23 @@ export function NrToolPage() {
   // 手动改路径同样触发；正在打开/导出时跳过，等状态变化后重新评估。
   const openKey = `${paths.colorSource.trim()}|${paths.bufferDir.trim()}`;
   const openedKeyRef = useRef<string | null>(null);
-  const {openSession} = nr;
   useEffect(() => {
-    if (opening || exporting) return;
+    if (!active || opening || exporting) return;
     if (!paths.colorSource.trim()) {
-      openedKeyRef.current = openKey;
+      if (openedKeyRef.current !== null) {
+        openedKeyRef.current = null;
+        closeSession();
+      }
       return;
     }
     if (openedKeyRef.current === openKey) return;
     const handle = window.setTimeout(() => {
+      if (!activeRef.current || isExporting()) return;
       openedKeyRef.current = openKey;
       void openSession();
     }, 500);
     return () => window.clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openKey, opening, exporting, openSession]);
+  }, [active, openKey, paths.colorSource, opening, exporting, isExporting, openSession, closeSession]);
 
   // A fresh session: rewind, suggest the output video, kick the first preview.
   useEffect(() => {
@@ -313,7 +328,7 @@ export function NrToolPage() {
       firstSettingsRun.current = false;
       return;
     }
-    if (!infoRef.current) return;
+    if (!activeRef.current || !infoRef.current) return;
     const handle = window.setTimeout(() => {
       if (!playingRef.current) requestPreview(frameRef.current);
     }, 300);
@@ -354,56 +369,57 @@ export function NrToolPage() {
     }
   }
 
-  function startExport() {
+  const startExport = useCallback(() => {
     const session = infoRef.current;
-    if (!session || nr.exporting) return;
+    if (!activeRef.current || !session || openedKeyRef.current !== openKey || isExporting()) return;
     const params: Record<string, unknown> = {output_format: nrFormat, ...settingsParams(settings)};
     if (nrFormat === 'png_16') {
       if (!outputDir.trim()) {
-        nr.setError('请选择 PNG 输出目录');
+        setError('请选择 PNG 输出目录');
         return;
       }
       params.output_dir = outputDir.trim();
       params.output_template = template.trim() || 'nr_####.png';
     } else {
       if (!outputPath.trim()) {
-        nr.setError('请选择输出视频路径');
+        setError('请选择输出视频路径');
         return;
       }
       params.output_path = outputPath.trim();
     }
     // 先锁定 UI（标题栏停止、进度条交换、时间轴禁用），RPC 失败再回滚 ——
     // 否则导出运行中 GUI 仍是空闲态，预览全部被 CLI 拒绝。
-    nr.beginExport();
+    if (!beginExport()) return;
     playingRef.current = false;
+    pendingRef.current = null;
     setPlaying(false);
     window.dlss
       .nrExport(params)
       .then((started) => {
+        if (!isExporting()) return;
         if (!started.ok) {
-          nr.endExport();
-          nr.setError(userErrorMessage(started.error ?? '导出失败'));
+          endExport();
+          setError(userErrorMessage(started.error ?? '导出失败'));
           return;
         }
         const stages = [settings.nrEnabled ? 'NR' : null, settings.fgEnabled ? 'FG' : null]
           .filter(Boolean)
           .join('/');
-        nr.setMessage(`导出中 · ${started.frames ?? session.frames} 帧 · ${stages || '直通'}`);
+        setMessage(`导出中 · ${started.frames ?? session.frames} 帧 · ${stages || '直通'}`);
       })
       .catch((err: unknown) => {
-        nr.endExport();
-        nr.setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
+        endExport();
+        setError(userErrorMessage(err instanceof Error ? err.message : '导出失败'));
       });
-  }
+  }, [beginExport, endExport, isExporting, nrFormat, openKey, outputDir, outputPath,
+    setError, setMessage, settings, settingsParams, template]);
 
-  // 标题栏「导出」按钮触发这里组装好参数的导出；离开页面时注销。
-  // 必须写成「返回函数」的更新器：直接传 startExport 会被 React 当成
-  // setState 更新器立即调用（挂载/改设置=直接开始导出）。
+  // Only export once the visible paths match the media loaded by the CLI.
+  const canExport = active && info != null && !opening && openedKeyRef.current === openKey;
   useEffect(() => {
-    setExportTrigger(() => startExport);
+    setExportTrigger(canExport ? startExport : null);
     return () => setExportTrigger(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setExportTrigger, nrFormat, outputPath, outputDir, template, settingsKey]);
+  }, [canExport, setExportTrigger, startExport]);
 
   const aspect = info ? `${info.width} / ${info.height}` : '16 / 9';
   const fgConfigMissing = settings.fgEnabled && info != null && !info.camera_config;
@@ -413,9 +429,9 @@ export function NrToolPage() {
       : info?.frames ?? 0;
 
   return (
-    <Workbench name="nrtool">
+    <Workbench name="nrtool" controlsDisabled={exporting}>
       <aside className="export-settings">
-        <SettingsSection title="媒体" defaultExpanded>
+        <SettingsSection title="媒体" defaultExpanded isDisabled={exporting}>
           <TextField
             label="色彩源（视频或 PNG 序列首帧）"
             size="S"
@@ -428,19 +444,19 @@ export function NrToolPage() {
             isDisabled={opening || exporting}
             onPress={() => {
               void window.dlss.chooseNrVideo().then((picked) => {
-                if (picked) {
+                if (picked && activeRef.current && !isExporting()) {
                   // 单一入口：PNG 首帧 → 序列目录；视频 → 文件本身。
                   // buffer 子目录按 <名称>_dlssbuffer 自动建议。
                   const isPng = /\.png$/i.test(picked);
                   const colorSource = isPng
                     ? picked.replace(/\\/g, '/').slice(0, picked.replace(/\\/g, '/').lastIndexOf('/'))
                     : picked;
-                  const bufferDir = suggestBufferDir(picked);
-                  setPaths((prev) => ({
-                    ...prev,
-                    colorSource,
-                    bufferDir: bufferDir || prev.bufferDir
-                  }));
+                  const bufferDir = suggestBufferDir(picked) || paths.bufferDir;
+                  if (`${colorSource.trim()}|${bufferDir.trim()}` === openKey && openedKeyRef.current === openKey) {
+                    void openSession();
+                  } else {
+                    setPaths(() => ({colorSource, bufferDir}));
+                  }
                 }
               });
             }}>
@@ -474,7 +490,7 @@ export function NrToolPage() {
               : nr.message}
           </span> : null}
         </SettingsSection>
-        <SettingsSection title="NR" defaultExpanded insetControls>
+        <SettingsSection title="NR" defaultExpanded insetControls isDisabled={exporting}>
           <Switch
             size="S"
             isSelected={settings.nrEnabled}
@@ -558,7 +574,7 @@ export function NrToolPage() {
             </ToggleButton>
           </ToggleButtonGroup>
         </SettingsSection>
-        <SettingsSection title="FG 帧生成" defaultExpanded>
+        <SettingsSection title="FG 帧生成" defaultExpanded isDisabled={exporting}>
           <Switch
             size="S"
             isSelected={settings.fgEnabled}
@@ -585,7 +601,7 @@ export function NrToolPage() {
             </span>
           ) : null}
         </SettingsSection>
-        <SettingsSection title="导出" defaultExpanded>
+        <SettingsSection title="导出" defaultExpanded isDisabled={exporting}>
           <Picker
             label="编码"
             size="S"
