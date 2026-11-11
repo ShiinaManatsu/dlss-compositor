@@ -292,10 +292,12 @@ NrSettings RpcDispatcher::parseNrSettings(const nlohmann::json& p) {
     s.enabled = p.value("nr_enabled", true);
     s.model = static_cast<NrModel>(std::clamp(p.value("nr_model", 0), 0, 2));
     s.style = static_cast<NrStyle>(std::clamp(p.value("nr_style", 0), 0, 2));
-    s.intensity = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
-    s.localToneStrength = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
-    s.localStructureStrength = std::clamp(p.value("nr_local_structure", 1.0f), 0.0f, 1.0f);
+    s.intensity = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 2.0f);
+    s.localToneStrength = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 2.0f);
+    s.localStructureStrength = std::clamp(p.value("nr_local_structure", 1.0f), 0.0f, 2.0f);
+    s.skinStructureStrength = std::clamp(p.value("nr_skin_structure", 0.0f), 0.0f, 2.0f);
     s.useAutoMask = p.value("nr_automask", false);
+    s.uiCorrection = p.value("nr_ui_correction", false);
     s.guidanceMode = static_cast<NrGuidanceMode>(std::clamp(p.value("nr_guidance", 0), 0, 3));
     return s;
 }

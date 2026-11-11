@@ -420,7 +420,7 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
     m_ngxParams->Set("DLSSNR.OutputHeight", static_cast<int>(height));
     m_ngxParams->Set("DLSSNR.Output.Width",  static_cast<int>(width));
     m_ngxParams->Set("DLSSNR.Output.Height", static_cast<int>(height));
-    m_ngxParams->Set("DLSSNR.Upscaling", 0);           // denoise-only, same resolution
+    m_ngxParams->Set("DLSSNR.Upscaling", 0);           // same-resolution post-processing
     m_ngxParams->Set("DLSSNR.Scale", 1.0f);
     m_ngxParams->Set("DLSSNR.ScalingRatio", 1.0f);
     // Magpie v0.6.11 DLSSNRFilter.cpp: preset 0 lets the runtime select the model.
@@ -463,10 +463,10 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
     }
 
     LOG_INFO("[DLSS NR] Created feature 18 same-res {}x{} model={} style={} intensity={:.2f} "
-             "localTone={:.2f} localStructure={:.2f} autoMask={}",
+             "localTone={:.2f} localStructure={:.2f} skinStructure={:.2f} autoMask={} uiCorrection={}",
              width, height, model, static_cast<int>(m_settings.style), m_settings.intensity,
              m_settings.localToneStrength, m_settings.localStructureStrength,
-             m_settings.useAutoMask ? 1 : 0);
+             m_settings.skinStructureStrength, m_settings.useAutoMask, m_settings.uiCorrection);
 }
 
 void DlssNrPass::updateSettings(const NrSettings& settings) {
@@ -474,18 +474,16 @@ void DlssNrPass::updateSettings(const NrSettings& settings) {
     if (m_handle) applyTuningParams();
 }
 
-/// Per-evaluate tuning keys — mirrors Magpie's SetEvaluateParametersUnsafe
-/// (style/intensity/tone/structure/autoMask are evaluate-time in Magpie too).
-/// `DLSSNR.Enabled` gates the feature per-eval; UICorrection stays off (we are
-/// not a HUD compositor).
+/// Native tuning keys from Magpie v0.6.12's SetEvaluateParametersUnsafe.
 void DlssNrPass::applyTuningParams() {
     m_ngxParams->Set("DLSSNR.Style",       static_cast<int>(m_settings.style));
     m_ngxParams->Set("DLSSNR.Intensity",   m_settings.intensity);
     m_ngxParams->Set("DLSSNR.LocalToneStrength",      m_settings.localToneStrength);
     m_ngxParams->Set("DLSSNR.LocalStructureStrength", m_settings.localStructureStrength);
+    m_ngxParams->Set("DLSSNR.SkinStructureStrength",  m_settings.skinStructureStrength);
     m_ngxParams->Set("DLSSNR.UseAutoMask", m_settings.useAutoMask ? 1 : 0);
     m_ngxParams->Set("DLSSNR.Enabled", 1);
-    m_ngxParams->Set("DLSSNR.UICorrection", 0);
+    m_ngxParams->Set("DLSSNR.UICorrection", m_settings.uiCorrection ? 1 : 0);
 }
 
 void DlssNrPass::evaluate(VkCommandBuffer cmd, const NrInputs& in) {

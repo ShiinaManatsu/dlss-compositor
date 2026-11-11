@@ -78,9 +78,7 @@ enum class NrGuidanceMode : int {
     DepthOnly  = 3,  ///< depth only
 };
 
-/// Full tuning surface (Magpie DLSSNRSettings minus its synthetic-guidance
-/// depthInferenceInterval, which has no NGX parameter — it only drives
-/// Magpie's zero-filled guidance interop).
+/// Native NGX tuning keys, independent of Magpie's additional processing.
 struct NrSettings {
     bool           enabled            = true;
     NrModel        model              = NrModel::Auto;
@@ -88,7 +86,9 @@ struct NrSettings {
     float          intensity          = 1.0f;
     float          localToneStrength  = 1.0f;
     float          localStructureStrength = 1.0f;
+    float          skinStructureStrength  = 0.0f;
     bool           useAutoMask        = false;
+    bool           uiCorrection       = false;
     NrGuidanceMode guidanceMode       = NrGuidanceMode::All;
 };
 

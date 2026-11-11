@@ -25,7 +25,9 @@ type StoredSettings = {
   intensity: number;
   localTone: number;
   localStructure: number;
+  skinStructure: number;
   automask: boolean;
+  uiCorrection: boolean;
   guidance: number;
   fgEnabled: boolean;
   fgMultiplier: number;
@@ -38,11 +40,20 @@ const DEFAULT_SETTINGS: StoredSettings = {
   intensity: 1.0,
   localTone: 1.0,
   localStructure: 1.0,
+  skinStructure: 0,
   automask: false,
+  uiCorrection: false,
   guidance: 0,
   fgEnabled: true,
   fgMultiplier: 2,
 };
+
+const NR_STRENGTHS = [
+  ['intensity', '强度'],
+  ['localTone', '局部色调强度'],
+  ['localStructure', '局部结构强度'],
+  ['skinStructure', '皮肤结构强度']
+] as const;
 
 function loadSettings(): StoredSettings {
   try {
@@ -72,10 +83,12 @@ function suggestBufferDir(source: string): string {
 function SettingsSection({
   title,
   defaultExpanded,
+  insetControls,
   children
 }: {
   title: string;
   defaultExpanded?: boolean;
+  insetControls?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -87,7 +100,7 @@ function SettingsSection({
       styles={style({width: 'full'})}>
       <DisclosureTitle>{title}</DisclosureTitle>
       <DisclosurePanel>
-        <div className="settings-fields">{children}</div>
+        <div className={`settings-fields${insetControls ? ` ${style({paddingX: 16})}` : ''}`}>{children}</div>
       </DisclosurePanel>
     </Disclosure>
   );
@@ -133,7 +146,9 @@ export function NrToolPage() {
       nr_intensity: s.intensity,
       nr_local_tone: s.localTone,
       nr_local_structure: s.localStructure,
+      nr_skin_structure: s.skinStructure,
       nr_automask: s.automask,
+      nr_ui_correction: s.uiCorrection,
       nr_guidance: s.guidance,
       fg_enabled: s.fgEnabled,
       fg_multiplier: s.fgMultiplier
@@ -459,7 +474,7 @@ export function NrToolPage() {
               : nr.message}
           </span> : null}
         </SettingsSection>
-        <SettingsSection title="NR 降噪" defaultExpanded>
+        <SettingsSection title="NR" defaultExpanded insetControls>
           <Switch
             size="S"
             isSelected={settings.nrEnabled}
@@ -468,7 +483,7 @@ export function NrToolPage() {
             启用
           </Switch>
           <Picker
-            label="降噪风格"
+            label="风格"
             size="S"
             value={String(settings.style)}
             onChange={(value) => setSettings((prev) => ({...prev, style: Number(value)}))}
@@ -479,52 +494,42 @@ export function NrToolPage() {
             <PickerItem id="2">电影</PickerItem>
           </Picker>
           <Picker
-            label="NR 模型"
+            label="模型预设"
             size="S"
             value={String(settings.model)}
             onChange={(value) => setSettings((prev) => ({...prev, model: Number(value)}))}
             isDisabled={exporting || !settings.nrEnabled}
             styles={style({width: 'full'})}>
-            <PickerItem id="0">自动</PickerItem>
-            <PickerItem id="1">A · 标准</PickerItem>
-            <PickerItem id="2">B · 轻量（310.9.16+）</PickerItem>
+            <PickerItem id="0">自动（DLL 默认）</PickerItem>
+            <PickerItem id="1">HT</PickerItem>
+            <PickerItem id="2">CC Small FP8</PickerItem>
           </Picker>
-          <Slider
-            label="降噪强度"
-            size="S"
-            minValue={0}
-            maxValue={1}
-            step={0.05}
-            value={settings.intensity}
-            onChange={(next) => setSettings((prev) => ({...prev, intensity: next}))}
-            isDisabled={exporting || !settings.nrEnabled}
-          />
-          <Slider
-            label="局部色调"
-            size="S"
-            minValue={0}
-            maxValue={1}
-            step={0.05}
-            value={settings.localTone}
-            onChange={(next) => setSettings((prev) => ({...prev, localTone: next}))}
-            isDisabled={exporting || !settings.nrEnabled}
-          />
-          <Slider
-            label="局部结构"
-            size="S"
-            minValue={0}
-            maxValue={1}
-            step={0.05}
-            value={settings.localStructure}
-            onChange={(next) => setSettings((prev) => ({...prev, localStructure: next}))}
-            isDisabled={exporting || !settings.nrEnabled}
-          />
+          {NR_STRENGTHS.map(([key, label]) => (
+            <Slider
+              key={key}
+              label={label}
+              size="S"
+              minValue={0}
+              maxValue={2}
+              step={0.05}
+              value={settings[key]}
+              onChange={(next) => setSettings((prev) => ({...prev, [key]: next}))}
+              isDisabled={exporting || !settings.nrEnabled}
+            />
+          ))}
           <Switch
             size="S"
             isSelected={settings.automask}
             onChange={(next) => setSettings((prev) => ({...prev, automask: next}))}
             isDisabled={exporting || !settings.nrEnabled}>
             自动遮罩
+          </Switch>
+          <Switch
+            size="S"
+            isSelected={settings.uiCorrection}
+            onChange={(next) => setSettings((prev) => ({...prev, uiCorrection: next}))}
+            isDisabled={exporting || !settings.nrEnabled}>
+            UI 修正
           </Switch>
           <Text styles={style({font: 'detail-sm'})}>引导模式</Text>
           <ToggleButtonGroup
