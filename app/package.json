@@ -13,8 +13,9 @@
     "build": "tsc --noEmit && vite build && node scripts/build-main.mjs",
     "start": "electron .",
     "pack:backend": "node scripts/pack-backend.mjs",
+    "pack:local-nr": "node scripts/pack-local-nr.mjs",
     "dist:dir": "npm run build && npm run pack:backend && electron-builder --win --dir && node scripts/seed-nr.mjs",
-    "dist": "npm run build && npm run pack:backend && electron-builder --win nsis zip && node scripts/seed-nr.mjs"
+    "dist": "npm run build && npm run pack:backend && electron-builder --win nsis zip && npm run pack:local-nr && node scripts/seed-nr.mjs"
   },
   "dependencies": {
     "@react-spectrum/s2": "^1.5.1",
