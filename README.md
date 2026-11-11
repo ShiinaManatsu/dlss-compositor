@@ -42,7 +42,7 @@ Blender Cycles (inject.py: jitter + passes + dlssconfig.json)
 2. **Setup vcpkg**: `git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.bat && set VCPKG_ROOT=<path>`
 3. **Build CLI**: `tools\_rebuild_cli.bat` (or `cmake --preset x64-windows-msvc-release && cmake --build --preset x64-windows-msvc-release`)
 4. **Run GUI (dev)**: `cd app && npm install && npm run dev`
-5. **Package**: `cd app && npm run dist` → NSIS installer (`.dcp` association) + portable zip under `app/release/`
+5. **Package**: `cd app && npm run dist` → NSIS installer (`.dcp` association) + portable zip directly under `build/release/`
 6. **Blender extension**: Preferences → Extensions → Install from Disk → `blender-plugin/dlss_compositor/`
 
 For local use, `cd app && npm run dist:local-nr` builds one Windows x64 `DLSS-Compositor-Setup-<version>-NR.exe` under `build/release/`. This installer embeds the existing `resources/nvngx_dlssnr.dll` and installs it beside the CLI. The standard `npm run dist` artifacts still exclude that DLL.

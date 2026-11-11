@@ -9,7 +9,7 @@ const dllName = 'nvngx_dlssnr.dll';
 const dll = path.join(repo, 'resources', dllName);
 if (!existsSync(dll)) throw new Error(`dist:local-nr: 找不到本机 NR DLL：${dll}`);
 
-const {version, build: base} = JSON.parse(readFileSync(path.join(appDir, 'package.json'), 'utf8'));
+const {build: base} = JSON.parse(readFileSync(path.join(appDir, 'package.json'), 'utf8'));
 process.env.CSC_IDENTITY_AUTO_DISCOVERY ??= 'false';
 await build({
   projectDir: appDir,
@@ -17,7 +17,6 @@ await build({
   publish: 'never',
   config: {
     ...base,
-    directories: {...base.directories, output: path.join(repo, 'build', 'release', `v${version}-nr`)},
     electronDist: path.join(appDir, 'node_modules', 'electron', 'dist'),
     extraResources: [...base.extraResources, {from: dll, to: `backend/cli/${dllName}`}],
     nsis: {...base.nsis, include: null, differentialPackage: false, artifactName: 'DLSS-Compositor-Setup-${version}-NR.${ext}'},

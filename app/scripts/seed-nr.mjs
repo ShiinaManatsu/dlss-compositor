@@ -1,4 +1,4 @@
-import {copyFileSync, existsSync} from 'node:fs';
+import {copyFileSync, existsSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -16,6 +16,8 @@ import {fileURLToPath} from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
 const repoRoot = path.resolve(appDir, '..');
+const {build} = JSON.parse(readFileSync(path.join(appDir, 'package.json'), 'utf8'));
+const releaseDir = path.resolve(appDir, build.directories.output);
 
 const src = path.join(repoRoot, 'resources', 'nvngx_dlssnr.dll');
 if (!existsSync(src)) {
@@ -24,7 +26,7 @@ if (!existsSync(src)) {
 }
 
 const targets = [
-  path.join(appDir, 'release', 'win-unpacked', 'resources', 'backend', 'cli'),
+  path.join(releaseDir, 'win-unpacked', 'resources', 'backend', 'cli'),
   path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'DLSS Compositor', 'resources', 'backend', 'cli'),
 ];
 
@@ -42,8 +44,9 @@ for (const dir of targets) {
   }
 }
 try {
-  copyFileSync(src, path.join(appDir, 'release', 'nvngx_dlssnr.dll'));
-  console.log(`seed-nr: ${path.join(appDir, 'release', 'nvngx_dlssnr.dll')}（供安装器 $EXEDIR 拾取）`);
+  const sidecar = path.join(releaseDir, 'nvngx_dlssnr.dll');
+  copyFileSync(src, sidecar);
+  console.log(`seed-nr: ${sidecar}（供安装器 $EXEDIR 拾取）`);
 } catch (err) {
   console.warn(`seed-nr: FAILED release copy: ${err?.message ?? err}`);
 }

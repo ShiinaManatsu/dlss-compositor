@@ -84,7 +84,7 @@ npm run dev
 
 - Native plugin owns a resident `VulkanContext` + `NgxContext`; `checkReady`, `getStatus`, and `startTask` should reuse that runtime. Avoid one-off NGX status probes.
 - GUI/native logs go beside the GUI exe under `logs/`; native C++ honors `DLSS_COMPOSITOR_LOG_DIR`. Debug runner sets `DLSS_COMPOSITOR_LOG=debug` and `DLSS_COMPOSITOR_GUI_LOG=1` if missing.
-- Release staging artifacts belong under `build/release/` and are ignored. Do not commit `build/release/` or repo-root release zips.
+- Write release artifacts directly to `build/release/`, without per-version output folders. The directory is ignored; do not commit `build/release/` or repo-root release zips.
 
 ## Blender extension gotchas
 

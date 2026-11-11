@@ -42,7 +42,7 @@
     "appId": "com.dlsscompositor.app",
     "productName": "DLSS Compositor",
     "directories": {
-      "output": "release"
+      "output": "../build/release"
     },
     "files": [
       "out/**/*",
