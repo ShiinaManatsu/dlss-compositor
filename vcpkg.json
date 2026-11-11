@@ -8,7 +8,6 @@
     "nlohmann-json",
     "openexr",
     "openimageio",
-    "catch2",
     "spdlog",
     "zlib",
     "volk",

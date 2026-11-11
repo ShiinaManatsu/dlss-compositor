@@ -124,7 +124,7 @@ Use the **C++ Launch CLI** configuration when you want to debug the native execu
 - executable: `${workspaceFolder}/build/Release/dlss-compositor-cli.exe`
 - args:
   - `--config`
-  - `${workspaceFolder}/cli/tests/fixtures/sample-dlssconfig.json`
+  - `<path to the dlssconfig.json produced by your Blender export>`
 - environment:
   - `DLSS_COMPOSITOR_LOG=debug`
 

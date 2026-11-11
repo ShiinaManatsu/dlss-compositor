@@ -226,12 +226,12 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
                 readRoughness = true;
                 insertedThisPart = true;
             }
-            if (!f.hasSpecularMotion && hasCh(channels, "Denoising Specular Motion.X")) {
+            if (!f.hasSpecularMotion && hasCh(channels, kSpecMotionChannels[0]) && hasCh(channels, kSpecMotionChannels[1])) {
                 insertInterleavedSlices(fb, f.specularMotionXy.data(), kSpecMotionChannels, 2, channels, layout, dw);
                 f.hasSpecularMotion = true;
                 insertedThisPart = true;
             }
-            if (!f.hasBackwardMotion && hasCh(channels, "Denoising Backward Motion.X")) {
+            if (!f.hasBackwardMotion && hasCh(channels, kBackMotionChannels[0]) && hasCh(channels, kBackMotionChannels[1])) {
                 insertInterleavedSlices(fb, f.backwardMotionXy.data(), kBackMotionChannels, 2, channels, layout, dw);
                 f.hasBackwardMotion = true;
                 insertedThisPart = true;
@@ -241,9 +241,9 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
             part.setFrameBuffer(fb);
             part.readPixels(dw.min.y, dw.max.y);
 
-            if (readColor && readDepth && readMotion &&
-                readDiffuse && readSpecAlbedo && readNormals && readRoughness) {
-                break; // All mandatory channels found.
+            if (readColor && readDepth && readMotion && readDiffuse && readSpecAlbedo &&
+                readNormals && readRoughness && f.hasSpecularMotion && f.hasBackwardMotion) {
+                break; // Blender writes the optional motion passes as later EXR parts.
             }
         }
 
@@ -286,11 +286,13 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
 RrFramePrefetcher::RrFramePrefetcher(std::vector<std::filesystem::path> framePaths,
                                      int prefetchDepth,
                                      bool waitForFiles,
-                                     const std::atomic<bool>* externalStop)
+                                     const std::atomic<bool>* externalStop,
+                                     bool atomicInputFiles)
     : m_paths(std::move(framePaths))
     , m_prefetchDepth(std::max(1, prefetchDepth))
     , m_waitForFiles(waitForFiles)
     , m_externalStop(externalStop)
+    , m_atomicInputFiles(atomicInputFiles)
 {
     static std::once_flag exrOnce;
     std::call_once(exrOnce, [] {
@@ -320,6 +322,7 @@ void RrFramePrefetcher::waitUntilWritten(const std::filesystem::path& path) cons
     while (!stopRequested()) {
         std::error_code ec;
         const auto size = std::filesystem::file_size(path, ec);
+        if (m_atomicInputFiles && !ec && size > 0) return;
         if (!ec && size > 0 && size == lastSize) {
             if (++stable >= kStableTicks) return;
         } else {

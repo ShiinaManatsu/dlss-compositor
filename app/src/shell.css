@@ -12,10 +12,8 @@ body,
   min-height: 100%;
 }
 
-.shell,
-.shell *,
-.shell *::before,
-.shell *::after {
+.shell, .shell-body, .page, .export-body, .export-settings, .preview-col,
+.preview-progress, .page-settings, .page-jobs, .page-project, .rail, .nr-timeline {
   box-sizing: border-box;
 }
 
@@ -23,7 +21,12 @@ body,
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-width: 960px;
+  min-width: 0;
+  user-select: none;
+}
+
+.shell input, .shell textarea, .shell [contenteditable], .scene-meta, .page-settings dd {
+  user-select: text;
 }
 
 .shell-body {
@@ -40,6 +43,7 @@ body,
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding: 0 var(--shell-gap) var(--shell-gap) 0;
 }
 
 /* ---------- title bar ---------- */
@@ -48,11 +52,9 @@ body,
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  /* Standard caption height: the 48px square window buttons fill it flush.
-     Brand mark centers on x=28, the same axis as the rail's icon column. */
-  height: 48px;
-  padding-inline-start: 16px;
-  gap: 10px;
+  height: var(--title-height);
+  padding-inline-start: var(--shell-gap);
+  gap: var(--control-gap);
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
@@ -63,16 +65,9 @@ body,
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-}
-
-.brand-tile {
-  display: block;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: url('../assets/icon.png') center / contain no-repeat;
+  width: 40px;
+  height: 40px;
+  -webkit-app-region: no-drag;
 }
 
 .titlebar-title {
@@ -80,6 +75,8 @@ body,
   align-items: center;
   min-width: 0;
   flex-shrink: 1;
+  -webkit-app-region: no-drag;
+  max-width: min(360px, 40vw);
 }
 
 .titlebar-mid {
@@ -91,23 +88,26 @@ body,
 .titlebar-toolbar {
   display: flex;
   align-items: center;
-  padding-inline-end: 8px;
+  gap: var(--control-gap);
+  padding-inline: var(--control-gap) var(--shell-gap);
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .window-controls {
   display: flex;
-  /* Square 48px cells anchored flush to the window's top-right corner —
-     stretch would make them 72 tall (the brand-tile titlebar height). */
+  /* 48 logical units at 100%. S2 tokens and Electron's native DIP-to-pixel
+     conversion scale them; never multiply by devicePixelRatio a second time. */
   align-self: flex-start;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
 
 .window-btn {
-  width: 48px;
-  height: 48px;
+  width: var(--caption-size);
+  height: var(--caption-size);
+  flex: 0 0 var(--caption-size);
   border: 0;
   padding: 0;
   background: transparent;
@@ -179,144 +179,26 @@ body,
   transform: rotate(-45deg);
 }
 
-/* ---------- rail ---------- */
-
+/* Route navigation uses the skill's public React Aria + S2 macro template. */
 .rail {
-  flex: 0 0 200px;
-  /* Labels are always mounted (nowrap) — without this the automatic
-     min-content floor would clamp flex-basis and the collapsed rail
-     could never reach 76px. */
+  flex: 0 0 var(--rail-expanded);
   min-width: 0;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 12px;
-  gap: 8px;
-  overflow: clip;
-  transition: flex-basis 300ms;
-  border-inline-end: 1px solid color-mix(in srgb, canvastext 8%, transparent);
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  transition: flex-basis 240ms cubic-bezier(.2, 0, 0, 1);
 }
+.rail.is-collapsed { flex-basis: var(--rail-collapsed); }
+[data-shell-navigation] { box-sizing: border-box; height:100%; min-height:0; display:flex; flex-direction:column;
+  padding:var(--control-gap) var(--shell-gap) var(--shell-gap); }
+[data-navigation-top] { flex:1; min-height:0; min-width:0; overflow:auto; padding:4px; margin:-4px; }
+[data-navigation-list] { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:var(--control-gap); }
+[data-navigation-group] { min-width:0; }
+[data-navigation-route] { grid-template-columns:var(--leading-slot) minmax(0,1fr); }
+[data-navigation-icon] { display:flex; align-items:center; justify-content:center; width:var(--leading-slot); }
+[data-navigation-indicator] { position:absolute; inset-inline-start:var(--axis-offset); width:2px; height:20px; pointer-events:none; }
+[data-navigation-bottom] { flex:none; display:flex; padding-top:var(--section-gap); padding-inline-start:var(--axis-offset); }
+[data-navigation-label] { white-space:nowrap; transition:opacity 160ms ease,max-width 240ms ease; max-width:200px; opacity:1; overflow:hidden; }
+[data-expanded='false'] [data-navigation-label] { opacity:0; max-width:0; }
 
-/* Collapsed: narrower rail only — icon x stays put so nothing reflows
-   (Adobe responsive rail); labels are always mounted and get clipped by
-   the width transition. */
-.rail.is-collapsed {
-  flex-basis: 56px;
-}
-
-.rail > button,
-.rail [role='radio'] {
-  width: 100%;
-  justify-content: start;
-  /* S2's default align-items is baseline, which rides the glyph high in the
-     tall accent button — center everything instead. */
-  align-items: center;
-  /* The 52px icon zone below provides the inset; S2's own 16px padding would
-     offset it. */
-  padding-inline-start: 0;
-  overflow: clip;
-  flex-shrink: 0;
-}
-
-/* Icon zone: fixed 32px wide (= collapsed content width) with the glyph
-   centered, so icon x is IDENTICAL collapsed and expanded — labels reveal
-   to its right and nothing ever reflows. All rail rows share the 32px
-   height of S2's standard control. */
-.rail > button div[slot='icon'],
-.rail [role='radio'] div[slot='icon'] {
-  /* ActionButton's slot renders display:block (Button's is inline flex) —
-     make the zone a flex box so the glyph centers in both axes. */
-  display: flex;
-  width: 32px;
-  flex: none;
-  align-self: stretch;
-  align-items: center;
-  justify-content: center;
-}
-
-/* S2's icon class carries margin-left: -2px (optical alignment next to a
-   label); inside the fixed icon zone it shifts glyphs 1px off center. */
-.rail > button div[slot='icon'] svg,
-.rail [role='radio'] div[slot='icon'] svg {
-  margin: 0;
-}
-
-/* Collapse toggle (Actionbutton): keeps the collapsed rail's 32px
-   footprint in both states as a square, so it never moves or stretches. */
-.rail > button:not(:first-child) {
-  width: 32px;
-  height: 32px;
-}
-
-/* Primary action: 32px tall in both states with full pill radius — S2's
-   radius token is a fixed 13px, so ends would otherwise read as rounded
-   corners; 999px gives semicircular ends expanded and a circle collapsed. */
-.rail > button:first-child {
-  height: 32px;
-  border-radius: 999px;
-}
-
-/* The label sits in an S2 flex container that wraps when the rail is
-   mid-transition — clamp it and let the rail width do the clipping. */
-.rail-label {
-  white-space: nowrap;
-  transition: opacity 150ms;
-}
-
-.rail.is-collapsed .rail-label {
-  opacity: 0;
-}
-
-.rail [role='radiogroup'] {
-  margin-top: 8px;
-}
-
-.rail [role='radio'] {
-  /* Nav items carry no fill in any state (S2's hover/selected backgrounds
-     are layered, so an unlayered transparent wins); the left indicator
-     below carries hover/selected state instead. */
-  background: transparent;
-}
-
-.rail [role='radio'][data-selected='true'] {
-  color: inherit;
-}
-
-.rail [role='radio']::before {
-  content: '';
-  position: absolute;
-  /* Zone is 32px wide with a 20px glyph centered (glyph x 6..26): the
-     indicator hugs the zone's left edge to keep clear of it. */
-  inset-inline-start: 0;
-  top: 50%;
-  width: 3px;
-  height: 10px;
-  margin-top: -5px;
-  border-radius: 2px;
-  background: color-mix(in srgb, canvastext 45%, transparent);
-  opacity: 0;
-  transition: opacity 120ms;
-}
-
-.rail [role='radio']:hover::before {
-  opacity: 1;
-}
-
-.rail [role='radio'][data-selected='true']::before {
-  height: 16px;
-  margin-top: -8px;
-  background: currentColor;
-  opacity: 1;
-}
-
-.rail-spacer {
-  flex: 1;
-}
-
-/* Spectrum-like overlay scrollbar (Windows default chrome is out of spec). */
+/* Scroll areas retain native keyboard and wheel behavior. */
 .export-settings,
 .page-settings,
 .page-jobs,
@@ -358,13 +240,13 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 24px 10px;
+  padding: var(--surface-padding) var(--surface-padding) var(--section-gap);
 }
 
 .project-grid {
   flex: 1;
   min-height: 0;
-  padding: 0 24px 24px;
+  padding: 0 var(--surface-padding) var(--surface-padding);
   display: flex;
 }
 
@@ -386,28 +268,39 @@ body,
 /* ---------- export page ---------- */
 
 .export-body {
-  display: flex;
+  display: grid;
   flex: 1;
   min-height: 0;
   min-width: 0;
 }
 
+.workbench-inspector, .workbench-viewer { min-width: 0; min-height: 0; display: flex; }
+.panel-splitter { cursor: col-resize; touch-action: none; position: relative; border-radius: 4px; }
+.panel-splitter::after { content: ''; position: absolute; inset: 12px 4px; border-radius: 4px; background: transparent; }
+.panel-splitter:hover::after, .panel-splitter:focus-visible::after { background: color-mix(in srgb, currentColor 30%, transparent); }
+.panel-splitter:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+.export-body.is-compact { display:flex; flex-direction:column; gap:var(--control-gap); }
+.export-body.is-compact .workbench-viewer { flex:1; }
+.workbench-tools { display:flex; justify-content:flex-end; }
+.workbench-dialog .export-settings { overflow:visible; padding:0; }
+
 .export-settings {
-  flex: 0 0 320px;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px;
-  gap: 8px;
-  border-inline-end: 1px solid color-mix(in srgb, canvastext 8%, transparent);
+  padding: var(--surface-padding);
+  gap: 20px;
+  scrollbar-gutter: stable;
 }
 
 .settings-fields {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 6px;
+  gap: 12px;
+  padding-top: 8px;
 }
 
 .field-with-action {
@@ -419,7 +312,7 @@ body,
 
 .row-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -453,7 +346,7 @@ body,
   min-width: 0;
   min-height: 0;
   display: flex;
-  padding: 14px;
+  padding: var(--surface-padding);
 }
 
 .preview-well {
@@ -463,10 +356,8 @@ body,
   flex: 1;
   min-height: 0;
   container-type: size;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  background: linear-gradient(180deg, #141414 0%, #0b0b0b 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, canvastext 12%, transparent);
 }
 
 .preview-frame {
@@ -484,6 +375,16 @@ body,
   object-fit: contain;
 }
 
+.preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .preview-progress {
   position: absolute;
   inset-inline: 12px;
@@ -492,10 +393,7 @@ body,
   flex-direction: column;
   gap: 6px;
   padding: 10px 14px;
-  border-radius: 8px;
-  background: rgb(0 0 0 / 62%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
 }
 
 .preview-progress-head {
@@ -505,13 +403,11 @@ body,
   gap: 12px;
 }
 
-/* ---------- Segmented export progress bar ----------
-   One thin bar per phase (bake / parallel segments / video finalize) with
-   gaps between them; labels sit under each bar in small light type and are
-   hidden when their cell gets too narrow (container query). */
+/* Each phase uses an actual S2 ProgressBar. Wrap when six segments won't fit. */
 .segbar {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 16px;
 }
 
 .segbar-cell {
@@ -520,58 +416,8 @@ body,
   container-type: inline-size;
 }
 
-.segbar-track {
-  position: relative;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: rgb(255 255 255 / 16%);
-}
-
-.segbar-fill {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  width: 100%;
-  border-radius: inherit;
-  background: rgb(255 255 255 / 92%);
-  transition: width 400ms ease;
-}
-
-.segbar-fill.is-indeterminate {
-  width: 36%;
-  animation: segbar-slide 1.1s ease-in-out infinite;
-}
-
-@keyframes segbar-slide {
-  0% {
-    inset-inline-start: -36%;
-  }
-  100% {
-    inset-inline-start: 100%;
-  }
-}
-
-.segbar-label {
-  margin-top: 5px;
-  font-size: 11px;
-  line-height: 1.2;
-  text-align: center;
-  white-space: nowrap;
-  color: rgb(255 255 255 / 55%);
-  visibility: hidden;
-}
-
-@container (min-width: 76px) {
-  .segbar-label {
-    visibility: visible;
-  }
-}
-
 .segbar-eta {
-  font-size: 11px;
-  line-height: 1.2;
-  color: rgb(255 255 255 / 55%);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- NR/FG tool page ---------- */
@@ -604,12 +450,9 @@ body,
 .nr-timeline {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--control-gap);
   padding: 8px 14px;
   border-radius: 8px;
-  background: rgb(0 0 0 / 62%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .nr-export-bar {
@@ -617,29 +460,20 @@ body,
   align-items: center;
   padding: 8px 14px;
   border-radius: 8px;
-  background: rgb(0 0 0 / 62%);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .nr-frame-label {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  color: rgb(255 255 255 / 85%);
 }
 
-/* The timeline shows its own padded frame counter; hide the slider's
-   built-in value bubble to avoid a duplicate readout. */
-.nr-timeline output {
-  display: none;
-}
 
 /* ---------- jobs page ---------- */
 
 .page-jobs {
   flex: 1;
   min-height: 0;
-  padding: 14px 20px;
+  padding: var(--surface-padding);
   display: flex;
 }
 
@@ -649,12 +483,13 @@ body,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: var(--surface-padding);
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 720px;
+  gap: 32px;
+  min-width: 0;
 }
+.settings-group { max-width:680px; }
 
 .settings-group {
   display: flex;
@@ -671,4 +506,8 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell *, .shell *::before, .shell *::after { animation: none !important; transition: none !important; }
 }

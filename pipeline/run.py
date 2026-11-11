@@ -60,6 +60,7 @@ from session_config import (
 
 BLENDER_CANDIDATES = (
     Path(r"D:\Games\SteamLibrary\steamapps\common\Blender\blender.exe"),
+    Path(r"C:\Program Files\Blender Foundation\Blender 5.3\blender.exe"),
     Path(r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe"),
     Path(r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe"),
 )

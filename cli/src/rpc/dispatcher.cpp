@@ -219,7 +219,9 @@ nlohmann::json RpcDispatcher::handleProgress(const nlohmann::json& /*p*/) {
         {"dlss_current_frame", m_progress.dlss_current_frame.load()},
         {"dlss_total_frames",  m_progress.dlss_total_frames.load()},
         {"dlss_percent",       m_progress.dlss_percent.load()},
+        {"temporal_resets",    m_progress.temporal_resets.load()},
         {"state",              m_progress.state.load()},
+        {"job_running",        m_jobRunning.load(std::memory_order_acquire)},
     };
     const std::string lastError = progressError();
     if (!lastError.empty()) {
@@ -288,6 +290,7 @@ std::string b64Encode(const std::vector<uint8_t>& jpeg) {
 NrSettings RpcDispatcher::parseNrSettings(const nlohmann::json& p) {
     NrSettings s{};
     s.enabled = p.value("nr_enabled", true);
+    s.model = static_cast<NrModel>(std::clamp(p.value("nr_model", 0), 0, 2));
     s.style = static_cast<NrStyle>(std::clamp(p.value("nr_style", 0), 0, 2));
     s.intensity = std::clamp(p.value("nr_intensity", 1.0f), 0.0f, 1.0f);
     s.localToneStrength = std::clamp(p.value("nr_local_tone", 1.0f), 0.0f, 1.0f);
@@ -525,6 +528,7 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     cfg.writerThreads      = std::max(1, wrThreads);
     cfg.writerQueueMultiplier = std::max(1, wrQueueMul);
     cfg.watchInput         = watchInput;
+    cfg.atomicInputFiles   = watchInput && p.value("atomic_input_files", false);
 
     // ── Segmented rendering window (0 = unbounded / plain single-run) ─────────
     cfg.inputFrameBegin      = p.value("input_frame_begin", (std::int64_t)0);
@@ -543,6 +547,7 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     // ── NR (experimental; feature bits carry the on/off) ──────────────────────
     const NrSettings nrS = parseNrSettings(p);
     cfg.nrStyle          = static_cast<int>(nrS.style);
+    cfg.nrModel          = static_cast<int>(nrS.model);
     cfg.nrIntensity      = nrS.intensity;
     cfg.nrLocalTone      = nrS.localToneStrength;
     cfg.nrLocalStructure = nrS.localStructureStrength;
@@ -606,10 +611,12 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     m_progress.dlss_current_frame.store(0);
     m_progress.dlss_total_frames.store(totalInput);
     m_progress.dlss_percent.store(0.0f);
+    m_progress.temporal_resets.store(0);
     m_progress.state.store(0);
     setProgressError({});
 
     cfg.callbacks.onFrame = [this, totalOutput](const FrameEvent& ev) {
+        if (!ev.isGenerated && ev.wasReset) m_progress.temporal_resets.fetch_add(1);
         m_progress.dlss_current_frame.store(ev.inputIndex + 1);
         m_progress.dlss_percent.store(
             totalOutput > 0 ? 100.0f * static_cast<float>(ev.inputIndex + 1) / static_cast<float>(m_progress.dlss_total_frames.load()) : 0.0f);
@@ -617,9 +624,10 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
         const int tot = m_progress.total_frames.load();
         m_progress.percent.store(
             tot > 0 ? 100.0f * static_cast<float>(ev.outputIndex + 1) / static_cast<float>(tot) : 0.0f);
-        LOG_DEBUG("[Pipeline] frame input={}/{} output={}/{}{}",
+        LOG_DEBUG("[Pipeline] frame input={}/{} output={}/{} reset={}{}",
                   ev.inputIndex + 1, ev.inputTotal,
                   ev.outputIndex + 1, ev.outputTotal,
+                  ev.wasReset,
                   ev.isGenerated ? " [FG]" : "");
     };
 

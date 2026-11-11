@@ -8,13 +8,13 @@ The GUI (or CLI) drives a three-way pipeline: a Blender session injects camera j
 
 ## Repo Layout
 
-- `cli/` - native Vulkan/NGX engine (`dlss-compositor-cli`), shaders, tests
+- `cli/` - native Vulkan/NGX engine (`dlss-compositor-cli`) and shaders
 - `app/` - Electron + React Spectrum 2 GUI; electron-builder packaging (`npm run dist`)
 - `pipeline/` - Blender-side inject/inspect scripts, RAM-disk helper, RPC client
 - `blender-plugin/` - Blender extension source (LUT generator)
-- `tools/` - DLL version pins, RR job test scripts, MSVC rebuild helpers
+- `tools/` - DLL version pins and MSVC rebuild helpers
 - `docs/` - guides, bundled DLSS refs, research notes
-- `test-frames/` - test-run metadata (frames themselves are not committed)
+- `test-frames/` - retained render sample metadata (frames themselves are not committed)
 
 **Pipeline:**
 
@@ -57,7 +57,9 @@ Blender Cycles (inject.py: jitter + passes + dlssconfig.json)
 - DLSS SR upscaling with per-quality presets; DLAA at 100%
 - DLSS RR (Cycles, quality slots, preset F) with full guide-buffer mapping
 - DLSS FG 2x–6x frame interpolation on SR or RR output
+- NR/FG tool with compact FFV1 guide videos (`dlssnrbuffer.mkv`) and legacy EXR input; NR model A/B selection with a local NR 310.9.16 runtime
 - Watch-mode RAM-disk pipeline with prefetch, backpressure, and stop/cancel that always leaves a playable file
+- Rolling parallel Blender rendering sizes windows from uncompressed EXR buffers and keeps one continuous DLSS history across the export
 - `.dcp` projects with autosave, job history, and file association
 - Packaged builds auto-create/unmount the DLSSRAM disk (elevated runs)
 - JSON-RPC stdio interface for automation
@@ -70,7 +72,7 @@ Blender Cycles (inject.py: jitter + passes + dlssconfig.json)
 - **Motion vectors**: pixel-space, curr→prev, `InMVScale = (1,1)` (§3.6.3)
 - **MV mapping**: `DLSS_MV = (Blender.X, -Blender.Y)` (empirically verified)
 - **InReset**: first frame / frame gap / camera discontinuity only
-- **Feature DLLs**: nvngx_dlss / nvngx_dlssd / nvngx_dlssg 310.7.129.0, pinned in `resources/`, loaded from next to the exe; NGX core always from the driver
+- **SDK and feature DLLs**: SDK v310.9.16; nvngx_dlss / nvngx_dlssd / nvngx_dlssg 310.9.16.0 from the SDK's Windows x64 release bundle, pinned in `resources/` and loaded from next to the exe; NGX core always from the driver
 
 ## Documentation
 

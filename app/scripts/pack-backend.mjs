@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 /**
  * Assembles app/pack/backend — the runtime bundle electron-builder ships as
  * resources/backend:
- *   cli/         dlss-compositor-cli.exe + *.spv + locked 310.7.129.0 nvngx DLLs
+ *   cli/         dlss-compositor-cli.exe + *.spv + SDK 310.9.16.0 nvngx DLLs
  *   pipeline/    Blender-side python (runs inside Blender, not system python)
  *   blender-plugin/dlss_compositor/lut_generator.py   (imported by inject.py)
  *
@@ -49,7 +49,9 @@ for (const name of readdirSync(cliDir)) {
   }
 }
 for (const dll of ['nvngx_dlss.dll', 'nvngx_dlssd.dll', 'nvngx_dlssg.dll']) {
-  copyTo(path.join(repoRoot, 'resources', dll), cliDest);
+  const localDll = path.join(repoRoot, 'resources', dll);
+  const sdkDll = path.join(repoRoot, 'DLSS', 'lib', 'Windows_x86_64', 'rel', dll);
+  copyTo(existsSync(localDll) ? localDll : sdkDll, cliDest);
 }
 
 // --- VC++ runtime: the CLI is /MD, Electron is not — a clean Windows box has

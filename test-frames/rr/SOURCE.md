@@ -1,6 +1,6 @@
-# RR test source
+# RR render sample source
 
-Marker file. This directory is the **Cycles / DLSS-RR** integration-test source.
+Marker file for the retained **Cycles / DLSS-RR** render samples.
 
 | | |
 |---|---|
@@ -12,10 +12,7 @@ Marker file. This directory is the **Cycles / DLSS-RR** integration-test source.
 | EXR | multilayer ZIP, 10 channel groups (Image + Z + Vector + 7 denoising guides) |
 | Preview JPEG | `preview/` at quality 5 (not a pipeline input) |
 
-SR test frames will live in `test-frames/sr/` and come from EEVEE, not this directory.
+SR render samples use EEVEE and are separate from this directory.
 
-EXR/JPEG binaries are gitignored. Regenerate with:
-
-```bat
-python tools/export_test_frames.py --mode rr --output-dir test-frames/rr --frame-start 300 --frame-end 350
-```
+EXR/JPEG binaries are gitignored. To regenerate them, open the listed scene in
+the application and use the normal RR export flow for frames 300–350.

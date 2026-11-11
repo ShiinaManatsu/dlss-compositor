@@ -237,6 +237,18 @@ NrSnippetTable loadNrSnippet() {
 
     NrSnippetTable s;
     s.library   = mod;
+    const DWORD versionBytes = GetFileVersionInfoSizeW(dllPath.c_str(), nullptr);
+    std::vector<std::uint8_t> version(versionBytes);
+    if (versionBytes && GetFileVersionInfoW(dllPath.c_str(), 0, versionBytes, version.data())) {
+        void* info = nullptr;
+        UINT size = 0;
+        if (VerQueryValueW(version.data(), L"\\", &info, &size) && size >= sizeof(VS_FIXEDFILEINFO)) {
+            const auto* file = static_cast<const VS_FIXEDFILEINFO*>(info);
+            constexpr DWORD minMS = (310u << 16) | 9u;
+            s.hasLightweightModel = file->dwFileVersionMS > minMS ||
+                (file->dwFileVersionMS == minMS && file->dwFileVersionLS >= (16u << 16));
+        }
+    }
     s.init     = reinterpret_cast<decltype(s.init)>(
         GetProcAddress(mod, "NVSDK_NGX_VULKAN_Init_Ext2"));
     s.create   = reinterpret_cast<decltype(s.create)>(
@@ -359,9 +371,14 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
     m_settings = settings;
 
     // ── Load the snippet and init it on OUR Vulkan device ─────────────────────
-    // The 310.8.0.0 snippet exports the full Vulkan API surface; it is its own
+    // The snippet exports the Vulkan API surface; it is its own
     // NGX module instance, independent of the driver NGX core session.
     NrSnippetTable snippet = loadNrSnippet();
+    if (settings.model == NrModel::Lightweight && !snippet.hasLightweightModel) {
+        restoreSnippetCallerHook();
+        FreeLibrary(static_cast<HMODULE>(snippet.library));
+        throw std::runtime_error("DLSSNR: 轻量模型 B 需要 310.9.16 或更新的 NR 运行库");
+    }
 
     // DLSS SR §3.5 — Init with the exe dir as application data path (logs only).
     wchar_t exePath[MAX_PATH] = {};
@@ -406,7 +423,11 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
     m_ngxParams->Set("DLSSNR.Upscaling", 0);           // denoise-only, same resolution
     m_ngxParams->Set("DLSSNR.Scale", 1.0f);
     m_ngxParams->Set("DLSSNR.ScalingRatio", 1.0f);
-    m_ngxParams->Set("DLSSNR.Hint.Render.Preset", 1);  // DEFAULT_NR_PRESET (not user-facing)
+    // Magpie v0.6.11 DLSSNRFilter.cpp: preset 0 lets the runtime select the model.
+    // Keep preset A on 310.8, where that is the only validated choice.
+    const int model = settings.model == NrModel::Auto && !snippet.hasLightweightModel
+        ? static_cast<int>(NrModel::Standard) : static_cast<int>(settings.model);
+    m_ngxParams->Set("DLSSNR.Hint.Render.Preset", model);
 
     // Stock NGX keys the snippet also reads.
     m_ngxParams->Set(NVSDK_NGX_Parameter_Width,  static_cast<int>(width));
@@ -425,7 +446,7 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
     VkCommandPool cmdPool = m_ctx->createComputeCommandPool();
     VkCommandBuffer initCmd = m_ctx->beginOneTimeCommands(cmdPool);
 
-    const NVSDK_NGX_Result r = m_snippet.create( // feature 18 — DLSSNR (310.8.0 snippet)
+    const NVSDK_NGX_Result r = m_snippet.create( // DLSS SR §3.5 — snippet feature 18
         initCmd, kFeatureDlssNr, m_ngxParams, &m_handle);
 
     m_ctx->endOneTimeCommands(cmdPool, initCmd, m_ctx->computeQueue());
@@ -441,9 +462,9 @@ void DlssNrPass::create(uint32_t width, uint32_t height, const NrSettings& setti
             "DLSSNR create failed (feature 18): NVSDK_NGX_Result=" + std::to_string(r));
     }
 
-    LOG_INFO("[DLSS NR] Created feature 18 same-res {}x{} style={} intensity={:.2f} "
+    LOG_INFO("[DLSS NR] Created feature 18 same-res {}x{} model={} style={} intensity={:.2f} "
              "localTone={:.2f} localStructure={:.2f} autoMask={}",
-             width, height, static_cast<int>(m_settings.style), m_settings.intensity,
+             width, height, model, static_cast<int>(m_settings.style), m_settings.intensity,
              m_settings.localToneStrength, m_settings.localStructureStrength,
              m_settings.useAutoMask ? 1 : 0);
 }
@@ -481,8 +502,11 @@ void DlssNrPass::evaluate(VkCommandBuffer cmd, const NrInputs& in) {
     auto rOutput = makeNrResource(in.outputView, in.outputImage, m_width, m_height,
                                   VK_FORMAT_R8G8B8A8_UNORM, true);
 
-    const bool useMotion = in.mvView != VK_NULL_HANDLE;
-    const bool useDepth  = in.depthView != VK_NULL_HANDLE;
+    const auto guidance = m_settings.guidanceMode;
+    const bool useMotion = in.mvView != VK_NULL_HANDLE &&
+        (guidance == NrGuidanceMode::All || guidance == NrGuidanceMode::MotionOnly);
+    const bool useDepth = in.depthView != VK_NULL_HANDLE &&
+        (guidance == NrGuidanceMode::All || guidance == NrGuidanceMode::DepthOnly);
     NVSDK_NGX_Resource_VK rMotion{};
     NVSDK_NGX_Resource_VK rDepth{};
     if (useMotion) {
@@ -505,21 +529,21 @@ void DlssNrPass::evaluate(VkCommandBuffer cmd, const NrInputs& in) {
     };
     setSubrect("DLSSNR.Color", m_width, m_height);
     setSubrect("DLSSNR.Output", m_width, m_height);
+    setSubrect("DLSSNR.MVec", useMotion ? in.renderWidth : 0, useMotion ? in.renderHeight : 0);
+    setSubrect("DLSSNR.Depth", useDepth ? in.renderWidth : 0, useDepth ? in.renderHeight : 0);
     if (useMotion) {
-        setSubrect("DLSSNR.MVec", in.renderWidth, in.renderHeight);
         m_ngxParams->Set("DLSSNR.MVecScaleX", 1.0f);  // DLSS SR §3.6.3 — pixel-unit MVs
         m_ngxParams->Set("DLSSNR.MVecScaleY", 1.0f);
     }
     if (useDepth) {
-        setSubrect("DLSSNR.Depth", in.renderWidth, in.renderHeight);
         m_ngxParams->Set("DLSSNR.DepthInverted", 1);  // NDC depth (1 = far)
     }
 
     // Resources are passed as opaque pointers on the parameter block.
     m_ngxParams->Set("DLSSNR.Color",  static_cast<void*>(&rColor));
     m_ngxParams->Set("DLSSNR.Output", static_cast<void*>(&rOutput));
-    if (useMotion) m_ngxParams->Set("DLSSNR.MVec",  static_cast<void*>(&rMotion));
-    if (useDepth)  m_ngxParams->Set("DLSSNR.Depth", static_cast<void*>(&rDepth));
+    m_ngxParams->Set("DLSSNR.MVec",  useMotion ? static_cast<void*>(&rMotion) : nullptr);
+    m_ngxParams->Set("DLSSNR.Depth", useDepth ? static_cast<void*>(&rDepth) : nullptr);
 
     // Reset on both the stock key and the snippet's own key (Magpie uses
     // "DLSSNR.Reset"; the stock key covers other 310.x builds).

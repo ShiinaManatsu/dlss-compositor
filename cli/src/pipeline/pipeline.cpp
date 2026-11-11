@@ -15,6 +15,7 @@
 #include "../gpu/passes/prores_convert_pass.h"
 #include "../gpu/passes/preview_pass.h"
 #include "../io/prores_writer.h"
+#include "../io/nr_buffer_video.h"
 #include "../io/channel_mapper.h"
 #include "../io/rr_channel_mapper.h"
 #include "../io/file_watcher.h"
@@ -42,7 +43,6 @@
 #include <utility>
 #include <vector>
 
-#include <Imath/half.h>
 
 namespace dlss {
 
@@ -76,25 +76,6 @@ struct PassTextures {
 namespace {
 
 constexpr int kDefaultPrefetchDepth = 3;
-
-/// Interleave mv (RG16F bits) + depth (R32F) into RGB16F half bits for the
-/// dlssnrbuffer sequence: R=mv.x, G=mv.y, B=NDC depth. See encodeExrNrBuffer.
-std::vector<std::uint8_t> packNrBuffer(const std::vector<std::uint8_t>& mv,
-                                       const std::vector<std::uint8_t>& depth,
-                                       uint32_t w, uint32_t h) {
-    const std::size_t px = static_cast<std::size_t>(w) * h;
-    std::vector<std::uint8_t> out(px * 3 * sizeof(std::uint16_t));
-    auto*       outHalf = reinterpret_cast<std::uint16_t*>(out.data());
-    const auto* mvHalf  = reinterpret_cast<const std::uint16_t*>(mv.data());
-    const auto* depthF  = reinterpret_cast<const float*>(depth.data());
-    for (std::size_t i = 0; i < px; ++i) {
-        outHalf[i * 3 + 0] = mvHalf[i * 2 + 0];
-        outHalf[i * 3 + 1] = mvHalf[i * 2 + 1];
-        const Imath::half dh(depthF[i]);  // round-to-nearest f32 → f16
-        outHalf[i * 3 + 2] = dh.bits();
-    }
-    return out;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small utility helpers (replicated from sr_fg_pipeline.cpp private section)
@@ -519,6 +500,7 @@ void Pipeline::run(const PipelineConfig& config) {
         if (useNR) {
             NrSettings nrSettings{};
             nrSettings.style              = static_cast<NrStyle>(std::clamp(config.nrStyle, 0, 2));
+            nrSettings.model              = static_cast<NrModel>(std::clamp(config.nrModel, 0, 2));
             nrSettings.intensity          = std::clamp(config.nrIntensity, 0.0f, 1.0f);
             nrSettings.localToneStrength  = std::clamp(config.nrLocalTone, 0.0f, 1.0f);
             nrSettings.localStructureStrength = std::clamp(config.nrLocalStructure, 0.0f, 1.0f);
@@ -537,6 +519,11 @@ void Pipeline::run(const PipelineConfig& config) {
         const int writerThreads = std::clamp(config.writerThreads, 1, 32);
         const int writerQueueHigh = writerThreads * std::clamp(config.writerQueueMultiplier, 1, 64);
         AsyncFrameWriter frameWriter(writerThreads, writerQueueHigh, writerThreads);
+        std::unique_ptr<NrBufferVideoWriter> nrBufferWriter;
+        if (config.nrBuffer) {
+            const auto bufferPath = std::filesystem::path(config.nrBufferDir) / kNrBufferVideoName;
+            nrBufferWriter = std::make_unique<NrBufferVideoWriter>(bufferPath, rW, rH, dlssCfg.fps);
+        }
         std::unique_ptr<ProResProgressWriter> proresWriter;
         std::unique_ptr<ProresConvertPass>    proresConvert;
         const bool useProRes = (config.outputFormat == OutputFormat::ProRes422HQ ||
@@ -680,8 +667,10 @@ void Pipeline::run(const PipelineConfig& config) {
 
         std::unique_ptr<FramePrefetcher>   srPrefetcher;
         std::unique_ptr<RrFramePrefetcher> rrPrefetcher;
-        if (useSR) srPrefetcher = std::make_unique<FramePrefetcher>(framePaths, prefetchDepth, config.watchInput, &m_stop);
-        else       rrPrefetcher = std::make_unique<RrFramePrefetcher>(framePaths, prefetchDepth, config.watchInput, &m_stop);
+        if (useSR) srPrefetcher = std::make_unique<FramePrefetcher>(framePaths, prefetchDepth, config.watchInput,
+                                                                 &m_stop, config.atomicInputFiles);
+        else       rrPrefetcher = std::make_unique<RrFramePrefetcher>(framePaths, prefetchDepth, config.watchInput,
+                                                                   &m_stop, config.atomicInputFiles);
         if (config.watchInput) {
             LOG_INFO("[Pipeline] Watch mode on {} (prefetch depth {})", inputDir.string(), prefetchDepth);
         }
@@ -711,6 +700,8 @@ void Pipeline::run(const PipelineConfig& config) {
                 auto result = srPrefetcher->getNext();
                 if (!result) {
                     if (m_stop.load(std::memory_order_acquire)) break;
+                    if (config.atomicInputFiles)
+                        throw std::runtime_error(fmt::format("SR frame {}: {}", frameNum, result.error().message));
                     LOG_WARN("[Pipeline] SR frame {} decode: {}", fi, result.error().message);
                     continue;
                 }
@@ -721,6 +712,8 @@ void Pipeline::run(const PipelineConfig& config) {
                 auto result = rrPrefetcher->getNext();
                 if (!result) {
                     if (m_stop.load(std::memory_order_acquire)) break;
+                    if (config.atomicInputFiles)
+                        throw std::runtime_error(fmt::format("RR frame {}: {}", frameNum, result.error().message));
                     LOG_WARN("[Pipeline] RR frame {} decode: {}", fi, result.error().message);
                     continue;
                 }
@@ -732,7 +725,12 @@ void Pipeline::run(const PipelineConfig& config) {
             const auto tDecode = std::chrono::steady_clock::now();
             if (useSR) {
                 auto mapped = ChannelMapper::map(*srDecoded);
-                if (!mapped) { LOG_WARN("[Pipeline] SR frame {} map: {}", fi, mapped.error().message); continue; }
+                if (!mapped) {
+                    if (config.atomicInputFiles)
+                        throw std::runtime_error(fmt::format("SR frame {}: {}", frameNum, mapped.error().message));
+                    LOG_WARN("[Pipeline] SR frame {} map: {}", fi, mapped.error().message);
+                    continue;
+                }
                 if (mapped->width != rW || mapped->height != rH)
                     throw std::runtime_error("Pipeline: SR frame dimensions mismatch");
                 srMapped = std::move(*mapped);
@@ -1043,15 +1041,14 @@ void Pipeline::run(const PipelineConfig& config) {
             // After NGX eval the inputs are back in SHADER_READ and the device
             // is idle. restoreLayout keeps the pooled textures' layouts valid
             // for the next frame's layout assumptions.
-            std::vector<std::uint8_t> nrBufferPixels;
-            if (config.nrBuffer) {
-                auto mvRaw = m_ctx->downloadImageRaw(tex.mvDlss->image, rW, rH, 4,
+            std::vector<std::uint8_t> nrMotion, nrDepth;
+            if (nrBufferWriter && !warmupFrame) {
+                nrMotion = m_ctx->downloadImageRaw(tex.mvDlss->image, rW, rH, 4,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, /*restoreLayout=*/true);
-                auto depthRaw = m_ctx->downloadImageRaw(tex.depthNdc->image, rW, rH, 4,
+                nrDepth = m_ctx->downloadImageRaw(tex.depthNdc->image, rW, rH, 4,
                     useSR ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                           : VK_IMAGE_LAYOUT_GENERAL,
                     /*restoreLayout=*/true);
-                nrBufferPixels = packNrBuffer(mvRaw, depthRaw, rW, rH);
             }
             const auto tGpu = std::chrono::steady_clock::now();
 
@@ -1089,25 +1086,7 @@ void Pipeline::run(const PipelineConfig& config) {
                     exrOut ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                            : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, /*isGenerated=*/false);
 
-                // dlssnrbuffer rides along at the same frame index (FG must be off —
-                // dispatcher validates — so output idx == input idx). Lives in its
-                // own folder (nrBufferDir, named after the video) so multiple
-                // exports don't mix guidance sequences in one directory.
-                if (config.nrBuffer && !nrBufferPixels.empty()) {
-                    WriteJob bufJob;
-                    bufJob.format         = OutputFormat::ExrNrBuffer;
-                    bufJob.outputPath     = std::filesystem::path(config.nrBufferDir) /
-                        AsyncFrameWriter::formatPath("dlssnrbuffer_####.exr", outputFrameIdx);
-                    bufJob.width          = rW;
-                    bufJob.height         = rH;
-                    bufJob.fps            = dlssCfg.fps;
-                    bufJob.is_hdr         = false;
-                    bufJob.pixelEncoding  = PixelEncoding::SceneLinear;  // ignored by data encoder
-                    bufJob.encoderOptions = config.encoderOptions;
-                    bufJob.overwriteMode  = config.overwriteMode;
-                    bufJob.pixels         = std::move(nrBufferPixels);
-                    frameWriter.enqueue(std::move(bufJob));
-                }
+                if (nrBufferWriter) nrBufferWriter->write(nrMotion, nrDepth);
             }
 
             // ── [10] Fire frame event ──────────────────────────────────────────
@@ -1199,6 +1178,7 @@ void Pipeline::run(const PipelineConfig& config) {
 
         if (proresWriter) proresWriter->close();
         else              frameWriter.flush();
+        if (nrBufferWriter) nrBufferWriter->close();
         vkDestroyCommandPool(m_ctx->device(), cmdPool, nullptr);
         m_running.store(false, std::memory_order_release);
         fireRunEvent(RunEvent::Completed);

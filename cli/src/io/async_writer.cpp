@@ -242,65 +242,12 @@ void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
 
 } // namespace
 
-// ---------- EXR (DLSSNR guidance data: RGB half, no color transform) ---------
-// Channel layout of the standalone NR tool's dlssnrbuffer sequence:
-//   R = motion vector X (DLSS pixel units, half bits as-is)
-//   G = motion vector Y
-//   B = NDC depth (DepthInverted=1 convention: 0 = near, 1 = far)
-void encodeExrNrBuffer(const EncodeParams& p, const std::filesystem::path& outputPath)
-{
-    if (p.pixels == nullptr || p.width == 0 || p.height == 0) {
-        throw std::runtime_error("encodeExrNrBuffer: empty pixel buffer or zero dimensions");
-    }
-    const std::size_t expected_bytes =
-        static_cast<std::size_t>(p.width) *
-        static_cast<std::size_t>(p.height) * 3u * sizeof(std::uint16_t);
-    if (p.pixelByteSize != 0 && p.pixelByteSize < expected_bytes) {
-        throw std::runtime_error("encodeExrNrBuffer: pixel buffer too small for declared dimensions");
-    }
-
-    std::error_code ec;
-    if (outputPath.has_parent_path()) {
-        std::filesystem::create_directories(outputPath.parent_path(), ec);
-    }
-
-    OIIO::ImageSpec spec(
-        static_cast<int>(p.width),
-        static_cast<int>(p.height),
-        3,
-        OIIO::TypeDesc::HALF);
-    spec.channelnames = {"R", "G", "B"};
-    spec.attribute("dlssnr:channels", "mvx,mvy,depth_ndc");
-    spec.attribute("compression", oiioExrCompression(p.options.exrCompression));
-    spec.attribute("openexr:zipCompressionLevel",
-                   percentToZlibLevel(p.options.exrCompressionLevelPercent));
-
-    auto out = OIIO::ImageOutput::create(outputPath.string());
-    if (!out) {
-        throw std::runtime_error("encodeExrNrBuffer: cannot create OIIO output: " + outputPath.string());
-    }
-    if (!out->open(outputPath.string(), spec)) {
-        throw std::runtime_error("encodeExrNrBuffer: cannot open output: " + outputPath.string()
-                                 + ": " + out->geterror());
-    }
-    if (!out->write_image(OIIO::TypeDesc::HALF, p.pixels)) {
-        const std::string err = out->geterror();
-        out->close();
-        throw std::runtime_error("encodeExrNrBuffer: write failed: " + outputPath.string() + ": " + err);
-    }
-    if (!out->close()) {
-        throw std::runtime_error("encodeExrNrBuffer: close failed: " + outputPath.string()
-                                 + ": " + out->geterror());
-    }
-}
-
 EncoderRegistry& globalEncoderRegistry()
 {
     static EncoderRegistry s_registry = [] {
         EncoderRegistry r;
         r.registerEncoder(OutputFormat::ExrLinear,   &encodeExrLinear);
         r.registerEncoder(OutputFormat::Png16,       &encodePng16);
-        r.registerEncoder(OutputFormat::ExrNrBuffer, &encodeExrNrBuffer);
         // ProRes422HQ is handled by ProResWriter at pipeline level because it
         // owns a single MOV muxer across the whole sequence, not per-frame jobs.
         // INTENTIONAL: Jpeg/H264Mp4/H265Mp4/Av1Mp4/Avif/ProRes4444XQ/DNxHR are
@@ -394,6 +341,7 @@ int resolveLowWatermark(int explicitValue, int highWatermark, int threadCount)
 std::string zeroPad(int value, int width)
 {
     std::ostringstream os;
+    os.setf(std::ios::internal, std::ios::adjustfield);
     os.width(width);
     os.fill('0');
     os << value;

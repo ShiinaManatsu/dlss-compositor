@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
 
     if (hasArg(args, "--version")) {
         LOG_INFO("[startup] CLI mode=version");
-        std::cerr << "dlss-compositor-cli v1.0.0 (DLSS SDK 310.6.0)\n";
+        std::cerr << "dlss-compositor-cli v1.0.0 (DLSS SDK 310.9.16)\n";
         return 0;
     }
 

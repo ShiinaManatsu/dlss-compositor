@@ -3,7 +3,7 @@
 //
 // Experimental. Contract reverse-engineered from the Magpie fork
 // (SAOG0721/Magpie @ 8dfdf37, DLSSNRFilter.cpp — see docs/research/magpie-nr-notes.md):
-//   - Feature ID 18, provided by nvngx_dlssnr.dll (310.8.0.0) located next to
+//   - Feature ID 18, provided by nvngx_dlssnr.dll (310.9.16 / 310.8) located next to
 //     the exe. The signed snippet verifies its caller (GetModuleFileNameW must
 //     report "nvngx.dll") — dlss_nr.cpp installs an IAT shim for that.
 //   - Same-resolution, SDR RGBA8_UNORM in/out (display domain).
@@ -39,6 +39,7 @@ class NgxContext;
 /// through the snippet directly, not through the NGX core).
 struct NrSnippetTable {
     void*    library = nullptr;
+    bool     hasLightweightModel = false;
     NVSDK_NGX_Result (NVSDK_CONV *init)(unsigned long long, const wchar_t*,
                                         VkInstance, VkPhysicalDevice, VkDevice,
                                         PFN_vkGetInstanceProcAddr, PFN_vkGetDeviceProcAddr,
@@ -58,6 +59,9 @@ struct NrSnippetTable {
                                                  std::uint32_t*,
                                                  VkExtensionProperties**) = nullptr;
 };
+
+/// Creation-time model selection. Auto follows the runtime default (Magpie v0.6.11).
+enum class NrModel : int { Auto = 0, Standard = 1, Lightweight = 2 };
 
 /// NR "style" presets exposed by the snippet (Magpie DLSSNRSettings.style).
 enum class NrStyle : int {
@@ -79,6 +83,7 @@ enum class NrGuidanceMode : int {
 /// Magpie's zero-filled guidance interop).
 struct NrSettings {
     bool           enabled            = true;
+    NrModel        model              = NrModel::Auto;
     NrStyle        style              = NrStyle::Default;
     float          intensity          = 1.0f;
     float          localToneStrength  = 1.0f;

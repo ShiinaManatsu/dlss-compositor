@@ -1,5 +1,6 @@
 import {useEffect, useState} from 'react';
-import {Content, Heading, IllustratedMessage, ListView, ListViewItem, Text} from '@react-spectrum/s2';
+import {Content, Heading, IllustratedMessage} from '@react-spectrum/s2/IllustratedMessage';
+import {ListView, ListViewItem, Text} from '@react-spectrum/s2/ListView';
 import {ActionMenu, MenuItem} from '@react-spectrum/s2/ActionMenu';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Copy from '@react-spectrum/s2/icons/Copy';
@@ -107,7 +108,7 @@ export function JobsPage() {
   }, [app.history]);
 
   return (
-    <div className="page-jobs">
+    <div className={`page-jobs ${style({backgroundColor: 'layer-1', borderRadius: 'xl'})}`}>
       <ListView
         aria-label="导出产物"
         selectionMode="none"

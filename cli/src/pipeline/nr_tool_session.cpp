@@ -218,6 +218,10 @@ NrToolSession::NrToolSession(VulkanContext* ctx, NgxContext* ngx,
         m_buffer.open(bufferDir);
         m_info.bufferWidth  = m_buffer.width();
         m_info.bufferHeight = m_buffer.height();
+        if (m_buffer.fps() > 0 && (m_buffer.frames() != m_info.frames ||
+            (m_isVideo && std::abs(m_buffer.fps() - m_info.fps) > 0.01))) {
+            throw std::runtime_error("NrTool: 引导视频与色彩源的帧数或帧率不一致");
+        }
     }
     m_info.bufferDir = bufferDir.string();
 
@@ -397,9 +401,8 @@ NrToolSession::~NrToolSession() {
     LOG_INFO("[NrTool] session teardown done");
 }
 
-void NrToolSession::ensureCreated() {
-    if (m_nrPass) return;
-
+void NrToolSession::ensureResources() {
+    if (m_cmdPool) return;
     const TextureDesc tdColorIn  {m_info.width,  m_info.height,  VK_FORMAT_R8G8B8A8_UNORM,
                                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
     const VkImageUsageFlags storageRw = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
@@ -419,9 +422,6 @@ void NrToolSession::ensureCreated() {
     m_nrOut    = m_pool.acquire(tdNrOut);
     m_displayNr= m_pool.acquire(tdDisplayNr);
 
-    // Feature creation is the availability probe — fail loud here.
-    m_nrPass = std::make_unique<DlssNrPass>(m_ngx, m_ctx);
-    m_nrPass->create(m_info.width, m_info.height, m_settings);
     m_nrUnpack      = std::make_unique<NrFormatPass>(m_ctx, "unpack");
     m_proresConvert = std::make_unique<ProresConvertPass>(m_ctx);
     m_cmdPool       = m_ctx->createComputeCommandPool();
@@ -429,6 +429,17 @@ void NrToolSession::ensureCreated() {
     LOG_INFO("[NrTool] session ready: {} frames {}x{} (buffer {}x{})",
              m_info.frames, m_info.width, m_info.height,
              m_info.bufferWidth, m_info.bufferHeight);
+}
+
+void NrToolSession::ensureModel() {
+    if (!m_nrPass || m_activeNrModel != m_settings.model) {
+        m_nrPass.reset();
+        m_lastNrFrame = -1;
+        auto pass = std::make_unique<DlssNrPass>(m_ngx, m_ctx);
+        pass->create(m_info.width, m_info.height, m_settings);
+        m_nrPass = std::move(pass);
+        m_activeNrModel = m_settings.model;
+    }
 }
 
 void NrToolSession::ensureFgCreated(int multiplier) {
@@ -452,12 +463,13 @@ void NrToolSession::ensureFgCreated(int multiplier) {
 
 void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool needGuidance,
                                   PrefetchedFrame&& pixels) {
-    ensureCreated();
     if (nrEnabled && !m_hasBuffer && m_settings.guidanceMode != NrGuidanceMode::ForceZero) {
         throw std::runtime_error(
             "NrTool: guidance needs a dlssnrbuffer session — reopen with buffer_dir "
             "or set guidance mode to 无");
     }
+    ensureResources();
+    if (nrEnabled) ensureModel();
     LOG_DEBUG("[NrTool] eval frame {} begin (nr={} guide={})", frameIndex, nrEnabled, needGuidance);
     const auto tf0 = std::chrono::steady_clock::now();
     const auto msSinceF = [tf0] {
@@ -477,7 +489,7 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool 
 
     // ── Evaluate ──────────────────────────────────────────────────────────────
     if (nrEnabled) {
-        const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
+        const bool reset = (m_lastFrame < 0) || (m_lastNrFrame < 0) || (frameIndex != m_lastNrFrame + 1);
 
         VkCommandBuffer cmd = m_ctx->beginOneTimeCommands(m_cmdPool);
         // Output layout: UNDEFINED→GENERAL each eval (legal discard; pipeline parity).
@@ -504,7 +516,7 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool 
         in.colorImage   = m_colorIn->image;
         in.outputView   = m_nrOut->view;
         in.outputImage  = m_nrOut->image;
-        if (m_hasBuffer) {
+        if (m_hasBuffer && needGuidance) {
             in.mvView       = m_mvTex->view;
             in.mvImage      = m_mvTex->image;
             in.depthView    = m_depthTex->view;
@@ -520,10 +532,13 @@ void NrToolSession::evaluateFrame(std::int64_t frameIndex, bool nrEnabled, bool 
         // drain the device before any readback (downloadImageRaw submits its own).
         m_ctx->waitIdle();
         const double tNr = msSinceF();
-        LOG_DEBUG("[NrTool] eval frame {} upload(exr+copy)={}ms nr={}ms "
+        LOG_DEBUG("[NrTool] eval frame {} upload={}ms nr={}ms "
                   "(reset={}, {}x{})",
                   frameIndex, tUpload, tNr - tUpload, reset,
                   m_info.width, m_info.height);
+        m_lastNrFrame = frameIndex;
+    } else {
+        m_lastNrFrame = -1;
     }
 
     m_lastFrame = frameIndex;
@@ -659,15 +674,16 @@ void NrToolSession::ensurePreviewPass() {
 NrToolSession::PreviewResult NrToolSession::preview(std::int64_t frameIndex, const NrSettings& settings,
                                                     const FgSettings& fg, std::uint32_t maxLongEdge) {
     m_settings = settings;
-    // Same reset rule as evaluateFrame/evaluateFg — captured before it updates m_lastFrame.
-    const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1);
+    // A different NR model starts with empty history and changes FG's input.
+    const bool reset = (m_lastFrame < 0) || (frameIndex != m_lastFrame + 1) ||
+        (settings.enabled && (!m_nrPass || m_activeNrModel != settings.model || m_lastNrFrame < 0));
     const auto t0 = std::chrono::steady_clock::now();
     const auto msSince = [t0] {
         return std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t0).count();
     };
 
-    const bool needGuidance = settings.enabled || fg.enabled;
+    const bool needGuidance = fg.enabled || (settings.enabled && settings.guidanceMode != NrGuidanceMode::ForceZero);
     evaluateFrame(frameIndex, settings.enabled, needGuidance,
                   fetchFrame(frameIndex, needGuidance));
     const double tEval = msSince();
@@ -828,7 +844,7 @@ void NrToolSession::exportTo(const NrSettings& settings,
         }
         const std::int64_t frame = static_cast<std::int64_t>(i);
         const bool reset = (m_lastFrame < 0) || (frame != m_lastFrame + 1);
-        const bool needGuidance = settings.enabled || fg.enabled;
+        const bool needGuidance = fg.enabled || (settings.enabled && settings.guidanceMode != NrGuidanceMode::ForceZero);
         evaluateFrame(frame, settings.enabled, needGuidance,
                       fetchFrame(frame, needGuidance));
 

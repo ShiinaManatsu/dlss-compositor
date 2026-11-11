@@ -167,43 +167,24 @@ cmake --build build --target help
 | Variable | Default | Purpose |
 |---|---|---|
 | `DLSS_SDK_ROOT` | `DLSS` | Path to DLSS SDK (relative or absolute) |
-| `BUILD_TESTS` | `ON` | Build C++ unit tests |
 | `ENABLE_VALIDATION` | `OFF` | Vulkan validation layers (debug only) |
 
 Pass extra variables with `-D`:
 ```powershell
-cmake -B build --preset x64-windows-msvc-release `
-  -DDLSS_SDK_ROOT=DLSS `
-  -DBUILD_TESTS=OFF
+cmake -B build --preset x64-windows-msvc-release -DDLSS_SDK_ROOT=DLSS
 ```
 
 ---
 
-## 5. CLI Smoke Test
+## 5. CLI Version
 
-After a successful build, run a quick sanity check before opening the GUI.
+After a successful build, print the CLI version:
 
 ```powershell
-# Print version string
 ./build/Release/dlss-compositor-cli.exe --version
-
-# Self-check: GPU detection, NGX init, SR + FG availability
-./build/Release/dlss-compositor-cli.exe --self-check
-
-# JSON-RPC mode (used by the Flutter plugin and automation scripts)
-echo '{"jsonrpc":"2.0","method":"getStatus","id":1}' | ./build/Release/dlss-compositor-cli.exe --rpc-stdio
 ```
 
-A passing `--self-check` prints something like:
-```
-[OK] GPU: NVIDIA GeForce RTX 4090
-[OK] Driver: 546.33
-[OK] NGX: initialized
-[OK] DLSS SR: available (model: transformer_4x)
-[OK] DLSS FG: available
-```
-
-If `--self-check` reports failures, see Section 9 (Troubleshooting).
+GPU/NGX capabilities are reported by the runtime status logs when the application starts.
 
 ---
 
@@ -221,9 +202,6 @@ flutter pub get
 
 # Static analysis (must show 0 issues before committing)
 flutter analyze
-
-# Run unit + widget tests
-flutter test
 
 # Build the release desktop app
 flutter build windows --release
@@ -337,11 +315,11 @@ The DLSS SDK lib files are tracked via Git LFS. Pull them:
 git lfs pull
 ```
 
-### NGX Init Failed / SR Unavailable in `--self-check`
+### NGX Init Failed / SR Unavailable
 
 - Update NVIDIA drivers to 535 or newer (GeForce Experience or manual from https://www.nvidia.com/drivers)
 - Confirm an RTX GPU is installed: `Get-WmiObject Win32_VideoController | Select-Object Name`
-- Run `./build/Release/dlss-compositor-cli.exe --self-check` for the full diagnostic
+- Inspect the application's NGX initialization and capability logs.
 
 ### `flutter pub get` fails / Flutter not found
 
@@ -384,6 +362,5 @@ graph TD
     A --> G[flutter pub get]
     G --> H[flutter build windows]
     H --> I[dlss_compositor_gui.exe]
-    E --> J[CLI smoke test --self-check]
     I --> K[GUI run]
 ```

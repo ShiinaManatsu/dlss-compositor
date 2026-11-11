@@ -50,6 +50,7 @@ struct alignas(64) RenderProgress {
     std::atomic<int>   dlss_current_frame{0};
     std::atomic<int>   dlss_total_frames{0};
     std::atomic<float> dlss_percent{0.0f};
+    std::atomic<int>   temporal_resets{0};
     // State: 0=Idle, 1=Running, 2=Done, 3=Error
     std::atomic<int>   state{0};
     // Phase: 0=render 1=finalize (writer drain + mov trailer after the frame

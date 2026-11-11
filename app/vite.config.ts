@@ -2,11 +2,12 @@ import {defineConfig} from 'vite';
 import react from '@vitejs/plugin-react';
 import macros from 'unplugin-parcel-macros';
 import optimizeLocales from '@react-aria/optimize-locales-plugin';
+import {s2DevCssCompatibility} from './scripts/vite-s2-css';
+import {s2WindowsFontPolicy} from './scripts/vite-s2-fonts';
 
 // S2's stylesheet registers Adobe Clean / Source Code Pro via remote Typekit
 // URLs (use.typekit.net). A desktop app must not fetch UI fonts from the
-// network (offline = fallback flash, flaky CDN = slow font swap), and the
-// fonts' license does not allow bundling. Strip those @font-face rules at
+// network for these faces. Strip those @font-face rules at
 // build time; the stacks fall through to ui-sans-serif/system-ui (Segoe UI +
 // YaHei on Windows).
 const stripRemoteFonts = () => ({
@@ -23,6 +24,8 @@ const stripRemoteFonts = () => ({
 export default defineConfig({
   base: './',
   plugins: [
+    s2DevCssCompatibility({chrome: 136 << 16}),
+    s2WindowsFontPolicy(),
     stripRemoteFonts(),
     macros.vite(),
     react(),

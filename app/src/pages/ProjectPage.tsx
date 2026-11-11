@@ -1,16 +1,9 @@
 import {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {
-  Button,
-  ButtonGroup,
-  CardView,
-  AssetCard,
-  CardPreview,
-  Content,
-  Heading,
-  IllustratedMessage,
-  Image,
-  Text
-} from '@react-spectrum/s2';
+import {Button, Text} from '@react-spectrum/s2/Button';
+import {ButtonGroup} from '@react-spectrum/s2/ButtonGroup';
+import {CardView} from '@react-spectrum/s2/CardView';
+import {AssetCard, CardPreview, Image} from '@react-spectrum/s2/Card';
+import {Content, Heading, IllustratedMessage} from '@react-spectrum/s2/IllustratedMessage';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Add from '@react-spectrum/s2/icons/Add';
 import FileVideo from '@react-spectrum/s2/illustrations/gradient/generic1/FileVideo';
@@ -78,9 +71,9 @@ export function ProjectPage() {
   }, [recents]);
 
   return (
-    <div className="page-project">
+    <div className={`page-project ${style({backgroundColor: 'layer-1', borderRadius: 'xl'})}`}>
       <div className="page-header">
-        <Heading level={2}>项目</Heading>
+        <h1 className={style({font: 'heading-lg', margin: 0})}>项目</h1>
         <ButtonGroup>
           <Button variant="secondary" onPress={() => void pickOpenDcp()}>
             <FolderOpen />

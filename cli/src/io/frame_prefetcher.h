@@ -62,7 +62,8 @@ public:
     explicit FramePrefetcher(std::vector<std::filesystem::path> framePaths,
                              int prefetchDepth = 3,
                              bool waitForFiles = false,
-                             const std::atomic<bool>* externalStop = nullptr);
+                             const std::atomic<bool>* externalStop = nullptr,
+                             bool atomicInputFiles = false);
 
     ~FramePrefetcher();
 
@@ -89,7 +90,6 @@ public:
 
 private:
     void workerLoop();
-    void waitUntilWritten(const std::filesystem::path& path) const;
     bool stopRequested() const noexcept {
         return m_stop.load() || (m_externalStop && m_externalStop->load());
     }
@@ -98,6 +98,7 @@ private:
     int                                m_prefetchDepth;
     bool                               m_waitForFiles;
     const std::atomic<bool>*           m_externalStop;
+    bool                               m_atomicInputFiles;
 
     mutable std::mutex      m_mutex;
     std::condition_variable m_cv;

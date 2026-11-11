@@ -85,7 +85,8 @@ public:
     explicit RrFramePrefetcher(std::vector<std::filesystem::path> framePaths,
                                int prefetchDepth = 3,
                                bool waitForFiles = false,
-                               const std::atomic<bool>* externalStop = nullptr);
+                               const std::atomic<bool>* externalStop = nullptr,
+                               bool atomicInputFiles = false);
 
     ~RrFramePrefetcher();
 
@@ -118,6 +119,7 @@ private:
     int                                m_prefetchDepth;
     bool                               m_waitForFiles;
     const std::atomic<bool>*           m_externalStop;
+    bool                               m_atomicInputFiles;
 
     mutable std::mutex        m_mutex;
     std::condition_variable   m_cv;

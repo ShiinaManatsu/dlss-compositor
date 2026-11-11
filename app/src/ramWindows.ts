@@ -9,6 +9,35 @@ const BEAUTY_CHANNELS = 4;
 const GUIDES_CHANNELS = 5;
 const SR_CHANNELS = 9;
 
+/** Upper estimate for inject.py's combined multilayer EXR. ZIP can fall back
+ * to raw blocks, so budget float32 samples and part/scanline overhead. */
+export function estimateRollingFrameBytes(width: number, height: number, mode: string): number {
+  const channels = mode === 'rr' ? 27 : SR_CHANNELS;
+  const parts = mode === 'rr' ? 10 : 3;
+  return Math.ceil((width * height * channels * 4 + parts * (65536 + height * 16)) / 65536) * 65536;
+}
+
+export function planRollingRender(
+  frameCount: number,
+  requestedWorkers: number,
+  bytesPerFrame: number,
+  volumeBytes: number,
+  freeBytes: number,
+  maxWindowFrames?: number,
+) {
+  if (!Number.isSafeInteger(frameCount) || frameCount < 1) throw new Error('渲染帧范围无效');
+  const headroomBytes = Math.max(DEFAULT_RAM_RESERVE_BYTES, 2 * bytesPerFrame);
+  const budgetBytes = Math.max(0, Math.min(
+    Math.floor(volumeBytes * DEFAULT_RAM_FILL_PERCENT / 100), volumeBytes - headroomBytes,
+    freeBytes - headroomBytes,
+  ));
+  const slots = Math.floor(budgetBytes / bytesPerFrame);
+  if (slots < 1) throw new Error('缓存空间不足：至少需要容纳一帧未压缩 EXR 和预留空间');
+  const workers = Math.min(requestedWorkers, frameCount, slots);
+  const framesPerWindow = Math.min(Math.floor(slots / workers), Math.floor(frameCount / workers), maxWindowFrames ?? Infinity);
+  return {workers, framesPerWindow, slots, budgetBytes, headroomBytes, bytesPerFrame};
+}
+
 export function ramWindowBudget(
   totalBytes: number,
   fillPercent = DEFAULT_RAM_FILL_PERCENT,

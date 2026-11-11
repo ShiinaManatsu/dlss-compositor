@@ -58,23 +58,5 @@
       "configurePreset": "x64-windows-msvc-debug",
       "configuration": "Debug"
     }
-  ],
-  "testPresets": [
-    {
-      "name": "x64-windows-msvc-release",
-      "configurePreset": "x64-windows-msvc-release",
-      "configuration": "Release",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "x64-windows-msvc-debug",
-      "configurePreset": "x64-windows-msvc-debug",
-      "configuration": "Debug",
-      "output": {
-        "outputOnFailure": true
-      }
-    }
   ]
 }

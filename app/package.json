@@ -1,7 +1,7 @@
 {
   "name": "dlss-compositor-app",
   "private": true,
-  "version": "0.5.30",
+  "version": "1.0.0",
   "description": "DLSS SR/RR/FG compositor GUI",
   "author": {
     "name": "dlss-compositor"
@@ -14,15 +14,13 @@
     "start": "electron .",
     "pack:backend": "node scripts/pack-backend.mjs",
     "dist:dir": "npm run build && npm run pack:backend && electron-builder --win --dir && node scripts/seed-nr.mjs",
-    "dist": "npm run build && npm run pack:backend && electron-builder --win nsis zip && node scripts/seed-nr.mjs",
-    "test:rpc": "node --experimental-strip-types scripts/test-rpc.mjs",
-    "test:progress": "node --experimental-strip-types scripts/test-progress.mjs",
-    "test:dcp": "node --experimental-strip-types scripts/test-dcp.mjs",
-    "test:errors": "node --experimental-strip-types scripts/test-errors.mjs"
+    "dist": "npm run build && npm run pack:backend && electron-builder --win nsis zip && node scripts/seed-nr.mjs"
   },
   "dependencies": {
     "@react-spectrum/s2": "^1.5.1",
     "react": "^19.1.0",
+    "react-aria": "3.51.0",
+    "react-aria-components": "1.20.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
@@ -61,6 +59,7 @@
       }
     ],
     "win": {
+      "requestedExecutionLevel": "requireAdministrator",
       "target": [
         {
           "target": "nsis",

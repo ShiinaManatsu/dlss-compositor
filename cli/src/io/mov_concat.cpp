@@ -38,7 +38,8 @@ struct SegmentInput {
     AVStream* stream = nullptr;
 
     void open(const std::filesystem::path& file) {
-        int err = avformat_open_input(&fmt, file.string().c_str(), nullptr, nullptr);
+        const auto utf8 = file.u8string();
+        int err = avformat_open_input(&fmt, reinterpret_cast<const char*>(utf8.c_str()), nullptr, nullptr);
         if (err < 0 || !fmt) fail("cannot open " + file.string() + ": " + fferr(err));
         err = avformat_find_stream_info(fmt, nullptr);
         if (err < 0) fail("cannot read stream info: " + file.string() + ": " + fferr(err));
@@ -66,6 +67,9 @@ void verifyCompat(const SegmentInput& first, const SegmentInput& next, std::size
         fail("segment " + std::to_string(index) + " pixel format mismatch");
     if (a->extradata_size != b->extradata_size)
         fail("segment " + std::to_string(index) + " extradata size mismatch (different encoder settings?)");
+    if (a->codec_id == AV_CODEC_ID_FFV1 && a->extradata_size > 0 &&
+        std::memcmp(a->extradata, b->extradata, a->extradata_size) != 0)
+        fail("segment " + std::to_string(index) + " FFV1 settings mismatch");
     // Timings must line up too — every packet is stamped with segment 0's
     // frame period (see ticksPerFrame below).
     AVRational fa = first.stream->avg_frame_rate;
@@ -93,10 +97,11 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
             if (i > 0) verifyCompat(segs[0], segs[i], i);
         }
 
-        // Muxer inferred from the output extension (.mov / .mp4 — the same
-        // containers our ProRes/H265 writers produce).
+        // Muxer inferred from the output extension (.mov, .mp4, or guide .mkv).
         AVFormatContext* out = nullptr;
-        int err = avformat_alloc_output_context2(&out, nullptr, nullptr, output.string().c_str());
+        const auto utf8 = output.u8string();
+        const auto* outName = reinterpret_cast<const char*>(utf8.c_str());
+        int err = avformat_alloc_output_context2(&out, nullptr, nullptr, outName);
         if (err < 0 || !out)
             fail("cannot create output muxer for " + output.string() + ": " + fferr(err));
 
@@ -111,23 +116,25 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
         outStream->time_base = segs[0].stream->time_base;
         outStream->avg_frame_rate = segs[0].stream->avg_frame_rate;
         outStream->r_frame_rate = segs[0].stream->r_frame_rate;
+        const bool guideVideo = outStream->codecpar->codec_id == AV_CODEC_ID_FFV1;
+        if (guideVideo) av_dict_copy(&outStream->metadata, segs[0].stream->metadata, 0);
 
         if (!(out->oformat->flags & AVFMT_NOFILE)) {
-            err = avio_open(&out->pb, output.string().c_str(), AVIO_FLAG_WRITE);
+            err = avio_open(&out->pb, outName, AVIO_FLAG_WRITE);
             if (err < 0) { avformat_free_context(out); fail("cannot open output: " + fferr(err)); }
         }
 
         // Match the writer's fragmented MOV/MP4 (crash-safe moof fragments);
         // write_colr carries the copied codecpar colors into a colr box.
         AVDictionary* muxOptions = nullptr;
-        av_dict_set(&muxOptions, "movflags", "+write_colr+frag_keyframe+empty_moov+default_base_moof", 0);
+        if (!guideVideo) av_dict_set(&muxOptions, "movflags", "+write_colr+frag_keyframe+empty_moov+default_base_moof", 0);
         err = avformat_write_header(out, &muxOptions);
         av_dict_free(&muxOptions);
-        if (err < 0) { avformat_free_context(out); fail("cannot write output header: " + fferr(err)); }
+        if (err < 0) { avio_closep(&out->pb); avformat_free_context(out); fail("cannot write output header: " + fferr(err)); }
 
         std::int64_t frames = 0;
         AVPacket* pkt = av_packet_alloc();
-        if (!pkt) { avformat_free_context(out); fail("cannot allocate packet"); }
+        if (!pkt) { avio_closep(&out->pb); avformat_free_context(out); fail("cannot allocate packet"); }
         // Stamp every packet with the frame period (in the OUTPUT track time
         // base). Fragmented MOVs carry sample durations in tfhd/trun and movenc
         // passes pkt->duration through verbatim — never rescales — so this is
@@ -150,7 +157,8 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
             std::int64_t lastPts = AV_NOPTS_VALUE;
             std::int64_t lastDur = 0;
             std::int64_t segFrames = 0;
-            while (av_read_frame(segs[i].fmt, pkt) >= 0) {
+            int readResult;
+            while ((readResult = av_read_frame(segs[i].fmt, pkt)) >= 0) {
                 if (pkt->stream_index != segs[i].videoStream) {
                     av_packet_unref(pkt);
                     continue;
@@ -164,16 +172,30 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
                     pkt->pts += tsOffset;
                 }
                 if (pkt->dts != AV_NOPTS_VALUE) pkt->dts += tsOffset;
+                if (guideVideo && fr.num > 0) {
+                    // Every guide frame is independently coded. Generate CFR
+                    // timestamps from the absolute index to avoid accumulating
+                    // millisecond rounding at each segment boundary.
+                    pkt->pts = pkt->dts = av_rescale_q(frames, av_inv_q(fr), outStream->time_base);
+                    pkt->duration = av_rescale_q(frames + 1, av_inv_q(fr), outStream->time_base) - pkt->pts;
+                }
                 if (pkt->duration > 0) lastDur = pkt->duration;
-                err = av_write_frame(out, pkt);  // takes ownership of pkt's refs
+                err = av_interleaved_write_frame(out, pkt);
                 if (err < 0) {
                     av_packet_unref(pkt);
                     av_packet_free(&pkt);
+                    avio_closep(&out->pb);
                     avformat_free_context(out);
                     fail("write failed on segment " + std::to_string(i) + ": " + fferr(err));
                 }
                 ++frames;
                 ++segFrames;
+            }
+            if (readResult != AVERROR_EOF) {
+                av_packet_free(&pkt);
+                avio_closep(&out->pb);
+                avformat_free_context(out);
+                fail("read failed on segment " + std::to_string(i) + ": " + fferr(readResult));
             }
             if (ticksPerFrame > 0) {
                 tsOffset += segFrames * ticksPerFrame;
@@ -188,6 +210,7 @@ std::int64_t concatVideoFiles(const std::vector<std::filesystem::path>& inputs,
 
         err = av_write_trailer(out);
         if (err < 0) {
+            avio_closep(&out->pb);
             avformat_free_context(out);
             fail("cannot write trailer: " + fferr(err));
         }

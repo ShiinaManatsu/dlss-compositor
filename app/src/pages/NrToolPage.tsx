@@ -1,20 +1,14 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {
-  ActionButton,
-  Divider,
-  Disclosure,
-  DisclosurePanel,
-  DisclosureTitle,
-  Picker,
-  PickerItem,
-  ProgressBar,
-  Slider,
-  Switch,
-  Text,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup
-} from '@react-spectrum/s2';
+import {ActionButton, Text} from '@react-spectrum/s2/ActionButton';
+import {Workbench} from '../Workbench';
+import {Disclosure, DisclosurePanel, DisclosureTitle} from '@react-spectrum/s2/Disclosure';
+import {Picker, PickerItem} from '@react-spectrum/s2/Picker';
+import {ProgressBar} from '@react-spectrum/s2/ProgressBar';
+import {Slider} from '@react-spectrum/s2/Slider';
+import {Switch} from '@react-spectrum/s2/Switch';
+import {TextField} from '@react-spectrum/s2/TextField';
+import {ToggleButton} from '@react-spectrum/s2/ToggleButton';
+import {ToggleButtonGroup} from '@react-spectrum/s2/ToggleButtonGroup';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Pause from '@react-spectrum/s2/icons/Pause';
 import Play from '@react-spectrum/s2/icons/Play';
@@ -26,6 +20,7 @@ const SETTINGS_KEY = 'dc-nrfg-settings';
 
 type StoredSettings = {
   nrEnabled: boolean;
+  model: number;
   style: number;
   intensity: number;
   localTone: number;
@@ -38,6 +33,7 @@ type StoredSettings = {
 
 const DEFAULT_SETTINGS: StoredSettings = {
   nrEnabled: true,
+  model: 0,
   style: 0,
   intensity: 1.0,
   localTone: 1.0,
@@ -132,6 +128,7 @@ export function NrToolPage() {
   const settingsParams = useCallback(
     (s: StoredSettings) => ({
       nr_enabled: s.nrEnabled,
+      nr_model: s.model,
       nr_style: s.style,
       nr_intensity: s.intensity,
       nr_local_tone: s.localTone,
@@ -401,7 +398,7 @@ export function NrToolPage() {
       : info?.frames ?? 0;
 
   return (
-    <div className="export-body">
+    <Workbench name="nrtool">
       <aside className="export-settings">
         <SettingsSection title="媒体" defaultExpanded>
           <TextField
@@ -437,7 +434,7 @@ export function NrToolPage() {
           </ActionButton>
           <div className="field-with-action">
             <TextField
-              label="dlssnrbuffer 目录（可选）"
+              label="引导缓冲目录（MKV / 旧 EXR，可选）"
               size="S"
               value={paths.bufferDir}
               onChange={(next) => setPaths((prev) => ({...prev, bufferDir: next}))}
@@ -455,14 +452,13 @@ export function NrToolPage() {
               <Text>选择</Text>
             </ActionButton>
           </div>
-          <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+          {info || opening ? <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
             {info && info.buffer_width > 0 &&
             (info.buffer_width !== info.width || info.buffer_height !== info.height)
               ? `${nr.message} · 缓冲 ${info.buffer_width}×${info.buffer_height}`
               : nr.message}
-          </span>
+          </span> : null}
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="NR 降噪" defaultExpanded>
           <Switch
             size="S"
@@ -481,6 +477,17 @@ export function NrToolPage() {
             <PickerItem id="0">默认</PickerItem>
             <PickerItem id="1">自然</PickerItem>
             <PickerItem id="2">电影</PickerItem>
+          </Picker>
+          <Picker
+            label="NR 模型"
+            size="S"
+            value={String(settings.model)}
+            onChange={(value) => setSettings((prev) => ({...prev, model: Number(value)}))}
+            isDisabled={exporting || !settings.nrEnabled}
+            styles={style({width: 'full'})}>
+            <PickerItem id="0">自动</PickerItem>
+            <PickerItem id="1">A · 标准</PickerItem>
+            <PickerItem id="2">B · 轻量（310.9.16+）</PickerItem>
           </Picker>
           <Slider
             label="降噪强度"
@@ -546,7 +553,6 @@ export function NrToolPage() {
             </ToggleButton>
           </ToggleButtonGroup>
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="FG 帧生成" defaultExpanded>
           <Switch
             size="S"
@@ -569,12 +575,11 @@ export function NrToolPage() {
             <PickerItem id="6">6x</PickerItem>
           </Picker>
           {fgConfigMissing ? (
-            <span className={style({font: 'detail-sm', color: 'red-700'})}>
+            <span className={style({font: 'detail-sm', color: 'negative'})}>
               缺少 dlssconfig.json（缓冲目录内）— 无法帧生成
             </span>
           ) : null}
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="导出" defaultExpanded>
           <Picker
             label="编码"
@@ -642,34 +647,36 @@ export function NrToolPage() {
             </div>
           )}
           {info ? (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+            <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
               输出 {outFrames} 帧
               {settings.fgEnabled ? ` · ${Math.round((info.fps || 30) * settings.fgMultiplier)}fps` : ''}
             </span>
           ) : null}
           {nr.error ? (
-            <span className={style({font: 'detail-sm', color: 'red-700'})}>{nr.error}</span>
+            <span className={style({font: 'detail-sm', color: 'negative'})}>{nr.error}</span>
           ) : null}
         </SettingsSection>
       </aside>
 
       <section className="preview-col">
-        <div className="preview-well">
+        <div className={`preview-well ${style({backgroundColor: 'layer-1', borderRadius: 'lg'})}`}>
           <div className="preview-frame" style={{aspectRatio: aspect}}>
             <canvas ref={canvasRef} className="preview-image" aria-label="NR / FG 预览" />
+            {!info && <div className={`preview-placeholder ${style({font: 'body', color: 'neutral-subdued'})}`}>
+              {opening ? '打开中…' : '暂无媒体'}
+            </div>}
           </div>
           <div className={`nr-bottom ${exporting ? 'is-busy' : 'is-idle'}`}>
-            <div className={`nr-export-bar ${exporting ? '' : 'is-hidden'}`}>
+            <div inert={!exporting} className={`nr-export-bar ${exporting ? '' : 'is-hidden'} ${style({backgroundColor: 'layer-2', borderRadius: 'lg'})}`}>
               <ProgressBar
                 aria-label="导出进度"
                 label={`导出中 ${exportPercent}%`}
                 value={exportPercent}
                 size="S"
-                staticColor="white"
                 styles={style({width: 'full'})}
               />
             </div>
-            <div className={`nr-timeline ${exporting ? 'is-hidden' : ''}`}>
+            <div inert={exporting} className={`nr-timeline ${exporting ? 'is-hidden' : ''} ${style({backgroundColor: 'layer-2', borderRadius: 'lg'})}`}>
               <ActionButton
                 isQuiet
                 aria-label={playing ? '暂停' : '播放'}
@@ -679,18 +686,19 @@ export function NrToolPage() {
               </ActionButton>
               <Slider
                 aria-label="帧"
+                label="帧"
                 size="S"
-                minValue={0}
-                maxValue={Math.max(0, (info?.frames ?? 1) - 1)}
+                minValue={1}
+                maxValue={Math.max(1, info?.frames ?? 1)}
                 step={1}
-                value={frame}
-                onChange={scrub}
+                value={frame + 1}
+                onChange={next => scrub(next - 1)}
                 isDisabled={!info || exporting}
                 styles={style({flexGrow: 1, minWidth: 0})}
               />
               <span className={`nr-frame-label ${style({font: 'detail-sm'})}`}>
                 {info
-                  ? `${String(frame + 1).padStart(4, '0')} / ${String(info.frames).padStart(4, '0')}${
+                  ? `共 ${info.frames} 帧${
                       evalMs > 0 ? ` · ${Math.round(evalMs)}ms` : ''
                     }`
                   : '— / —'}
@@ -699,7 +707,7 @@ export function NrToolPage() {
           </div>
         </div>
       </section>
-    </div>
+    </Workbench>
   );
 }
 

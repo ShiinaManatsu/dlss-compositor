@@ -34,6 +34,7 @@ from jitter import (  # noqa: E402
 from inspect_scene import (  # noqa: E402
     apply_scene_overrides,
     collect_cycles_compute,
+    existing_file_outputs,
     parse_bool,
     refresh_cycles_devices,
 )
@@ -69,7 +70,7 @@ HDR_DISPLAY_DEVICES = {"Rec.2100-PQ", "Rec.2100-HLG"}
 
 # RR guide buffers required by DLSS-RR (nvsdk_ngx_helpers_dlssd.h).
 # All VECTOR items need vector_socket_dimensions = 4 (RGBA-width EXR channel layout).
-# Blender 5.3+ Cycles with denoising_store_passes=True exports all of these.
+# Blender 5.3 needs the separate denoising_store_motion_passes flag for the last two.
 # "Denoising Backward Motion"  → packed previous-frame motion used internally by RR
 # "Denoising Specular Motion"  → pInMotionVectorsReflection (reflection motion vectors)
 RR_FILE_ITEMS = (
@@ -137,6 +138,10 @@ def parse_args() -> argparse.Namespace:
         help="DLSS quality slot (jitter table; RR render scale is chosen by run.py from this)",
     )
     parser.add_argument("--file-name", default="####")
+    parser.add_argument("--worker-publish-dir", type=Path, default=None,
+                        help="accept frame windows from stdin; publish complete EXRs here")
+    parser.add_argument("--worker-free-floor", type=int, default=0,
+                        help="minimum free bytes before a worker starts a frame")
     parser.add_argument(
         "--pass",
         dest="buffer_pass",
@@ -257,6 +262,21 @@ def install_save_guard() -> None:
 
 def compositor_tree(scene: bpy.types.Scene) -> bpy.types.NodeTree:
     scene.render.use_compositing = True
+    effects = getattr(scene, "compositor_effects", None)
+    if effects is not None:
+        # The legacy Scene property resolves to the active effect. Inject into
+        # a separate pass-through effect so existing groups and order stay intact.
+        tree = bpy.data.node_groups.new(name=OUTPUT_LABEL, type="CompositorNodeTree")
+        tree.allow_usage_in_scene_compositor_effect = True
+        for direction in ("OUTPUT", "INPUT"):
+            tree.interface.new_socket(name="Image", in_out=direction, socket_type="NodeSocketColor")
+        source = tree.nodes.new("NodeGroupInput")
+        sink = tree.nodes.new("NodeGroupOutput")
+        tree.links.new(source.outputs["Image"], sink.inputs["Image"])
+        effect = effects.new(OUTPUT_LABEL)
+        effect.node_group = tree
+        effect.enable_for_preview = False
+        return tree
     tree = scene.compositing_node_group
     if tree is None:
         tree = bpy.data.node_groups.new(name="Compositor", type="CompositorNodeTree")
@@ -271,27 +291,6 @@ def find_render_layers(tree: bpy.types.NodeTree) -> bpy.types.Node:
     node = tree.nodes.new("CompositorNodeRLayers")
     node.location = (-400, 0)
     return node
-
-
-def existing_file_outputs(tree: bpy.types.NodeTree) -> list[dict[str, object]]:
-    """Snapshot of compositor File Outputs that are not the injected node.
-
-    Stage 3: do not mute, delete, or rewire these. Leave them exactly as loaded.
-    """
-    found: list[dict[str, object]] = []
-    for node in tree.nodes:
-        if node.type != "OUTPUT_FILE" or node.label == OUTPUT_LABEL:
-            continue
-        found.append(
-            {
-                "name": node.name,
-                "label": node.label,
-                "mute": bool(node.mute),
-                "directory": getattr(node, "directory", ""),
-                "file_name": getattr(node, "file_name", ""),
-            }
-        )
-    return found
 
 
 def _link_if_present(tree: bpy.types.NodeTree, rl: bpy.types.Node, fo: bpy.types.Node, out_name: str, inp_idx: int) -> bool:
@@ -318,7 +317,8 @@ def insert_file_output(
     fo.location = (400, 0)
     # Blender treats paths without a "//" prefix as absolute; a relative
     # --output-dir would be an invalid drive-less path and writes fail silently.
-    fo.directory = str(Path(output_dir).resolve()) + "\\"
+    # ImDisk volumes can reject the Windows final-path query used by resolve().
+    fo.directory = str(Path(output_dir).absolute()) + "\\"
     fo.file_name = file_name
 
     fmt = fo.format
@@ -431,12 +431,11 @@ def enable_passes(scene: bpy.types.Scene, mode: str = "sr", sampling_pattern: st
             cycles_vl = getattr(view_layer, "cycles", None)
             if cycles_vl is not None:
                 if hasattr(cycles_vl, "denoising_store_passes"):
-                    # Blender 5.3+: single flag exports all denoising passes including
-                    # Denoising Albedo, Specular Albedo, Normal, Roughness, Depth,
-                    # Backward Motion, and Specular Motion.
                     cycles_vl.denoising_store_passes = True
+                if hasattr(cycles_vl, "denoising_store_motion_passes"):
+                    cycles_vl.denoising_store_motion_passes = True
                 if hasattr(cycles_vl, "denoising_pass_follow_reflections"):
-                    # Enables Denoising Specular Motion output (Blender 5.3+).
+                    # Follow reflected surfaces when constructing the RR guides.
                     cycles_vl.denoising_pass_follow_reflections = True
     policy = cycles_policy_for_mode(mode)
     if hasattr(scene, "cycles") and policy["denoising_store_passes"] and hasattr(scene.cycles, "denoising_store_passes"):
@@ -916,13 +915,13 @@ def main() -> int:
 
     enable_passes(scene, args.mode, sampling_pattern=getattr(args, "sampling_pattern", None))
     apply_perf_fallbacks(scene, args)
+    preexisting = existing_file_outputs(scene, exclude_label=OUTPUT_LABEL)
     tree = compositor_tree(scene)
-    preexisting = existing_file_outputs(tree)
     buffer_pass = str(getattr(args, "buffer_pass", "combined") or "combined")
     fo, linked_sockets = insert_file_output(
         tree, output_dir, args.file_name, args.mode, buffer_pass=buffer_pass
     )
-    leftover = existing_file_outputs(tree)
+    leftover = existing_file_outputs(scene, exclude_label=OUTPUT_LABEL)
     if leftover != preexisting:
         emit(
             "error",
@@ -961,8 +960,10 @@ def main() -> int:
             return  # Not an fs-backed path — nothing to gate on.
         if total <= 0:
             return
-        floor = max(1 << 30, int(total * 0.25))
+        worker = args.worker_publish_dir is not None
+        floor = args.worker_free_floor if worker else max(1 << 30, int(total * 0.25))
         warned = False
+        deadline = time.monotonic() + 30.0
         while True:
             try:
                 free = shutil.disk_usage(out_dir).free
@@ -975,6 +976,10 @@ def main() -> int:
             if not warned:
                 emit("buffer_full", free=free, floor=floor)
                 warned = True
+            if worker and time.monotonic() >= deadline:
+                message = f"缓存可用空间不足：{free} 字节，至少需要 {floor} 字节"
+                emit("error", message=message)
+                raise RuntimeError(message)
             time.sleep(0.5)
 
     @bpy.app.handlers.persistent
@@ -1068,7 +1073,52 @@ def main() -> int:
         emit("dry_run_complete", is_dirty=bool(bpy.data.is_dirty), saved=False)
         return 0
 
-    bpy.ops.render.render(animation=True)
+    if args.worker_publish_dir is None:
+        bpy.ops.render.render(animation=True)
+    else:
+        publish_dir = args.worker_publish_dir.absolute()
+        if not publish_dir.is_dir():
+            raise NotADirectoryError(str(publish_dir))
+        written = 0
+        publish_error = None
+
+        @bpy.app.handlers.persistent
+        def publish_frame(update_scene: bpy.types.Scene) -> None:
+            nonlocal written, publish_error
+            if publish_error is not None:
+                return
+            try:
+                # File Output is done at render_write. The consumer only sees
+                # the atomic rename, so it cannot decode a half-written file.
+                files = list(output_dir.glob("*.exr"))
+                frame = update_scene.frame_current
+                if len(files) != 1 or int(files[0].stem) != frame or files[0].stat().st_size == 0:
+                    raise RuntimeError(f"帧 {update_scene.frame_current} 未写出完整的 EXR")
+                os.replace(files[0], publish_dir / f"{frame:04d}.exr")
+                written += 1
+                emit("worker_frame", frame=frame)
+            except Exception as exc:
+                publish_error = str(exc)
+                emit("error", message=publish_error)
+
+        bpy.app.handlers.render_write.append(publish_frame)
+        scene.frame_step = 1
+        emit("worker_ready")
+        for line in sys.stdin:
+            command = json.loads(line)
+            first, last = command["start"], command["end"]
+            if type(first) is not int or type(last) is not int or not frame_start <= first <= last <= frame_end:
+                raise ValueError(f"无效的渲染窗口：{first}–{last}")
+            scene.frame_end = last
+            scene.frame_start = first
+            written = 0
+            status = bpy.ops.render.render(animation=True)
+            if publish_error or "FINISHED" not in status or written != last - first + 1:
+                raise RuntimeError(publish_error or f"窗口 {first}–{last} 只写出 {written} 帧")
+            if camera is not None:
+                camera.data.shift_x = base_shift_x
+                camera.data.shift_y = base_shift_y
+            emit("worker_done", start=first, end=last)
 
     if camera is not None:
         camera.data.shift_x = base_shift_x

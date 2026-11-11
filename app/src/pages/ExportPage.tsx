@@ -1,20 +1,14 @@
 import type {ReactNode} from 'react';
-import {
-  ActionButton,
-  Button,
-  Checkbox,
-  Disclosure,
-  DisclosurePanel,
-  DisclosureTitle,
-  Divider,
-  NumberField,
-  Picker,
-  PickerItem,
-  ProgressBar,
-  Switch,
-  Text,
-  TextField
-} from '@react-spectrum/s2';
+import {ActionButton} from '@react-spectrum/s2/ActionButton';
+import {Button, Text} from '@react-spectrum/s2/Button';
+import {Checkbox} from '@react-spectrum/s2/Checkbox';
+import {Disclosure, DisclosurePanel, DisclosureTitle} from '@react-spectrum/s2/Disclosure';
+import {Workbench} from '../Workbench';
+import {NumberField} from '@react-spectrum/s2/NumberField';
+import {Picker, PickerItem} from '@react-spectrum/s2/Picker';
+import {ProgressBar} from '@react-spectrum/s2/ProgressBar';
+import {Switch} from '@react-spectrum/s2/Switch';
+import {TextField} from '@react-spectrum/s2/TextField';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
 import Refresh from '@react-spectrum/s2/icons/Refresh';
 import {useApp, engineLabel} from '../appState';
@@ -37,15 +31,14 @@ type ProgressCell = {
   indeterminate: boolean;
 };
 
-/** 任务中的分段进度条单元格：导出相机数据 → 各段（并行）/ 渲染 → 视频收尾。 */
+/** 导出相机数据 → 渲染 → 视频收尾。 */
 function progressCells(opts: {
   exportPhase: 'prepare' | 'render' | 'finalize' | null;
   prepareRatio: number;
-  segFracs: number[] | null;
   playhead: number;
   isVideo: boolean;
 }): ProgressCell[] {
-  const {exportPhase, prepareRatio, segFracs, playhead, isVideo} = opts;
+  const {exportPhase, prepareRatio, playhead, isVideo} = opts;
   const cells: ProgressCell[] = [
     {
       key: 'prepare',
@@ -55,16 +48,11 @@ function progressCells(opts: {
       indeterminate: exportPhase === 'prepare' && prepareRatio <= 0,
     }
   ];
-  if (segFracs && segFracs.length > 0) {
-    segFracs.forEach((frac, i) =>
-      cells.push({key: `seg${i}`, label: `第 ${i + 1} 段`, frac, indeterminate: false}));
-  } else {
-    cells.push({key: 'render', label: '渲染', frac: playhead, indeterminate: false});
-  }
+  cells.push({key: 'render', label: '渲染', frac: playhead, indeterminate: false});
   if (isVideo) {
     cells.push({
       key: 'finalize',
-      label: segFracs ? '合并视频' : '写视频',
+      label: '写视频',
       frac: 0,
       indeterminate: exportPhase === 'finalize',
     });
@@ -209,8 +197,6 @@ export function ExportPage() {
     setPerfTileSize,
     parallelSegments,
     setParallelSegments,
-    parallelWarmup,
-    setParallelWarmup,
     fgEnabled,
     fgMultiplier,
     setFg,
@@ -231,7 +217,6 @@ export function ExportPage() {
     error,
     exportPhase,
     prepareRatio,
-    segFracs,
     playhead,
     frameEnd: jobFrameEnd,
     frameStart: jobFrameStart,
@@ -239,6 +224,7 @@ export function ExportPage() {
     progressPercent,
     etaText,
     registerPreviewCanvas,
+    previewAvailable,
     ngxWarning,
     probe,
     refreshProbe
@@ -246,13 +232,6 @@ export function ExportPage() {
 
   const ramOk = probe?.ramdisk.ok;
   const imdiskOk = probe?.imdisk.ok;
-  const denoiseSummary = rrLocksDenoise
-    ? 'RR · 关'
-    : scene?.cycles
-      ? scene.cycles.use_denoising
-        ? `开 · ${scene.cycles.denoiser_label || scene.cycles.denoiser}`
-        : '关'
-      : '—';
   const sceneDeviceMeta = cyclesDeviceMeta(scene?.cycles?.device, scene?.cycles_compute?.compute_device_type);
   const sceneDenoiseMeta = cyclesDenoiseMeta(scene?.cycles);
 
@@ -265,16 +244,15 @@ export function ExportPage() {
     ? progressCells({
         exportPhase,
         prepareRatio,
-        segFracs,
         playhead,
         isVideo: outputFormat === 'prores_422hq' || outputFormat === 'h265_hevc',
       })
     : null;
-  // 任务中的进度由分段进度条接管（bake → 各段/渲染 → 视频收尾）；
-  // 空闲与出错时回退到单条 ProgressBar（时间轴位置 / 错误文案）。
+  // 任务中的进度按准备、渲染和视频收尾显示；
+  // 空闲与出错时回退到单条 ProgressBar（任务进度 / 错误文案）。
 
   return (
-    <div className="export-body">
+    <Workbench name="export">
       <aside className="export-settings">
         <SettingsSection title="Blend 文件" defaultExpanded>
           <div className="field-with-action">
@@ -287,20 +265,20 @@ export function ExportPage() {
             </ActionButton>
           </div>
           {inspectError ? (
-            <span className={style({font: 'detail-sm', color: 'red-700'})}>{inspectError}</span>
+            <span className={style({font: 'detail-sm', color: 'negative'})}>{inspectError}</span>
           ) : hasScene ? (
             <div className="scene-meta">
-              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
                 {scene?.resolution_x}×{scene?.resolution_y} · {scene?.fps} fps · {engineLabel(scene?.engine ?? '')}
                 {sceneDeviceMeta ? ` · ${sceneDeviceMeta}` : ''}
                 {sceneDenoiseMeta ? ` · ${sceneDenoiseMeta}` : ''}
               </span>
-              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
                 时间轴 {scene?.frame_start}–{scene?.frame_end} · File Output {scene?.file_output_count}
               </span>
             </div>
           ) : inspecting ? (
-            <span className={style({font: 'detail-sm', color: 'gray-600'})}>正在读取场景…</span>
+            <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>正在读取场景…</span>
           ) : null}
           <OverrideNumber
             label="起始帧"
@@ -326,15 +304,14 @@ export function ExportPage() {
               isDisabled={samplingLocked || busy}>
               Adaptive 采样
             </Checkbox>
-            {pins.adaptive ? (
-              <Switch size="S" isSelected={adaptive} onChange={setAdaptive} isDisabled={busy}>
-                {adaptive ? '开' : '关'}
-              </Switch>
-            ) : (
-              <span className={`override-readonly ${style({font: 'detail-sm', color: 'gray-600'})}`}>
-                {samplingLocked ? '—' : adaptive ? '开' : '关'}
-              </span>
-            )}
+            <Switch
+              aria-label="Adaptive 采样值"
+              size="S"
+              isSelected={adaptive}
+              onChange={setAdaptive}
+              isDisabled={!pins.adaptive || samplingLocked || busy}>
+              {adaptive ? '开' : '关'}
+            </Switch>
           </div>
           <OverrideNumber
             label="Noise Threshold"
@@ -373,59 +350,51 @@ export function ExportPage() {
             disabled={samplingLocked || busy}
             min={0}
           />
-          {rrLocksDenoise ? (
-            <div className="override-row">
-              <span className={style({font: 'ui-sm'})}>Denoise</span>
-              <span className={`override-readonly ${style({font: 'detail-sm', color: 'gray-600'})}`}>RR · 关</span>
-            </div>
-          ) : (
-            <>
-              <div className="override-row">
-                <Checkbox
-                  size="S"
-                  isSelected={pins.denoise}
-                  onChange={(next) => setPin('denoise', next)}
-                  isDisabled={samplingLocked || busy}>
-                  Denoise
-                </Checkbox>
-                {pins.denoise ? (
-                  <Switch size="S" isSelected={useDenoising} onChange={setUseDenoising} isDisabled={busy}>
-                    {useDenoising ? '开' : '关'}
-                  </Switch>
-                ) : (
-                  <span className={`override-readonly ${style({font: 'detail-sm', color: 'gray-600'})}`}>
-                    {denoiseSummary}
-                  </span>
-                )}
-              </div>
-              {pins.denoise && useDenoising ? (
-                <Picker
-                  label="降噪器"
-                  size="S"
-                  value={denoiser}
-                  onChange={(value) => setDenoiser(String(value))}
-                  isDisabled={busy}
-                  styles={style({width: 'full'})}>
-                  <PickerItem id="OPENIMAGEDENOISE">OIDN</PickerItem>
-                  <PickerItem id="OPTIX">OptiX</PickerItem>
-                </Picker>
-              ) : null}
-            </>
-          )}
+          <div className="override-row">
+            <Checkbox
+              size="S"
+              isSelected={!rrLocksDenoise && pins.denoise}
+              onChange={(next) => setPin('denoise', next)}
+              isDisabled={rrLocksDenoise || samplingLocked || busy}>
+              Denoise
+            </Checkbox>
+            <Switch
+              aria-label="Denoise 值"
+              size="S"
+              isSelected={!rrLocksDenoise && useDenoising}
+              onChange={setUseDenoising}
+              isDisabled={rrLocksDenoise || !pins.denoise || samplingLocked || busy}>
+              {rrLocksDenoise ? 'RR · 关' : useDenoising ? '开' : '关'}
+            </Switch>
+          </div>
+          {!rrLocksDenoise && useDenoising ? (
+            <Picker
+              label="降噪器"
+              size="S"
+              value={denoiser}
+              onChange={(value) => setDenoiser(String(value))}
+              isDisabled={!pins.denoise || samplingLocked || busy}
+              styles={style({width: 'full'})}>
+              <PickerItem id="OPENIMAGEDENOISE">OIDN</PickerItem>
+              <PickerItem id="OPTIX">OptiX</PickerItem>
+            </Picker>
+          ) : null}
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="性能">
           <Switch
             size="S"
             isSelected={parallelSegments >= 2}
-            onChange={(next) => setParallelSegments(next ? 2 : 0)}
+            onChange={(next) => {
+              if (next && mode === 'sr') setNativeResBuffers(false);
+              setParallelSegments(next ? 2 : 0);
+            }}
             isDisabled={busy}>
-            分段并行渲染
+            滚动并行渲染
           </Switch>
           {parallelSegments >= 2 ? (
             <>
               <NumberField
-                label="段数"
+                label="Blender 进程数"
                 size="S"
                 value={parallelSegments}
                 onChange={(next) => setParallelSegments(Math.max(2, Math.min(6, Math.trunc(next) || 2)))}
@@ -434,16 +403,9 @@ export function ExportPage() {
                 hideStepper
                 isDisabled={busy}
               />
-              <NumberField
-                label="预热帧"
-                size="S"
-                value={parallelWarmup}
-                onChange={(next) => setParallelWarmup(Math.max(0, Math.min(64, Math.trunc(next) || 0)))}
-                minValue={0}
-                maxValue={64}
-                hideStepper
-                isDisabled={busy}
-              />
+              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
+                窗口按缓存大小分配，DLSS 保留整条时间线的历史。
+              </span>
             </>
           ) : null}
           <Switch size="S" isSelected={perfPersistent} onChange={setPerfPersistent} isDisabled={busy}>
@@ -486,7 +448,6 @@ export function ExportPage() {
             isDisabled={busy}
           />
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="DLSS" defaultExpanded>
           <Picker
             label="模式"
@@ -527,11 +488,11 @@ export function ExportPage() {
                 min={1}
                 max={100}
               />
-              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
                 推荐 {RECOMMENDED_PERCENT[quality] ?? 58}%
               </span>
               {ngxWarning && pins.percentage ? (
-                <span className={style({font: 'detail-sm', color: 'red-700'})}>{ngxWarning}</span>
+                <span className={style({font: 'detail-sm', color: 'negative'})}>{ngxWarning}</span>
               ) : null}
             </>
           ) : null}
@@ -540,7 +501,7 @@ export function ExportPage() {
               size="S"
               isSelected={nativeResBuffers}
               onChange={setNativeResBuffers}
-              isDisabled={busy || parallelSegments >= 2}>
+              isDisabled={busy || (mode === 'sr' && parallelSegments >= 2 && !nativeResBuffers)}>
               使用原生分辨率缓冲
             </Checkbox>
           ) : null}
@@ -562,13 +523,12 @@ export function ExportPage() {
             isSelected={nrBuffer}
             onChange={setNrBuffer}
             isDisabled={busy}>
-            导出 NR 引导缓冲
+            导出 NR 引导视频（MKV）
           </Switch>
-          <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+          <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
             色彩 {hasScene ? scene?.view_transform || '—' : '—'}
           </span>
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="导出" defaultExpanded>
           <div className="row-2">
             <NumberField label="宽" size="S" value={outputWidth} onChange={setOutputWidth} hideStepper isDisabled={busy} />
@@ -588,7 +548,7 @@ export function ExportPage() {
             ))}
           </Picker>
           <TextField label="文件名模板" size="S" value={filenameTemplate} onChange={setFilenameTemplate} isDisabled={busy} />
-          <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+          <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
             v{outputVersion} · {'{job} {version} {frame} {mode}'}
           </span>
           <div className="field-with-action">
@@ -606,8 +566,8 @@ export function ExportPage() {
                 <span
                   className={
                     imdiskOk
-                      ? style({font: 'detail-sm', color: 'gray-600'})
-                      : style({font: 'detail-sm', color: 'red-700'})
+                      ? style({font: 'detail-sm', color: 'neutral-subdued'})
+                      : style({font: 'detail-sm', color: 'negative'})
                   }>
                   {imdiskOk
                     ? `ImDisk ${probe?.imdisk.path ?? '已安装'}`
@@ -617,7 +577,7 @@ export function ExportPage() {
                   <Refresh />
                 </ActionButton>
               </div>
-              <span className={style({font: 'detail-sm', color: 'gray-600'})}>
+              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
                 {ramOk
                   ? `${probe?.ramdisk.letter}: ${probe?.ramdisk.label || 'DLSSRAM'}`
                   : '未挂载'}
@@ -636,7 +596,6 @@ export function ExportPage() {
             </div>
           )}
         </SettingsSection>
-        <Divider size="S" />
         <SettingsSection title="高级">
           <NumberField
             label="消费窗口"
@@ -663,26 +622,22 @@ export function ExportPage() {
       </aside>
 
       <section className="preview-col">
-        <div className="preview-well">
+        <div className={`preview-well ${style({backgroundColor: 'layer-1', borderRadius: 'lg'})}`}>
           <div className="preview-frame">
             <canvas ref={registerPreviewCanvas} className="preview-image" aria-label="当前预览帧" />
+            {!previewAvailable && <div className={`preview-placeholder ${style({font: 'body', color: 'neutral-subdued'})}`}>
+              {busy ? '等待首帧…' : '暂无预览'}
+            </div>}
           </div>
-          <div className="preview-progress">
+          <div className={`preview-progress ${style({backgroundColor: 'layer-2', borderRadius: 'lg'})}`}>
             {jobCells ? (
               <>
-                {etaText ? <div className="segbar-eta">{etaText}</div> : null}
-                <div className="segbar" role="progressbar" aria-label="导出进度">
+                {etaText ? <div className={`segbar-eta ${style({font: 'detail-sm', color: 'neutral-subdued'})}`}>{etaText}</div> : null}
+                <div className="segbar" aria-label="导出阶段">
                   {jobCells.map((cell) => (
                     <div className="segbar-cell" key={cell.key}>
-                      <div className="segbar-track">
-                        <div
-                          className={cell.indeterminate ? 'segbar-fill is-indeterminate' : 'segbar-fill'}
-                          style={
-                            cell.indeterminate ? undefined : {width: `${Math.round(cell.frac * 100)}%`}
-                          }
-                        />
-                      </div>
-                      <div className="segbar-label">{cell.label}</div>
+                      <ProgressBar label={cell.label} value={Math.round(cell.frac * 100)}
+                        isIndeterminate={cell.indeterminate} size="S" styles={style({width: 'full'})} />
                     </div>
                   ))}
                 </div>
@@ -693,14 +648,13 @@ export function ExportPage() {
                 label={progressLabel}
                 value={progressPercent}
                 size="S"
-                staticColor="white"
                 styles={style({width: 'full'})}
               />
             )}
           </div>
         </div>
       </section>
-    </div>
+    </Workbench>
   );
 }
 

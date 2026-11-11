@@ -2,6 +2,13 @@ export function jobCount(start: number, end: number) {
   return Math.max(1, end - start + 1);
 }
 
+/** Task progress is independent of editable scene frame ranges and playheads. */
+export function exportProgressRatio(status: string, ratio: number): number {
+  if (status === 'idle') return 0;
+  if (status === 'done') return 1;
+  return Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 0;
+}
+
 /** Blender `frame_current` only counts if it sits on this job. Hinter / scene playhead is dropped. */
 export function mapBlenderFrame(frame: number, start: number, end: number): number | null {
   if (!Number.isFinite(frame)) return null;

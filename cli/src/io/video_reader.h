@@ -31,7 +31,7 @@ public:
 
     /// Open `file`; throws std::runtime_error when demux/decode cannot start
     /// or the file has no video stream.
-    void open(const std::filesystem::path& file);
+    void open(const std::filesystem::path& file, bool nrGuidance = false);
     void close();
 
     bool     isOpen() const { return m_fmtCtx != nullptr; }
@@ -45,11 +45,13 @@ public:
     /// Decode and convert frame `index` (0-based, CFR assumption) into
     /// `outRgba8` (width*height*4 bytes). Seeks when jumping. Throws on error.
     void readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRgba8);
+    void readNrGuidance(int64_t index, std::vector<std::uint8_t>& mv, std::vector<float>& depth);
 
 private:
     int64_t frameIndexFromPts(int64_t pts) const;
     /// Decode forward until the next frame is returned. Returns false at EOF.
     bool decodeNextFrame();
+    void decodeFrameAt(int64_t index);
     void ensureSws(int srcRange, int srcColorspace);
 
     AVFormatContext* m_fmtCtx    = nullptr;
@@ -66,6 +68,7 @@ private:
     uint32_t         m_height    = 0;
     int64_t          m_nextIndex = 0;   // sequential decode position
     bool             m_swsReady  = false;
+    bool             m_draining  = false;
 };
 
 } // namespace dlss

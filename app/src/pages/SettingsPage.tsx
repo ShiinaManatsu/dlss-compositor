@@ -1,4 +1,10 @@
-import {Content, Divider, InlineAlert, LabeledValue, Link, Picker, PickerItem, StatusLight, Switch} from '@react-spectrum/s2';
+import {Content, InlineAlert} from '@react-spectrum/s2/InlineAlert';
+import {LabeledValue} from '@react-spectrum/s2/LabeledValue';
+import {Link} from '@react-spectrum/s2/Link';
+import {Picker, PickerItem} from '@react-spectrum/s2/Picker';
+import {StatusLight} from '@react-spectrum/s2/StatusLight';
+import {Switch} from '@react-spectrum/s2/Switch';
+import {Button} from '@react-spectrum/s2/Button';
 import {getAppVersion, useApp, type ColorSchemePref} from '../appState';
 import {userErrorMessage} from '../errors';
 import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
@@ -16,7 +22,7 @@ export function SettingsPage() {
   const imdiskOk = probe?.imdisk.ok;
 
   return (
-    <div className="page-settings">
+    <div className={`page-settings ${style({backgroundColor: 'layer-1', borderRadius: 'xl'})}`}>
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>外观</h3>
         <Picker
@@ -32,9 +38,13 @@ export function SettingsPage() {
             </PickerItem>
           )}
         </Picker>
+        <Button size="S" variant="secondary" styles={style({alignSelf: 'start'})} onPress={() => {
+          try {
+            localStorage.removeItem('dc-panel-width-export');
+            localStorage.removeItem('dc-panel-width-nrtool');
+          } catch { /* unavailable storage */ }
+        }}>重置面板宽度</Button>
       </section>
-
-      <Divider size="S" />
 
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>环境</h3>
@@ -57,25 +67,18 @@ export function SettingsPage() {
         <InlineAlert variant="informative" styles={style({width: 'full'})}>
           <Content>
             渲染帧的高速中转缓冲：任务开始自动创建、软件退出自动卸载。依赖{' '}
-            <Link href="https://github.com/LTRData/ImDisk">ImDisk</Link>。
+            <Link href="https://github.com/LTRData/ImDisk" target="_blank" rel="noreferrer">ImDisk</Link>。
           </Content>
         </InlineAlert>
-        <Switch size="S" isSelected={app.elevatePref} onChange={app.setElevatePref} isDisabled={app.busy}>
-          以管理员身份运行
-        </Switch>
         <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog} isDisabled={app.busy}>
           CLI 调试日志
         </Switch>
       </section>
 
-      <Divider size="S" />
-
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>DLSS</h3>
         <LabeledValue label="SR / RR / FG DLL" value="310.7.129.0（锁定）" />
       </section>
-
-      <Divider size="S" />
 
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>关于</h3>

@@ -1,6 +1,6 @@
 """Read-only Blender scene snapshot + opt-in override application.
 
-No bpy import — duck-typed scene objects, safe for unit tests.
+No bpy import — duck-typed scene objects, importable outside Blender.
 Inspect/inject scripts import this after putting pipeline/ on sys.path.
 """
 from __future__ import annotations
@@ -70,21 +70,28 @@ def _iter_nodes(tree: Any) -> list[Any]:
         return []
 
 
-def existing_file_outputs(scene: Any) -> list[dict[str, object]]:
-    tree = getattr(scene, "compositing_node_group", None)
+def existing_file_outputs(scene: Any, *, exclude_label: str | None = None) -> list[dict[str, object]]:
+    effects = getattr(scene, "compositor_effects", None)
+    if effects is None:
+        trees = [getattr(scene, "compositing_node_group", None)]
+    else:
+        trees = dict.fromkeys(effect.node_group for effect in effects)
     found: list[dict[str, object]] = []
-    for node in _iter_nodes(tree):
-        if getattr(node, "type", None) != "OUTPUT_FILE":
-            continue
-        found.append(
-            {
-                "name": str(getattr(node, "name", "")),
-                "label": str(getattr(node, "label", "")),
-                "mute": bool(getattr(node, "mute", False)),
-                "directory": str(getattr(node, "directory", "")),
-                "file_name": str(getattr(node, "file_name", "")),
-            }
-        )
+    for tree in trees:
+        for node in _iter_nodes(tree):
+            if getattr(node, "type", None) != "OUTPUT_FILE" or (
+                exclude_label is not None and getattr(node, "label", None) == exclude_label
+            ):
+                continue
+            found.append(
+                {
+                    "name": str(getattr(node, "name", "")),
+                    "label": str(getattr(node, "label", "")),
+                    "mute": bool(getattr(node, "mute", False)),
+                    "directory": str(getattr(node, "directory", "")),
+                    "file_name": str(getattr(node, "file_name", "")),
+                }
+            )
     return found
 
 

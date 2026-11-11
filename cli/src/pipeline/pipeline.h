@@ -194,16 +194,17 @@ struct PipelineConfig {
 
     // ── NR (experimental — requires nvngx_dlssnr.dll next to the exe) ─────────
     int   nrStyle        = 0;    ///< NrStyle: 0 Default / 1 Natural / 2 Cinematic
+    int   nrModel        = 0;    ///< NrModel: 0 Auto / 1 Standard / 2 Lightweight
     float nrIntensity    = 1.0f; ///< 0–1
     int   nrGuidanceMode = 0;    ///< NrGuidanceMode: 0 all / 1 zero / 2 motion / 3 depth
     float nrLocalTone      = 1.0f; ///< 0–1 (Magpie Local Tone Strength)
     float nrLocalStructure = 1.0f; ///< 0–1 (Magpie Local Structure Strength)
     bool  nrAutoMask       = false; ///< DLSSNR.UseAutoMask
-    /// Write the dlssnrbuffer guidance sequence (RGB half EXR: mv.x, mv.y, NDC
+    /// Write the dlssnrbuffer guidance video (FFV1: mv.x, mv.y, NDC
     /// depth) for the standalone NR tool. FG must be off (guidance is per input
     /// frame). Mutually exclusive with kNR.
     bool nrBuffer = false;
-    /// Destination for the dlssnrbuffer sequence; empty = outputDir. The GUI
+    /// Destination for dlssnrbuffer.mkv; empty = outputDir. The GUI
     /// names it after the video (template minus the frame token) so buffers
     /// from different exports don't mix in one folder.
     std::string nrBufferDir;
@@ -219,7 +220,7 @@ struct PipelineConfig {
     /// nothing. 0 = every consumed frame outputs (plain single-run behavior).
     std::int64_t outputFrameBegin = 0;
     /// 1-based offset for the output frame counter so parallel segments number
-    /// their sequence files (and dlssnrbuffer) exactly like one continuous run.
+    /// their sequence files exactly like one continuous run.
     int outputFrameStartIndex = 1;
 
     // ── Output ────────────────────────────────────────────────────────────────
@@ -238,6 +239,9 @@ struct PipelineConfig {
     /// onInputConsumed so the caller can unlink and keep the disk at low watermark.
     /// When false (default), prefetchers read the existing files listed in dlssconfig.
     bool watchInput = false;
+    /// Producer renames complete files into the watched folder. Decode as soon
+    /// as they appear; a bad file is an error rather than a skippable gap.
+    bool atomicInputFiles = false;
 
     // ── Callbacks (frontend communication) ────────────────────────────────────
     PipelineCallbacks callbacks;

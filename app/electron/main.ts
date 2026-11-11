@@ -1,5 +1,5 @@
 import {app, BrowserWindow, dialog, ipcMain, shell} from 'electron';
-import {execSync, spawn} from 'node:child_process';
+import {execSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -68,12 +68,8 @@ if (typeof flags['user-data'] === 'string' && flags['user-data']) {
   app.setPath('userData', path.resolve(flags['user-data']));
 }
 
-// ── Elevation + app-level settings (userData/settings.json) ─────────────────
-// Both must be settled before the window exists; the elevate preference is
-// read main-side because the relaunch decision happens before the renderer
-// boots (unlike color scheme, which only the renderer needs).
-
-// Synchronous probe: the elevate-on-start decision below needs the answer now.
+// Packaged Windows builds request elevation through the executable manifest.
+// Development launches retain their caller's token.
 let elevated = false;
 if (process.platform === 'win32') {
   try {
@@ -85,87 +81,8 @@ if (process.platform === 'win32') {
   debug(`elevated=${elevated}`);
 }
 
-type AppSettings = {elevate?: boolean};
-
-function readAppSettings(): AppSettings {
-  try {
-    return JSON.parse(fsSync.readFileSync(path.join(app.getPath('userData'), 'settings.json'), 'utf8')) as AppSettings;
-  } catch {
-    return {};
-  }
-}
-
-function writeAppSettings(patch: AppSettings): void {
-  try {
-    fsSync.mkdirSync(app.getPath('userData'), {recursive: true});
-    const next = {...readAppSettings(), ...patch};
-    fsSync.writeFileSync(path.join(app.getPath('userData'), 'settings.json'), JSON.stringify(next, null, 2));
-  } catch {
-    /* ignore */
-  }
-}
-
-const appSettings = readAppSettings();
-
-let elevateRelaunchAttempted = false;
-/**
- * Re-launch this app elevated (PowerShell Start-Process -Verb RunAs — one UAC
- * prompt). Returns false when already attempted / not applicable. On UAC
- * accept the new instance starts and this one exits; on decline we simply
- * stay non-elevated and never retry (no loops).
- */
-function relaunchElevated(): boolean {
-  if (elevateRelaunchAttempted || process.platform !== 'win32') return false;
-  elevateRelaunchAttempted = true;
-  const psPath = process.execPath.replace(/'/g, "''");
-  // The child polls for the single-instance lock (--elevate-relaunch) because
-  // this instance is still holding it when the child boots.
-  const argList = process.argv
-    .slice(1)
-    .map((arg) => (/[\s"]/.test(arg) ? `"${arg}"` : arg))
-    .filter((arg) => arg !== '--elevate-relaunch')
-    .concat('--elevate-relaunch')
-    .join(' ');
-  const cmd =
-    `Start-Process -FilePath '${psPath}' -Verb RunAs` +
-    (argList ? ` -ArgumentList '${argList.replace(/'/g, "''")}'` : '');
-  const child = spawn('powershell.exe', ['-NoProfile', '-Command', cmd], {
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  child.on('exit', (code) => {
-    debug(`relaunchElevated exit=${code}`);
-    if (code === 0) {
-      // Short grace so this instance's own debug writes flush; the relaunched
-      // instance polls for the single-instance lock in case it boots first.
-      setTimeout(() => app.exit(0), 400);
-    }
-    // non-zero = UAC declined or launch failed: stay non-elevated
-  });
-  child.on('error', () => debug('relaunchElevated spawn error'));
-  return true;
-}
-
-// Launch preference: restart elevated once at startup when enabled.
-if (appSettings.elevate && !elevated) {
-  relaunchElevated();
-}
-
-// One instance owns the RAM disk and the CLI; a second launch (e.g. double
-// clicking a .dcp) forwards the path to the running window instead.
-//
-// An elevated relaunch (`--elevate-relaunch`, set by relaunchElevated) can
-// reach this point while the pre-elevation instance is still alive — it only
-// exits ~400ms after spawning us. Poll for the lock instead of quitting, or
-// every UAC handoff would silently kill the fresh instance.
-const elevateRelaunch = process.argv.includes('--elevate-relaunch');
-let instanceLock = app.requestSingleInstanceLock();
-if (!instanceLock && elevateRelaunch) {
-  for (let attempt = 0; attempt < 40 && !instanceLock; attempt++) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-    instanceLock = app.requestSingleInstanceLock();
-  }
-}
+// One instance owns the RAM disk and CLI; subsequent launches forward .dcp paths.
+const instanceLock = app.requestSingleInstanceLock();
 if (!instanceLock) {
   app.quit();
 } else {
@@ -363,18 +280,10 @@ app.whenReady().then(() => {
     rail: typeof flags.rail === 'string' ? flags.rail : null,
     elevated,
     packaged,
-    elevatePref: Boolean(appSettings.elevate),
     version: app.getVersion(),
   }));
   ipcMain.handle('app:setCliLog', (_event, enabled: unknown) => {
     orchestrator.setCliLog(Boolean(enabled));
-  });
-  ipcMain.handle('app:setElevate', (_event, enabled: unknown) => {
-    const next = Boolean(enabled);
-    writeAppSettings({elevate: next});
-    // Turning it on in a non-elevated session elevates right away; turning it
-    // off just affects the next launch (this session stays elevated).
-    if (next && !elevated) relaunchElevated();
   });
   ipcMain.handle('window:setTitle', (_event, title: unknown) => {
     win.setTitle(String(title || 'DLSS Compositor'));

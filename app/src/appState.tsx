@@ -1,10 +1,10 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {
   emptyFrameTiming,
+  exportProgressRatio,
   formatEtaLine,
   jobCount,
   mapBlenderFrame,
-  playheadRatio,
   recordFrameAdvance,
   startFrameTiming,
   type FrameTiming
@@ -108,8 +108,21 @@ export function percentError(outputW: number, outputH: number, percentage: numbe
 }
 
 export function useAppState() {
-  const [route, setRoute] = useState<Route>('project');
-  const [colorScheme, setColorSchemeState] = useState<ColorSchemePref>('dark');
+  const [route, setRouteState] = useState<Route>('project');
+  const routeRef = useRef<Route>('project');
+  const routeHistory = useRef<Route[]>([]);
+  const setRoute = useCallback((next: Route) => {
+    if (next === routeRef.current) return;
+    routeHistory.current.push(routeRef.current);
+    routeRef.current = next;
+    setRouteState(next);
+  }, []);
+  const navigateBack = useCallback(() => {
+    const previous = routeHistory.current.pop() ?? 'project';
+    routeRef.current = previous;
+    setRouteState(previous);
+  }, []);
+  const [colorScheme, setColorSchemeState] = useState<ColorSchemePref>('system');
   const [dcpPath, setDcpPath] = useState(null as string | null);
   const [recents, setRecents] = useState<RecentProject[]>([]);
   const [filenameTemplate, setFilenameTemplate] = useState(DEFAULT_FILENAME_TEMPLATE);
@@ -144,7 +157,6 @@ export function useAppState() {
   const [ramdiskGb, setRamdiskGb] = useState(2);
   const [cachePath, setCachePath] = useState('');
   const [elevated, setElevated] = useState(false);
-  const [elevatePref, setElevatePrefState] = useState(false);
   const [cliLog, setCliLogState] = useState(true);
   const [nativeResBuffers, setNativeResBuffers] = useState(false);
   const [nrBuffer, setNrBuffer] = useState(false);
@@ -157,19 +169,19 @@ export function useAppState() {
   const [perfDistanceCullMarginOverride, setPerfDistanceCullMarginOverride] = useState(false);
   const [perfDistanceCullMargin, setPerfDistanceCullMargin] = useState(10);
   const [perfTileSize, setPerfTileSize] = useState(4096);
-  // 分段并行：0 = 关；2..6 = 段数。预热帧 = 段首多渲染的历史积累帧。
+  // 滚动并行：0 = 关；2..6 = Blender 进程数。
   const [parallelSegments, setParallelSegments] = useState(0);
-  const [parallelWarmup, setParallelWarmup] = useState(16);
   const [fg, setFg] = useState(0);
   const [status, setStatus] = useState<JobStatus>('idle');
   /** 导出进度分段：准备（写 dlssconfig）→ 帧导出 → 落盘（mov 收尾）。 */
   const [exportPhase, setExportPhase] = useState<'prepare' | 'render' | 'finalize' | null>(null);
   /** bake（写 dlssconfig）段内比例；渲染开始后 prepare 段视为完成。 */
   const [prepareRatio, setPrepareRatio] = useState(0);
-  /** 分段并行：每段各自的完成比例（engine_progress.segFracs），空 = 非分段。 */
-  const [segFracs, setSegFracs] = useState<number[] | null>(null);
+  // Export progress belongs to the job, never to the editable Blender timeline.
+  const [renderRatio, setRenderRatio] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(1);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [previewAvailable, setPreviewAvailable] = useState(false);
   const previewBitmapRef = useRef<ImageBitmap | null>(null);
   const pendingPreviewRef = useRef<{b64: string; resizeW: number} | null>(null);
   const previewPumpActiveRef = useRef(false);
@@ -195,13 +207,12 @@ export function useAppState() {
   const canRR = !hasScene || rrAllowed(scene?.engine);
   const nativeResEnabled = hasScene && nativeResAllowed(scene?.engine, mode);
   const fgEnabled = fgAllowed(mode);
-  // dlssnrbuffer guidance is written at input rate — mutually exclusive with FG.
+  // The guide video is written at input rate — mutually exclusive with FG.
   const fgMultiplier = fgEnabled && !nrBuffer ? parseFg(fg) : 0;
   const rrLocksDenoise = mode === 'rr';
   const outputFrames = outputFrameCount(frameCount, fgMultiplier);
   const displayFrame = Math.min(frameEnd, Math.max(frameStart, currentFrame));
-  const playhead = playheadRatio(displayFrame, frameStart, frameEnd);
-  /** 空闲时进度条显示时间轴播放位置；任务中的进度由分段进度条接管。 */
+  const playhead = exportProgressRatio(status, renderRatio);
   const progressPercent = Math.round(playhead * 100);
   const remainingFrames = Math.max(0, frameEnd - displayFrame + 1);
   /** 发起任务前置校验：场景就绪 + 输入缓冲选好（内存盘需管理员，路径模式需缓存路径）。 */
@@ -229,13 +240,6 @@ export function useAppState() {
       /* private mode etc. */
     }
     void window.dlss.setCliLog(next);
-  }
-
-  /** 以管理员身份运行：偏好持久化在 main 侧（userData/settings.json）。
-   *  在未提权会话里打开会立即走 UAC 重启；关闭只影响下次启动。 */
-  function setElevatePref(next: boolean) {
-    setElevatePrefState(next);
-    void window.dlss.setElevate(next);
   }
 
   function setPlayhead(next: number) {
@@ -288,6 +292,7 @@ export function useAppState() {
       target.getContext('2d')?.drawImage(bitmap, 0, 0);
       previewBitmapRef.current?.close();
       previewBitmapRef.current = bitmap;
+      setPreviewAvailable(true);
     } catch {
       /* malformed jpeg */
     }
@@ -311,12 +316,21 @@ export function useAppState() {
   const registerPreviewCanvas = useCallback(
     (canvas: HTMLCanvasElement | null) => {
       previewCanvasRef.current = canvas;
-      if (canvas != null) pumpPreview();
+      if (canvas != null) {
+        const bitmap = previewBitmapRef.current;
+        if (bitmap) {
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+        }
+        pumpPreview();
+      }
     },
     [pumpPreview]
   );
 
   const clearPreviewCanvas = useCallback(() => {
+    setPreviewAvailable(false);
     pendingPreviewRef.current = null;
     const canvas = previewCanvasRef.current;
     if (canvas) {
@@ -376,7 +390,6 @@ export function useAppState() {
         perfDistanceCull && perfDistanceCullMarginOverride ? perfDistanceCullMargin : undefined,
       perfTileSize,
       parallelSegments: parallelSegments >= 2 ? Math.min(6, parallelSegments) : undefined,
-      parallelWarmup: parallelSegments >= 2 ? Math.max(0, Math.min(64, parallelWarmup)) : undefined,
       fg: fgMultiplier,
       effectivePercentage: pins.percentage ? percentage : (scene?.resolution_percentage ?? percentage)
     };
@@ -416,7 +429,6 @@ export function useAppState() {
     perfDistanceCullMargin,
     perfTileSize,
     parallelSegments,
-    parallelWarmup,
     fgMultiplier,
     scene
   ]);
@@ -461,7 +473,6 @@ export function useAppState() {
       perfDistanceCullMargin,
       perfTileSize,
       parallelSegments,
-      parallelWarmup,
       fg: fgMultiplier,
       splitters: {...DEFAULT_SPLITTERS},
       history: history.length ? history : undefined
@@ -506,7 +517,6 @@ export function useAppState() {
     setPerfDistanceCullMargin(project.perfDistanceCullMargin ?? 10);
     setPerfTileSize(project.perfTileSize ?? 4096);
     setParallelSegments(Math.min(6, Math.max(0, Math.trunc(project.parallelSegments ?? 0))));
-    setParallelWarmup(Math.min(64, Math.max(0, Math.trunc(project.parallelWarmup ?? 16))));
     setFg(fgAllowed(nextMode) ? parseFg(project.fg) : 0);
     setHistory(project.history ?? []);
     playheadRef.current = project.frameStart;
@@ -732,7 +742,6 @@ export function useAppState() {
       setMaximized(isMax);
       if (launch.version) setAppVersion(launch.version);
       setElevated(Boolean(launch.elevated));
-      setElevatePrefState(Boolean(launch.elevatePref));
       let storedLog: string | null = null;
       try {
         storedLog = window.localStorage.getItem(CLI_LOG_KEY);
@@ -856,7 +865,6 @@ export function useAppState() {
     perfDistanceCullMargin,
     perfTileSize,
     parallelSegments,
-    parallelWarmup,
     fg,
     history
   ]);
@@ -975,6 +983,9 @@ export function useAppState() {
       return;
     }
     const jobId = pushJobCard();
+    setRenderRatio(0);
+    setPrepareRatio(0);
+    setExportPhase('prepare');
     patchJob(jobId, {template: resolved.template});
     setStatus('running');
     clearPreviewCanvas();
@@ -1055,6 +1066,7 @@ export function useAppState() {
         if (event.fg != null) setFg(parseFg(event.fg));
       }
       if (event.type === 'auto_export') {
+        setRenderRatio(0);
         setRoute('export');
         if (typeof event.blend === 'string') setBlend(event.blend);
         if (typeof event.mode === 'string') setMode(event.mode);
@@ -1075,10 +1087,10 @@ export function useAppState() {
         });
       }
       if (event.type === 'export_start' || event.type === 'job_started') {
+        setRenderRatio(0);
         setStatus('running');
         setError(null);
         setPrepareRatio(0);
-        setSegFracs(null);
         if (event.fg != null) setFg(parseFg(event.fg));
         resetFrameTiming(frameStart);
         if (event.type === 'export_start') {
@@ -1095,18 +1107,17 @@ export function useAppState() {
         });
       }
       if (event.type === 'engine_progress' && typeof event.percent === 'number') {
-        // orchestrator 归一后的相位进度：prepare/finalize 的 percent 为段内
-        // 0–1；分段模式下另有每段各自的 segFracs（分段进度条的小条）。
+        // orchestrator 归一后的进度：percent 是当前阶段的 0–1 比例。
         const phase = event.phase === 'prepare' || event.phase === 'finalize' ? event.phase : 'render';
         setExportPhase(phase);
         if (phase === 'prepare') {
           setPrepareRatio(Math.min(1, Math.max(0, event.percent)));
           setMessage('准备导出');
         } else if (phase === 'finalize') {
-          setMessage('正在写 MOV');
-        }
-        if (Array.isArray(event.segFracs)) {
-          setSegFracs(event.segFracs.map((v) => Math.min(1, Math.max(0, Number(v) || 0))));
+          setRenderRatio(1);
+          setMessage('正在写视频');
+        } else if (Number.isFinite(event.percent)) {
+          setRenderRatio((prev) => Math.max(prev, Math.min(1, Math.max(0, event.percent as number))));
         }
       }
       if (event.type === 'preview_frame' && typeof event.jpeg_b64 === 'string' && event.jpeg_b64) {
@@ -1140,7 +1151,6 @@ export function useAppState() {
         clearFrameTiming();
         setExportPhase(null);
         setPrepareRatio(0);
-        setSegFracs(null);
         setOutputVersion((prev) => nextOutputVersion(prev));
         setMessage(`已写入 ${exportDir}`);
         patchJob(activeJobIdRef.current, {status: 'done'});
@@ -1153,7 +1163,6 @@ export function useAppState() {
         setMessage(text);
         setExportPhase(null);
         setPrepareRatio(0);
-        setSegFracs(null);
         clearFrameTiming();
         patchJob(activeJobIdRef.current, {status: 'error'});
         recordJobResult(activeJobIdRef.current, 'error');
@@ -1165,7 +1174,6 @@ export function useAppState() {
         setPlayhead(frameStart);
         setExportPhase(null);
         setPrepareRatio(0);
-        setSegFracs(null);
         clearFrameTiming();
         if (typeof event.warning === 'string' && event.warning) {
           setError(userErrorMessage(event.warning));
@@ -1179,6 +1187,7 @@ export function useAppState() {
     // navigation & chrome
     route,
     setRoute,
+    navigateBack,
     colorScheme,
     setColorScheme,
     maximized,
@@ -1240,8 +1249,6 @@ export function useAppState() {
     cachePath,
     setCachePath,
     elevated,
-    elevatePref,
-    setElevatePref,
     cliLog,
     setCliLog,
     nativeResBuffers,
@@ -1267,8 +1274,6 @@ export function useAppState() {
     setPerfTileSize,
     parallelSegments,
     setParallelSegments,
-    parallelWarmup,
-    setParallelWarmup,
     fgEnabled,
     fgMultiplier,
     setFg,
@@ -1299,12 +1304,12 @@ export function useAppState() {
     progressPercent,
     exportPhase,
     prepareRatio,
-    segFracs,
     remainingFrames,
     canStart,
     etaText,
     frameTiming,
     registerPreviewCanvas,
+    previewAvailable,
     startExport,
     stopExport,
     jobs,

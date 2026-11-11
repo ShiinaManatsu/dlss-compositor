@@ -152,7 +152,8 @@ private:
     void stopPrefetchWorker();
 
     /// Lazy GPU setup on first frame (NR feature creation = availability probe).
-    void ensureCreated();
+    void ensureResources();
+    void ensureModel();
 
     /// Lazy FG feature creation; recreates when the multiplier changes.
     void ensureFgCreated(int multiplier);
@@ -227,6 +228,8 @@ private:
 
     VkCommandPool m_cmdPool = VK_NULL_HANDLE;
     std::int64_t  m_lastFrame = -1;  ///< NR/FG temporal continuity tracking
+    std::int64_t  m_lastNrFrame = -1;
+    NrModel       m_activeNrModel = NrModel::Auto;
 };
 
 } // namespace dlss

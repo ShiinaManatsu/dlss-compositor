@@ -117,7 +117,6 @@ endmacro()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog        CONFIG REQUIRED)
 find_package(fmt           CONFIG REQUIRED)
-find_package(Catch2 3      CONFIG REQUIRED)
 find_package(volk          CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
 find_package(Imath         CONFIG REQUIRED)
@@ -147,32 +146,6 @@ if(Vulkan_FOUND)
 else()
     message(STATUS "Vulkan SDK not found via find_package; relying on volk-bundled headers.")
 endif()
-
-# Lightweight CLI support path used by dlss-compositor-cli.  This intentionally
-# avoids Vulkan/NGX objects so --config / JSON-RPC smoke flows can build and run
-# even when GPU toolchain pieces are unavailable or under repair.
-add_library(dlss_cli_support STATIC
-    cli/src/cli/config_executor.cpp
-    cli/src/cli/preview_ipc.cpp
-    cli/src/core/dlssconfig.cpp
-    cli/src/core/lut_loader.cpp
-    cli/src/core/log.cpp
-    cli/src/io/async_writer.cpp
-    cli/src/io/prores_writer.cpp)
-
-target_include_directories(dlss_cli_support PUBLIC ${DLSS_COMPOSITOR_SOURCE_DIR}/cli/src ${FFMPEG_INCLUDE_DIRS})
-target_link_libraries(dlss_cli_support
-    PUBLIC
-        nlohmann_json::nlohmann_json
-        dlss_log_headers
-        GPUOpen::VulkanMemoryAllocator
-        Imath::Imath
-        OpenEXR::OpenEXR
-        OpenImageIO::OpenImageIO
-        ZLIB::ZLIB
-        ${FFMPEG_LIBRARIES}
-    PRIVATE
-        dlss_warnings)
 
 # -----------------------------------------------------------------------------
 # Engine static library — populated incrementally by later tasks (T4..T30).
@@ -209,6 +182,7 @@ add_library(dlss_engine_lib STATIC
     cli/src/io/prores_writer.cpp
     cli/src/io/video_reader.cpp
     cli/src/io/mov_concat.cpp
+    cli/src/io/nr_buffer_video.cpp
     cli/src/io/nr_buffer_reader.cpp
     cli/src/pipeline/fg_camera.cpp
     cli/src/pipeline/fg_only_pipeline.cpp
@@ -267,8 +241,8 @@ if(WIN32)
 endif()
 
 # Copy DLSS runtime DLLs next to the exe.
-# Prefer resources/ (dlss-swapper 310.7.129.0 pins) over the SDK submodule
-# copies. Official release should locate DLLs at runtime instead of shipping them.
+# Prefer resources/ (SDK 310.9.16.0 release DLLs) over the SDK submodule
+# copies. Feature DLLs ship next to the executable; NGX core comes from the driver.
 foreach(_dll_name IN ITEMS nvngx_dlss.dll nvngx_dlssg.dll nvngx_dlssd.dll)
     set(_res_dll "${DLSS_COMPOSITOR_SOURCE_DIR}/resources/${_dll_name}")
     set(_dev_dll "${DLSS_DLL_DEV_DIR}/${_dll_name}")
@@ -365,14 +339,6 @@ if(TARGET dlss-compositor-cli)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_dlss_shader_spv_files} "$<TARGET_FILE_DIR:dlss-compositor-cli>"
         COMMENT "Copying compute shader SPIR-V next to CLI executable"
         VERBATIM)
-endif()
-
-# -----------------------------------------------------------------------------
-# Tests
-# -----------------------------------------------------------------------------
-enable_testing()
-if(PROJECT_IS_TOP_LEVEL AND EXISTS "${DLSS_COMPOSITOR_SOURCE_DIR}/cli/tests/CMakeLists.txt")
-    add_subdirectory(cli/tests)
 endif()
 
 # -----------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 // FFmpeg is linked statically via vcpkg (same libs prores_writer uses).
 
 #include "video_reader.h"
+#include "nr_buffer_video.h"
 
 #include "../core/log.h"
 
@@ -17,8 +18,10 @@ extern "C" {
 }
 
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <string>
+#include <Imath/half.h>
 
 namespace dlss {
 
@@ -37,10 +40,11 @@ VideoReader::~VideoReader() {
     close();
 }
 
-void VideoReader::open(const std::filesystem::path& file) {
+void VideoReader::open(const std::filesystem::path& file, bool nrGuidance) {
     close();
 
-    if (avformat_open_input(&m_fmtCtx, file.string().c_str(), nullptr, nullptr) < 0) {
+    const auto utf8 = file.u8string();
+    if (avformat_open_input(&m_fmtCtx, reinterpret_cast<const char*>(utf8.c_str()), nullptr, nullptr) < 0) {
         fail("VideoReader: cannot open " + file.string());
     }
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
@@ -53,6 +57,13 @@ void VideoReader::open(const std::filesystem::path& file) {
         fail("VideoReader: no video stream: " + file.string());
     }
     AVStream* st = m_fmtCtx->streams[m_stream];
+    if (nrGuidance) {
+        const auto* title = av_dict_get(st->metadata, "title", nullptr, 0);
+        if (st->codecpar->codec_id != AV_CODEC_ID_FFV1 || !title ||
+            std::strcmp(title->value, kNrBufferTrackTitle) != 0) {
+            fail("VideoReader: invalid DLSSNR guide video: " + file.string());
+        }
+    }
 
     m_codecCtx = avcodec_alloc_context3(codec);
     if (!m_codecCtx) fail("VideoReader: cannot allocate codec context");
@@ -68,6 +79,9 @@ void VideoReader::open(const std::filesystem::path& file) {
     m_height = static_cast<uint32_t>(m_codecCtx->height);
     if (m_width == 0 || m_height == 0) {
         fail("VideoReader: zero dimensions: " + file.string());
+    }
+    if (nrGuidance && (m_height % kNrBufferPlanes != 0 || m_codecCtx->pix_fmt != AV_PIX_FMT_GRAY16LE)) {
+        fail("VideoReader: invalid DLSSNR guide video geometry: " + file.string());
     }
 
     // CFR assumption. Two demuxer-derived rates, both can lie:
@@ -130,6 +144,7 @@ void VideoReader::close() {
     m_frameCount = 0;
     m_nextIndex = 0;
     m_swsReady = false;
+    m_draining = false;
 }
 
 int64_t VideoReader::frameIndexFromPts(int64_t pts) const {
@@ -140,9 +155,15 @@ int64_t VideoReader::frameIndexFromPts(int64_t pts) const {
 
 bool VideoReader::decodeNextFrame() {
     while (true) {
-        // Feed one packet (or enter drain mode at EOF), then drain all frames.
+        const int recv = avcodec_receive_frame(m_codecCtx, m_frame);
+        if (recv == 0) return true;
+        if (recv == AVERROR_EOF) return false;
+        if (recv != AVERROR(EAGAIN)) fail("VideoReader: avcodec_receive_frame", recv);
+        if (m_draining) return false;
+
         const int send = av_read_frame(m_fmtCtx, m_packet);
         if (send == AVERROR_EOF) {
+            m_draining = true;
             const int rc = avcodec_send_packet(m_codecCtx, nullptr);
             if (rc < 0 && rc != AVERROR_EOF) {
                 fail("VideoReader: avcodec_send_packet(flush)", rc);
@@ -155,23 +176,9 @@ bool VideoReader::decodeNextFrame() {
         } else {
             const int rc = avcodec_send_packet(m_codecCtx, m_packet);
             av_packet_unref(m_packet);
-            if (rc < 0 && rc != AVERROR(EAGAIN) && rc != AVERROR_EOF) {
+            if (rc < 0) {
                 fail("VideoReader: avcodec_send_packet", rc);
             }
-        }
-
-        while (true) {
-            const int recv = avcodec_receive_frame(m_codecCtx, m_frame);
-            if (recv == 0) {
-                return true;
-            }
-            if (recv == AVERROR_EOF) {
-                return false;  // drain exhausted
-            }
-            if (recv == AVERROR(EAGAIN)) {
-                break;  // need more input
-            }
-            fail("VideoReader: avcodec_receive_frame", recv);
         }
     }
 }
@@ -202,7 +209,7 @@ void VideoReader::ensureSws(int srcRange, int srcColorspace) {
     m_swsReady = true;
 }
 
-void VideoReader::readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRgba8) {
+void VideoReader::decodeFrameAt(int64_t index) {
     if (!isOpen()) fail("VideoReader: not open");
     if (index < 0) fail("VideoReader: negative frame index");
 
@@ -212,33 +219,33 @@ void VideoReader::readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRg
         const int64_t targetTs = static_cast<int64_t>(
             static_cast<double>(index) / m_fps *
             static_cast<double>(m_tbDen) / static_cast<double>(m_tbNum));
-        if (av_seek_frame(m_fmtCtx, m_stream, targetTs,
-                          AVSEEK_FLAG_BACKWARD) < 0) {
-            avformat_seek_file(m_fmtCtx, m_stream, INT64_MIN, targetTs, targetTs, 0);
+        if (av_seek_frame(m_fmtCtx, m_stream, targetTs, AVSEEK_FLAG_BACKWARD) < 0 &&
+            avformat_seek_file(m_fmtCtx, m_stream, INT64_MIN, targetTs, targetTs, 0) < 0) {
+            fail("VideoReader: cannot seek to frame " + std::to_string(index));
         }
         avcodec_flush_buffers(m_codecCtx);
-        m_nextIndex = -1;  // recount after seek
+        m_draining = false;
     }
-
-    if (m_nextIndex < 0 || index >= m_nextIndex) {
-        while (true) {
-            if (!decodeNextFrame()) {
-                fail("VideoReader: EOF before frame " + std::to_string(index));
-            }
-            const int64_t idx = frameIndexFromPts(
-                m_frame->best_effort_timestamp != AV_NOPTS_VALUE
-                    ? m_frame->best_effort_timestamp : m_frame->pts);
-            if (m_nextIndex < 0) {
-                m_nextIndex = idx;  // first frame after seek anchors the count
-            }
-            if (idx == index) break;
-            if (idx > index) {
-                fail("VideoReader: skipped past frame " + std::to_string(index) +
-                     " (landed on " + std::to_string(idx) + ") — non-CFR source?");
-            }
+    m_nextIndex = -1;
+    while (true) {
+        if (!decodeNextFrame()) {
+            fail("VideoReader: EOF before frame " + std::to_string(index));
+        }
+        const int64_t pts = m_frame->best_effort_timestamp != AV_NOPTS_VALUE
+            ? m_frame->best_effort_timestamp : m_frame->pts;
+        if (pts == AV_NOPTS_VALUE) fail("VideoReader: frame has no timestamp");
+        const int64_t idx = frameIndexFromPts(pts);
+        if (idx == index) break;
+        if (idx > index) {
+            fail("VideoReader: skipped past frame " + std::to_string(index) +
+                 " (landed on " + std::to_string(idx) + ") — non-CFR source?");
         }
     }
+    m_nextIndex = index + 1;
+}
 
+void VideoReader::readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRgba8) {
+    decodeFrameAt(index);
     ensureSws(m_frame->color_range == AVCOL_RANGE_JPEG ? 1 : 0,
               m_frame->colorspace == AVCOL_SPC_BT709 ? SWS_CS_ITU709
               : m_frame->colorspace == AVCOL_SPC_SMPTE170M ? SWS_CS_ITU601
@@ -251,8 +258,35 @@ void VideoReader::readFrameRgba8(int64_t index, std::vector<std::uint8_t>& outRg
                   dst, dstStride) < 0) {
         fail("VideoReader: sws_scale failed on frame " + std::to_string(index));
     }
+}
 
-    m_nextIndex = index + 1;
+void VideoReader::readNrGuidance(int64_t index, std::vector<std::uint8_t>& mv, std::vector<float>& depth) {
+    decodeFrameAt(index);
+    if (m_frame->format != AV_PIX_FMT_GRAY16LE || m_frame->width != static_cast<int>(m_width) ||
+        m_frame->height != static_cast<int>(m_height)) {
+        fail("VideoReader: invalid DLSSNR guide frame format or dimensions");
+    }
+    const auto guideHeight = m_height / kNrBufferPlanes;
+    const auto pixels = static_cast<std::size_t>(m_width) * guideHeight;
+    mv.resize(pixels * 4);
+    depth.resize(pixels);
+    auto* bits = reinterpret_cast<std::uint16_t*>(mv.data());
+    for (uint32_t y = 0; y < guideHeight; ++y) {
+        auto row = [this, y, guideHeight](int plane) {
+            return reinterpret_cast<const std::uint16_t*>(m_frame->data[0] + (y + plane * guideHeight) * m_frame->linesize[0]);
+        };
+        const auto* xPlane = row(0);
+        const auto* yPlane = row(1);
+        const auto* zPlane = row(2);
+        for (uint32_t x = 0; x < m_width; ++x) {
+            const auto i = static_cast<std::size_t>(y) * m_width + x;
+            bits[2 * i] = xPlane[x];
+            bits[2 * i + 1] = yPlane[x];
+            Imath::half z;
+            z.setBits(zPlane[x]);
+            depth[i] = static_cast<float>(z);
+        }
+    }
 }
 
 } // namespace dlss

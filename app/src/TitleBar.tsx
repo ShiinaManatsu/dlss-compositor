@@ -1,5 +1,10 @@
 import type {ReactNode} from 'react';
-import {Breadcrumbs, Breadcrumb} from '@react-spectrum/s2';
+import {Breadcrumbs, Breadcrumb} from '@react-spectrum/s2/Breadcrumbs';
+import {ActionButton} from '@react-spectrum/s2/ActionButton';
+import ChevronLeft from '@react-spectrum/s2/icons/ChevronLeft';
+import {Image} from '@react-spectrum/s2/Image';
+import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
+import icon from '../assets/icon.png';
 
 export function TitleBar({
   crumbs,
@@ -7,7 +12,9 @@ export function TitleBar({
   maximized,
   onMinimize,
   onMaximize,
-  onClose
+  onClose,
+  onBack,
+  onParent
 }: {
   crumbs: string[];
   children?: ReactNode;
@@ -15,22 +22,25 @@ export function TitleBar({
   onMinimize: () => void;
   onMaximize: () => void;
   onClose: () => void;
+  onBack?: () => void;
+  onParent: () => void;
 }) {
   return (
     <header className="chrome titlebar">
-      <div className="titlebar-brand" aria-hidden="true">
-        <span className="brand-tile" />
+      <div className="titlebar-brand">
+        {onBack ? <ActionButton aria-label="返回" onPress={onBack}><ChevronLeft /></ActionButton>
+          : <Image src={icon} alt="DLSS Compositor" styles={style({width: 40, height: 40, backgroundColor: 'transparent'})} />}
       </div>
       <div className="titlebar-title">
-        <Breadcrumbs aria-label="位置">
+        {onBack ? <Breadcrumbs aria-label="位置" onAction={onParent}>
           {crumbs.map((label, index) => (
-            <Breadcrumb key={`${label}-${index}`}>{label}</Breadcrumb>
+            <Breadcrumb id={index} key={`${label}-${index}`}>{label}</Breadcrumb>
           ))}
-        </Breadcrumbs>
+        </Breadcrumbs> : null}
       </div>
       <div className="titlebar-mid" />
       {children ? (
-        <div className="titlebar-toolbar" role="toolbar" aria-orientation="horizontal">
+        <div className="titlebar-toolbar" role="toolbar" aria-label="应用工具" aria-orientation="horizontal">
           {children}
         </div>
       ) : null}

@@ -13,13 +13,25 @@ from bpy.types import (
 
 
 def _get_or_create_compositor_tree(scene: Scene) -> NodeTree | None:
-    """Return (or create) the compositor NodeTree for *scene*.
-
-    Blender 5.1: ``scene.node_tree`` removed; use ``scene.compositing_node_group``.
-    ``scene.use_nodes`` deprecated — setting it has no effect (always True).
-    Enable compositing via ``scene.render.use_compositing`` instead.
-    """
+    """Find our output effect or add a pass-through group on Blender 5.3+."""
     scene.render.use_compositing = True
+    effects = getattr(scene, "compositor_effects", None)
+    if effects is not None:
+        for effect in effects:
+            tree = effect.node_group
+            if tree and any(n.type == "OUTPUT_FILE" and n.label == "DLSS_Output" for n in tree.nodes):
+                return tree
+        tree = bpy.data.node_groups.new(name="DLSS Compositor", type="CompositorNodeTree")
+        tree.allow_usage_in_scene_compositor_effect = True
+        for direction in ("OUTPUT", "INPUT"):
+            tree.interface.new_socket(name="Image", in_out=direction, socket_type="NodeSocketColor")
+        source = tree.nodes.new("NodeGroupInput")
+        sink = tree.nodes.new("NodeGroupOutput")
+        tree.links.new(source.outputs["Image"], sink.inputs["Image"])
+        effect = effects.new("DLSS Compositor")
+        effect.node_group = tree
+        effect.enable_for_preview = False
+        return tree
     tree: NodeTree | None = scene.compositing_node_group
     if tree is None:
         tree = bpy.data.node_groups.new(
@@ -112,7 +124,7 @@ class DLSS_OT_ConfigureAllPasses(Operator):
             rl_node.location = (-300, 0)
 
         # Remove any existing DLSS output nodes (avoid duplicates on re-run)
-        for node in [n for n in nodes if n.label and n.label.startswith("DLSS_")]:
+        for node in [n for n in nodes if n.type == "OUTPUT_FILE" and n.label == "DLSS_Output"]:
             nodes.remove(node)
 
         # ONE multilayer EXR per frame — all passes in one file.

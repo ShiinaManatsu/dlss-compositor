@@ -1,8 +1,11 @@
 import '@react-spectrum/s2/page.css';
 import type {ReactNode} from 'react';
-import {Button, Provider, Text} from '@react-spectrum/s2';
+import {Button, Text} from '@react-spectrum/s2/Button';
+import {Provider} from '@react-spectrum/s2/Provider';
+import {style} from '@react-spectrum/s2/style' with {type: 'macro'};
 import StopProcessing from '@react-spectrum/s2/icons/StopProcessing';
-import {AppStateProvider, ROUTE_LABELS, useApp} from './appState';
+import {AppStateProvider, ROUTE_LABELS, useApp, type Route} from './appState';
+import {ThemeCycleButton} from './shell/ThemeCycleButton';
 import {NrSessionProvider, useNrSession} from './nrSession';
 import {projectTitle} from './dcp';
 import {Rail} from './Rail';
@@ -22,7 +25,7 @@ function Shell() {
       ? ['项目']
       : app.route === 'nrtool'
         ? ['NR / FG']
-        : [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]];
+        : app.hasProject ? [projectTitle(app.dcpPath), ROUTE_LABELS[app.route]] : [ROUTE_LABELS[app.route]];
 
   let titleAction: ReactNode = null;
   if (app.route === 'export' && app.hasProject) {
@@ -56,14 +59,30 @@ function Shell() {
   }
 
   return (
-    <div className="shell">
+    <div className={`shell ${style({font: 'body', color: 'neutral', backgroundColor: 'base',
+      '--shell-gap': {type: 'width', value: 16},
+      '--surface-padding': {type: 'width', value: 20},
+      '--control-gap': {type: 'width', value: 8},
+      '--section-gap': {type: 'width', value: 12},
+      '--title-height': {type: 'height', value: 64},
+      '--caption-size': {type: 'width', value: 48},
+      '--rail-collapsed': {type: 'width', value: 72},
+      '--rail-expanded': {type: 'width', value: 240},
+      '--leading-slot': {type: 'width', value: 40},
+      '--axis-offset': {type: 'width', value: 4}})}`}>
       <TitleBar
+        onBack={app.route === 'project' ? undefined : app.navigateBack}
+        onParent={() => app.setRoute('project')}
         crumbs={crumbs}
         maximized={app.maximized}
         onMinimize={app.windowMinimize}
         onMaximize={app.windowMaximize}
         onClose={app.windowClose}>
         {titleAction}
+        <ThemeCycleButton preference={app.colorScheme} onChange={app.setColorScheme}
+          names={{light: '浅色', dark: '深色', system: '自动'}}
+          formatLabel={(current, next) => `主题：${current}；切换到${next}`}
+          formatTooltip={(current, next) => `${current} · 切换到${next}`} />
       </TitleBar>
       <div className="shell-body">
         <Rail />
@@ -91,7 +110,11 @@ function ThemedShell() {
     <Provider
       colorScheme={app.colorScheme === 'system' ? undefined : app.colorScheme}
       locale="zh-CN"
-      background="base">
+      background="base"
+      router={{navigate: path => {
+        const route = path.replace(/^#\//, '');
+        if (route in ROUTE_LABELS) app.setRoute(route as Route);
+      }}}>
       <NrSessionProvider>
         <Shell />
       </NrSessionProvider>

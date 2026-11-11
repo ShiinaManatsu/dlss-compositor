@@ -1,6 +1,7 @@
 // NrBufferReader implementation — see nr_buffer_reader.h.
 
 #include "nr_buffer_reader.h"
+#include "nr_buffer_video.h"
 
 #include "../core/log.h"
 
@@ -34,6 +35,16 @@ int frameNumberOf(const std::filesystem::path& p) {
 
 void NrBufferReader::open(const std::filesystem::path& dir) {
     m_files.clear();
+    m_video.close();
+
+    const auto videoPath = std::filesystem::is_regular_file(dir) ? dir : dir / kNrBufferVideoName;
+    if (std::filesystem::is_regular_file(videoPath)) {
+        m_video.open(videoPath, /*nrGuidance=*/true);
+        if (m_video.frameCount() <= 0) throw std::runtime_error("NrBufferReader: guide video frame count unknown");
+        m_w = m_video.width();
+        m_h = m_video.height() / kNrBufferPlanes;
+        return;
+    }
 
     std::error_code ec;
     if (!std::filesystem::is_directory(dir, ec)) {
@@ -51,7 +62,7 @@ void NrBufferReader::open(const std::filesystem::path& dir) {
     }
     if (m_files.empty()) {
         throw std::runtime_error(
-            "NrBufferReader: no dlssnrbuffer_*.exr frames in " + dir.string() +
+            "NrBufferReader: no dlssnrbuffer.mkv or legacy EXR frames in " + dir.string() +
             " — run the Stage-A export with the DLSSNR 缓冲 option enabled");
     }
     std::sort(m_files.begin(), m_files.end(), [](const auto& a, const auto& b) {
@@ -95,6 +106,10 @@ void NrBufferReader::readFrame(std::size_t idx,
                                std::vector<std::uint8_t>& mvOut,
                                std::vector<float>&        depthOut) {
     if (!isOpen()) throw std::runtime_error("NrBufferReader: not open");
+    if (m_video.isOpen()) {
+        m_video.readNrGuidance(idx, mvOut, depthOut);
+        return;
+    }
     if (idx >= m_files.size()) throw std::runtime_error("NrBufferReader: frame index out of range");
 
     auto input = OIIO::ImageInput::open(m_files[idx].string());

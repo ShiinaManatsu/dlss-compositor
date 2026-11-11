@@ -1,6 +1,6 @@
 """Session-only pipeline policy shared by inject.py and the Electron app.
 
-No bpy import — safe for unit tests.
+No bpy import — importable outside Blender.
 """
 from __future__ import annotations
 

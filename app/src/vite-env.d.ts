@@ -86,6 +86,7 @@ type ExportRequest = {
   fg?: number | string;
   effectivePercentage?: number;
   ramWindowFrames?: number;
+  parallelSegments?: number;
   /** Input buffer: RAM disk (auto-created in packaged builds) or cache dir. */
   useRamdisk: boolean;
   ramdiskGb?: number;
@@ -106,7 +107,6 @@ type LaunchFlags = {
   rail?: string | null;
   elevated?: boolean;
   packaged?: boolean;
-  elevatePref?: boolean;
   version?: string;
 };
 
@@ -170,7 +170,6 @@ interface DlssApi {
   listDir: (dirPath: string) => Promise<DirEntry[] | null>;
   launchFlags: () => Promise<LaunchFlags>;
   setCliLog: (enabled: boolean) => Promise<void>;
-  setElevate: (enabled: boolean) => Promise<void>;
   setTitle: (title: string) => Promise<void>;
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;

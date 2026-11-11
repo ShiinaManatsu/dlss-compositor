@@ -361,11 +361,13 @@ FrameResult decodeExr(const std::filesystem::path& filePath)
 FramePrefetcher::FramePrefetcher(std::vector<std::filesystem::path> framePaths,
                                  int prefetchDepth,
                                  bool waitForFiles,
-                                 const std::atomic<bool>* externalStop)
+                                 const std::atomic<bool>* externalStop,
+                                 bool atomicInputFiles)
     : m_paths(std::move(framePaths))
     , m_prefetchDepth(std::max(1, prefetchDepth))
     , m_waitForFiles(waitForFiles)
     , m_externalStop(externalStop)
+    , m_atomicInputFiles(atomicInputFiles)
 {
     if (m_waitForFiles) {
         LOG_INFO("[FramePrefetcher] wait-for-files mode (watch input)");
@@ -414,6 +416,7 @@ void FramePrefetcher::workerLoop()
                 while (!stopRequested()) {
                     std::error_code ec;
                     const auto size = std::filesystem::file_size(m_paths[idx], ec);
+                    if (m_atomicInputFiles && !ec && size > 0) break;
                     if (!ec && size > 0 && size == lastSize) {
                         if (++stable >= kStableTicks) break;
                     } else {

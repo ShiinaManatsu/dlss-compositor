@@ -139,7 +139,7 @@ export type DcpProject = {
   ramdiskGb: number;
   cachePath: string;
   nativeResBuffers: boolean;
-  /** Export dlssnrbuffer_####.exr (MV+depth) alongside the output for the NR tool. */
+  /** Export dlssnrbuffer.mkv (MV + depth) alongside the output for the NR tool. */
   nrBuffer: boolean;
   /** 0 = off; 2..6 matches CLI `--fg` / RPC `fg` / `fg_multiplier`. */
   fg: number;
@@ -152,10 +152,8 @@ export type DcpProject = {
   perfDistanceCullMarginOverride?: boolean;
   perfDistanceCullMargin?: number;
   perfTileSize?: number;
-  /** 分段并行渲染：0 = 关；2..6 = 段数（每个段一个 Blender/CLI 实例）。 */
+  /** 滚动并行：0 = 关；2..6 = Blender 进程数。沿用旧项目的键名。 */
   parallelSegments?: number;
-  /** 分段前多渲染的历史积累帧（NGX 收敛用），默认 16。 */
-  parallelWarmup?: number;
   splitters: Splitters;
   preview?: string | null;
   history?: JobRecord[];
@@ -463,7 +461,6 @@ export function parseDcp(raw: string): ParseDcpResult {
       perfDistanceCullMargin: num(obj.perfDistanceCullMargin, 10),
       perfTileSize: num(obj.perfTileSize, 4096),
       parallelSegments: Math.min(6, Math.max(0, Math.trunc(num(obj.parallelSegments, 0)))),
-      parallelWarmup: Math.min(64, Math.max(0, Math.trunc(num(obj.parallelWarmup, 16)))),
       fg: parseFg(obj.fg ?? obj.fg_multiplier),
       splitters: clampSplitters(isRecord(obj.splitters) ? (obj.splitters as Partial<Splitters>) : undefined),
       preview: typeof obj.preview === 'string' && obj.preview ? obj.preview : null,
@@ -528,7 +525,6 @@ export function emptyProject(blend: string): DcpProject {
     nativeResBuffers: false,
     nrBuffer: false,
     parallelSegments: 0,
-    parallelWarmup: 16,
     fg: 0,
     splitters: {...DEFAULT_SPLITTERS},
     preview: null
