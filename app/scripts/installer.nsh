@@ -1,6 +1,6 @@
-; Dev-only NR feature DLL: the packaging whitelist never embeds
-; nvngx_dlssnr.dll into the installer. On dev machines seed-nr.mjs places it
-; next to the Setup exe; if present at install time, seed it into the CLI dir.
+; Standard installer only: if seed-nr.mjs placed a local NR DLL next to Setup,
+; copy it into the CLI dir. The standalone local NR installer embeds the DLL
+; in its payload and skips this hook.
 !include "LogicLib.nsh"
 
 !macro customInstall
