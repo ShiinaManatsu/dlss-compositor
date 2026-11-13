@@ -1,88 +1,74 @@
 # DLSS Compositor
 
-> Offline Blender Cycles renders through NVIDIA DLSS — Super Resolution (SR), Ray Reconstruction (RR) and Frame Generation (FG) — driven by an Electron GUI, producing ProRes / EXR / PNG sequences.
+[简体中文](README.zh-CN.md)
 
-## What It Does
-
-The GUI (or CLI) drives a three-way pipeline: a Blender session injects camera jitter and renders multilayer EXR input buffers, a resident C++/Vulkan CLI consumes them through the DLSS engine (SR / RR → tonemap → FG), and results stream out as fragmented ProRes MOV (crash-safe), scene-linear EXR, or 16-bit PNG. Input frames flow over an ImDisk RAM disk (watch + consume + delete) or any user-chosen cache directory. Projects save as `.dcp` (JSON).
-
-## Repo Layout
-
-- `cli/` - native Vulkan/NGX engine (`dlss-compositor-cli`) and shaders
-- `app/` - Electron + React Spectrum 2 GUI; electron-builder packaging (`npm run dist`)
-- `pipeline/` - Blender-side inject/inspect scripts, RAM-disk helper, RPC client
-- `blender-plugin/` - Blender extension source (LUT generator)
-- `tools/` - DLL version pins and MSVC rebuild helpers
-- `docs/` - guides, bundled DLSS refs, research notes
-- `test-frames/` - retained render sample metadata (frames themselves are not committed)
-
-**Pipeline:**
-
-```
-Blender Cycles (inject.py: jitter + passes + dlssconfig.json)
-  → RAM disk / cache dir (multilayer EXR)
-  → dlss-compositor-cli --rpc-stdio
-      EXR prefetch (wait-for-files) → channel map → DLSS SR / RR
-      → tonemap + EOTF → DLSS FG → inverse tonemap
-      → fragmented ProRes MOV / EXR / PNG16
-```
+DLSS Compositor brings NVIDIA DLSS to offline Blender rendering on Windows. Use Super Resolution (SR) to upscale, Ray Reconstruction (RR) with Cycles render passes, and Frame Generation (FG) to interpolate frames. The separate NR / FG tool processes existing video and PNG sequences.
 
 ## Requirements
 
-- **GPU**: NVIDIA RTX (Turing+ for SR; Ada/Blackwell for FG/RR)
-- **OS**: Windows 10/11 (64-bit)
-- **Driver**: NVIDIA 535+ (provides the NGX core; feature DLLs ship with the app)
-- **RAM disk**: ImDisk Toolkit (optional; needs an elevated token — otherwise use a cache directory)
-- **Build**: Visual Studio 2022+, CMake 3.25+, vcpkg, Node.js + npm
-- **Blender**: 5.1+ (SR), 5.3+ (RR guide passes)
+- 64-bit Windows 10 or 11.
+- An NVIDIA RTX GPU and a Vulkan-capable NVIDIA driver. Available DLSS features and FG multipliers depend on the GPU and driver.
+- Blender 5.1 or later for SR exports. Use Blender 5.3 or later for the full Cycles RR guide passes.
+- Optional ImDisk Toolkit for RAM-disk caching. A disk-backed cache folder works without ImDisk.
 
-## Quick Start
+## Export from Blender
 
-1. **Clone**: `git clone --recurse-submodules <repo-url> && cd dlss-compositor`
-2. **Setup vcpkg**: `git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.bat && set VCPKG_ROOT=<path>`
-3. **Build CLI**: `tools\_rebuild_cli.bat` (or `cmake --preset x64-windows-msvc-release && cmake --build --preset x64-windows-msvc-release`)
-4. **Run GUI (dev)**: `cd app && npm install && npm run dev`
-5. **Package**: `cd app && npm run dist` → NSIS installer (`.dcp` association) + portable zip directly under `build/release/`
-6. **Blender extension**: Preferences → Extensions → Install from Disk → `blender-plugin/dlss_compositor/`
+Check [GitHub Releases](https://github.com/ShiinaManatsu/dlss-compositor/releases) for available Windows builds, or build the desktop app from source.
 
-For local use, `cd app && npm run dist:local-nr` builds one Windows x64 `DLSS-Compositor-Setup-<version>-NR.exe` under `build/release/`. This installer embeds the existing `resources/nvngx_dlssnr.dll` and installs it beside the CLI. The standard `npm run dist` artifacts still exclude that DLL.
+1. In **项目** (Projects), click **新建** (New) and select a `.blend` file. The app creates a `.dcp` project and reads the scene. Use **打开** (Open) to resume an existing `.dcp`.
+2. In **导出** (Export), choose SR or RR, a quality preset, the frame range, output resolution, format, and destination. For native-resolution SR, choose DLAA and render at 100%. For frame interpolation, select a supported **帧生成** (Frame Generation) multiplier from 2× to 6×.
+3. Set a **缓存路径** (cache folder) or enable **使用内存盘** (Use RAM disk) in an elevated session with ImDisk. Click **导出** (Export) in the title bar. Find the results in **Jobs**.
 
-## Supported Output Formats
+The app launches Blender in the background and configures render passes and camera jitter for the session. Your source `.blend` stays intact. The desktop workflow needs no Blender extension.
 
-| Mode | Formats |
-|------|---------|
-| LDR | ProRes 422 HQ, PNG (16-bit), EXR (scene-linear) |
-| HDR | ProRes 422 HQ, EXR |
+| Blender export | Desktop output formats |
+| --- | --- |
+| SDR | ProRes 422 HQ (MOV), scene-linear OpenEXR, 16-bit PNG |
+| HDR | ProRes 422 HQ (MOV, HDR10/PQ), scene-linear OpenEXR |
 
-## Features
+The cache holds temporary multilayer EXRs, which the engine reclaims as it processes them. **滚动并行渲染** (Rolling parallel rendering) lets multiple Blender processes render frame ranges while a single DLSS session processes frames in order. Bake stateful simulations before using multiple Blender processes.
 
-- DLSS SR upscaling with per-quality presets; DLAA at 100%
-- DLSS RR (Cycles, quality slots, preset F) with full guide-buffer mapping
-- DLSS FG 2x–6x frame interpolation on SR or RR output
-- NR/FG tool with compact FFV1 guide videos (`dlssnrbuffer.mkv`) and legacy EXR input; NR model A/B selection with a local NR 310.9.16 runtime
-- Watch-mode RAM-disk pipeline with prefetch, backpressure, and stop/cancel that always leaves a playable file
-- Rolling parallel Blender rendering sizes windows from uncompressed EXR buffers and keeps one continuous DLSS history across the export
-- `.dcp` projects with autosave, job history, and file association
-- Packaged builds auto-create/unmount the DLSSRAM disk (elevated runs)
-- JSON-RPC stdio interface for automation
+## NR / FG tool
 
-## DLSS Technical Notes
+Open **NR / FG** and select an SDR video or the first frame of a numbered PNG sequence. Preview the result, adjust NR and FG, and export to ProRes 422 HQ (MOV), H.265 (MP4), or a 16-bit PNG sequence.
 
-- **SR input**: scene-linear HDR before any tonemap (DLSS SR §3.1)
-- **FG input**: display-ready (after tonemap + EOTF) (DLSS FG §HDR)
-- **RR sampling**: TABULATED_SOBOL + animated seed (DLSS-RR §3.5)
-- **Motion vectors**: pixel-space, curr→prev, `InMVScale = (1,1)` (§3.6.3)
-- **MV mapping**: `DLSS_MV = (Blender.X, -Blender.Y)` (empirically verified)
-- **InReset**: first frame / frame gap / camera discontinuity only
-- **SDK and feature DLLs**: SDK v310.9.16; nvngx_dlss / nvngx_dlssd / nvngx_dlssg 310.9.16.0 from the SDK's Windows x64 release bundle, pinned in `resources/` and loaded from next to the exe; NGX core always from the driver
+NR can run without guides. For guided NR or FG, export SDR ProRes or PNG from Blender with **导出 NR 引导视频（MKV）** (Export NR guide video) enabled. This turns off FG for that export so the color output and guides stay aligned. Load the color output and its `*_dlssbuffer` folder in the NR / FG tool. The folder holds `dlssnrbuffer.mkv` and `dlssconfig.json`. The tool also accepts legacy EXR guides. FG requires both guide buffers and the camera data in `dlssconfig.json`.
 
-## Documentation
+NR requires a compatible `nvngx_dlssnr.dll` alongside the CLI. The local NR installer described below embeds that DLL.
 
-- [Build Guide](docs/build_guide.md)
-- [Blender Export Guide](docs/blender_export_guide.md)
-- [CLI Reference](docs/cli_reference.md)
-- [User Manual (bilingual HTML)](docs/user_manual.html)
+## Build from source
+
+Use an x64 Visual Studio Developer PowerShell with the C++ desktop workload, CMake 3.25+, Ninja, Git LFS, and Node.js 22.12+ with npm. Set `VCPKG_ROOT` to a bootstrapped vcpkg checkout. Shader compilation uses the Vulkan SDK's `glslc` or vcpkg's `glslang[tools]`.
+
+```powershell
+git clone https://github.com/ShiinaManatsu/dlss-compositor.git
+Set-Location dlss-compositor
+git submodule update --init --recursive
+git lfs pull
+
+$env:VCPKG_ROOT = 'C:\vcpkg'  # Use your vcpkg path.
+cmake --preset x64-windows-msvc-release
+cmake --build --preset x64-windows-msvc-release --parallel
+
+Set-Location app
+npm.cmd ci
+npm.cmd run dev
+```
+
+If the app cannot find Blender, set `BLENDER_EXE` to the full path of `blender.exe` before launching it.
+
+- `npm.cmd run dist` in `app/` builds the standard Windows installer and ZIP. The installer and ZIP exclude the NR DLL.
+- `npm.cmd run dist:local-nr` in `app/` builds a single `DLSS-Compositor-Setup-<version>-NR.exe` for local use. Place your compatible `nvngx_dlssnr.dll` in the repository's `resources/` folder before building.
+
+Both commands write their artifacts directly to `build/release/`.
+
+## Repository
+
+- Electron desktop app and packaging in [`app/`](app/).
+- C++ Vulkan/NGX engine and CLI in [`cli/`](cli/). Run `dlss-compositor-cli.exe --help` for batch and JSON-RPC options.
+- Blender scene inspection and background rendering scripts in [`pipeline/`](pipeline/).
+- Blender extension for manual pass and camera-data export in [`blender-plugin/`](blender-plugin/).
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT. See [LICENSE](LICENSE).
