@@ -44,7 +44,7 @@ function Shell() {
     titleAction = app.busy ? (
       <Button variant="secondary" onPress={() => void app.stopExport()}>
         <StopProcessing />
-        <Text>中止</Text>
+        <Text>停止</Text>
       </Button>
     ) : (
       <Button
@@ -60,7 +60,7 @@ function Shell() {
         variant="accent"
         isDisabled={nr.opening || !nr.info || !nr.exportTrigger}
         onPress={() => nr.exportTrigger?.()}>
-        <Text>{nr.opening ? '打开中…' : '导出'}</Text>
+        <Text>导出</Text>
       </Button>
     );
   }
@@ -88,9 +88,9 @@ function Shell() {
         onClose={app.windowClose}>
         {titleAction}
         <ThemeCycleButton preference={app.colorScheme} onChange={app.setColorScheme} isDisabled={nr.exporting}
-          names={{light: '浅色', dark: '深色', system: '自动'}}
-          formatLabel={(current, next) => `主题：${current}；切换到${next}`}
-          formatTooltip={(current, next) => `${current} · 切换到${next}`} />
+          names={{light: '浅色', dark: '深色', system: '跟随系统'}}
+          formatLabel={(current, next) => `主题 ${current} · 切换至${next}`}
+          formatTooltip={(_, next) => `切换至${next}`} />
       </TitleBar>
       <div className="shell-body">
         <Rail isLocked={nr.exporting} />

@@ -74,7 +74,7 @@ export function userErrorMessage(raw: unknown, letter = 'R'): string {
     return `未找到 ${label}`;
   }
   if (lowered.includes('export-dir must be on the working disk')) {
-    return '导出目录必须在工作盘，不能写到 RAM 盘';
+    return '请选择工作盘上的导出目录';
   }
   if (text.trimStart().startsWith('{') && text.includes('"event"')) {
     return '出错了';

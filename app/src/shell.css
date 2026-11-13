@@ -505,13 +505,6 @@ body,
   margin: 0;
 }
 
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .shell *, .shell *::before, .shell *::after { animation: none !important; transition: none !important; }
 }

@@ -433,7 +433,7 @@ export function NrToolPage({active}: {active: boolean}) {
       <aside className="export-settings">
         <SettingsSection title="媒体" defaultExpanded isDisabled={exporting}>
           <TextField
-            label="色彩源（视频或 PNG 序列首帧）"
+            label="色彩源（视频 / PNG 序列目录）"
             size="S"
             value={paths.colorSource}
             onChange={(next) => setPaths((prev) => ({...prev, colorSource: next}))}
@@ -465,7 +465,7 @@ export function NrToolPage({active}: {active: boolean}) {
           </ActionButton>
           <div className="field-with-action">
             <TextField
-              label="引导缓冲目录（MKV / 旧 EXR，可选）"
+              label="引导目录（可选）"
               size="S"
               value={paths.bufferDir}
               onChange={(next) => setPaths((prev) => ({...prev, bufferDir: next}))}
@@ -475,7 +475,7 @@ export function NrToolPage({active}: {active: boolean}) {
               size="S"
               isDisabled={opening || exporting}
               onPress={() => {
-                void window.dlss.chooseDir('选择 dlssnrbuffer 目录').then((picked) => {
+                void window.dlss.chooseDir('选择引导目录').then((picked) => {
                   if (picked) setPaths((prev) => ({...prev, bufferDir: picked}));
                 });
               }}>
@@ -483,11 +483,8 @@ export function NrToolPage({active}: {active: boolean}) {
               <Text>选择</Text>
             </ActionButton>
           </div>
-          {info || opening ? <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
-            {info && info.buffer_width > 0 &&
-            (info.buffer_width !== info.width || info.buffer_height !== info.height)
-              ? `${nr.message} · 缓冲 ${info.buffer_width}×${info.buffer_height}`
-              : nr.message}
+          {info && nr.message ? <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
+            {nr.message}
           </span> : null}
         </SettingsSection>
         <SettingsSection title="NR" defaultExpanded insetControls isDisabled={exporting}>
@@ -516,7 +513,7 @@ export function NrToolPage({active}: {active: boolean}) {
             onChange={(value) => setSettings((prev) => ({...prev, model: Number(value)}))}
             isDisabled={exporting || !settings.nrEnabled}
             styles={style({width: 'full'})}>
-            <PickerItem id="0">自动（DLL 默认）</PickerItem>
+            <PickerItem id="0">自动</PickerItem>
             <PickerItem id="1">HT</PickerItem>
             <PickerItem id="2">CC Small FP8</PickerItem>
           </Picker>
@@ -597,7 +594,7 @@ export function NrToolPage({active}: {active: boolean}) {
           </Picker>
           {fgConfigMissing ? (
             <span className={style({font: 'detail-sm', color: 'negative'})}>
-              缺少 dlssconfig.json（缓冲目录内）— 无法帧生成
+              FG 需要引导目录中的 dlssconfig.json
             </span>
           ) : null}
         </SettingsSection>
@@ -684,14 +681,14 @@ export function NrToolPage({active}: {active: boolean}) {
           <div className="preview-frame" style={{aspectRatio: aspect}}>
             <canvas ref={canvasRef} className="preview-image" aria-label="NR / FG 预览" />
             {!info && <div className={`preview-placeholder ${style({font: 'body', color: 'neutral-subdued'})}`}>
-              {opening ? '打开中…' : '暂无媒体'}
+              {opening ? '打开中…' : '请选择色彩源'}
             </div>}
           </div>
           <div className={`nr-bottom ${exporting ? 'is-busy' : 'is-idle'}`}>
             <div inert={!exporting} className={`nr-export-bar ${exporting ? '' : 'is-hidden'} ${style({backgroundColor: 'layer-2', borderRadius: 'lg'})}`}>
               <ProgressBar
                 aria-label="导出进度"
-                label={`导出中 ${exportPercent}%`}
+                label="导出中"
                 value={exportPercent}
                 size="S"
                 styles={style({width: 'full'})}

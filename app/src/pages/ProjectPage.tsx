@@ -81,7 +81,7 @@ export function ProjectPage() {
           </Button>
           <Button variant="accent" onPress={() => void newProject()}>
             <Add />
-            <Text>新建项目</Text>
+            <Text>新建</Text>
           </Button>
         </ButtonGroup>
       </div>
@@ -90,7 +90,7 @@ export function ProjectPage() {
           className={recents.length ? 'project-grid-inner' : 'project-grid-inner is-empty'}
           style={gridWidth && recents.length ? {width: gridWidth} : undefined}>
           <CardView
-            aria-label="最近工程"
+            aria-label="最近项目"
             items={recents.map((item) => ({...item, id: item.path}))}
             layout="grid"
             size="M"
@@ -99,8 +99,8 @@ export function ProjectPage() {
             renderEmptyState={() => (
               <IllustratedMessage size="L">
                 <FileVideo />
-                <Heading>没有最近工程</Heading>
-                <Content>打开一个 .dcp 工程，或从 .blend 新建。</Content>
+                <Heading>暂无最近项目</Heading>
+                <Content>打开 .dcp 或从 .blend 新建</Content>
               </IllustratedMessage>
             )}>
             {(item: RecentProject) => (

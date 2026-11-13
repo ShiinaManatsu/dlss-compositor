@@ -102,8 +102,7 @@ export function percentError(outputW: number, outputH: number, percentage: numbe
   const renderH = Math.max(1, Math.floor((outputH * percentage) / 100));
   const [minW, minH] = ngxMinSize(outputW, outputH, quality);
   if (renderW < minW || renderH < minH) {
-    const rec = RECOMMENDED_PERCENT[quality] ?? 58;
-    return `渲染 ${renderW}×${renderH} 低于 NGX ${quality} 下限 ${minW}×${minH}。请约 ${rec}%。`;
+    return `渲染 ${renderW}×${renderH}，最低 ${minW}×${minH}。建议 ${RECOMMENDED_PERCENT[quality] ?? 58}%`;
   }
   return null;
 }
@@ -625,7 +624,7 @@ export function useAppState() {
     setInspectError(null);
     setScene(null);
     if (!fromProject) setPins(EMPTY_PINS);
-    setMessage('正在读取场景…');
+    setMessage('读取场景中…');
     try {
       const result = await window.dlss.inspect(filePath);
       if (!result.ok || !result.scene) {
@@ -952,7 +951,7 @@ export function useAppState() {
     if (isNrExporting()) return;
     setError(null);
     if (mode === 'nr') {
-      setError('DLSS5-NR 模型未到，接口已预留');
+      setError('请在 NR / FG 工具中导出');
       return;
     }
     if (!blend) {
@@ -960,7 +959,7 @@ export function useAppState() {
       return;
     }
     if (inspecting) {
-      setError('正在读取场景，请稍候');
+      setError('读取场景中…');
       return;
     }
     if (!hasScene) {
@@ -968,7 +967,7 @@ export function useAppState() {
       return;
     }
     if (!canRR && mode === 'rr') {
-      setError('当前引擎不是 Cycles，RR 不可用');
+      setError('RR 需要 Cycles');
       return;
     }
     if (mode !== 'rr' && ngxWarning) {
@@ -1044,14 +1043,14 @@ export function useAppState() {
         setBlend(event.blend);
         setInspecting(true);
         setInspectError(null);
-        setMessage('正在读取场景…');
+        setMessage('读取场景中…');
       }
       if (event.type === 'inspect_start') {
         setRoute('export');
         setInspecting(true);
         setInspectError(null);
         if (typeof event.blend === 'string') setBlend(event.blend);
-        setMessage('正在读取场景…');
+        setMessage('读取场景中…');
       }
       if (event.type === 'inspect_done') {
         if (skipRemoteInspect.current) return;
@@ -1121,7 +1120,7 @@ export function useAppState() {
           setMessage('准备导出');
         } else if (phase === 'finalize') {
           setRenderRatio(1);
-          setMessage('正在写视频');
+          setMessage('写入视频中');
         } else if (Number.isFinite(event.percent)) {
           setRenderRatio((prev) => Math.max(prev, Math.min(1, Math.max(0, event.percent as number))));
         }

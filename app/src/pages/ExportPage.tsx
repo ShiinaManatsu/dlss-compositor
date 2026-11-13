@@ -239,7 +239,7 @@ export function ExportPage() {
     ? error
     : message && message !== '就绪'
       ? message
-      : `共 ${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
+      : `${outputFrames} 帧（Blender ${jobFrameStart}–${jobFrameEnd}） · ${formatLabel(outputFormat)} · ${outputWidth}×${outputHeight}`;
   const jobCells = busy
     ? progressCells({
         exportPhase,
@@ -277,8 +277,6 @@ export function ExportPage() {
                 时间轴 {scene?.frame_start}–{scene?.frame_end} · File Output {scene?.file_output_count}
               </span>
             </div>
-          ) : inspecting ? (
-            <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>正在读取场景…</span>
           ) : null}
           <OverrideNumber
             label="起始帧"
@@ -392,21 +390,16 @@ export function ExportPage() {
             滚动并行渲染
           </Switch>
           {parallelSegments >= 2 ? (
-            <>
-              <NumberField
-                label="Blender 进程数"
-                size="S"
-                value={parallelSegments}
-                onChange={(next) => setParallelSegments(Math.max(2, Math.min(6, Math.trunc(next) || 2)))}
-                minValue={2}
-                maxValue={6}
-                hideStepper
-                isDisabled={busy}
-              />
-              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
-                窗口按缓存大小分配，DLSS 保留整条时间线的历史。
-              </span>
-            </>
+            <NumberField
+              label="Blender 进程数"
+              size="S"
+              value={parallelSegments}
+              onChange={(next) => setParallelSegments(Math.max(2, Math.min(6, Math.trunc(next) || 2)))}
+              minValue={2}
+              maxValue={6}
+              hideStepper
+              isDisabled={busy}
+            />
           ) : null}
           <Switch size="S" isSelected={perfPersistent} onChange={setPerfPersistent} isDisabled={busy}>
             持久化数据
@@ -488,12 +481,13 @@ export function ExportPage() {
                 min={1}
                 max={100}
               />
-              <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
-                推荐 {RECOMMENDED_PERCENT[quality] ?? 58}%
-              </span>
               {ngxWarning && pins.percentage ? (
                 <span className={style({font: 'detail-sm', color: 'negative'})}>{ngxWarning}</span>
-              ) : null}
+              ) : (
+                <span className={style({font: 'detail-sm', color: 'neutral-subdued'})}>
+                  建议 {RECOMMENDED_PERCENT[quality] ?? 58}%
+                </span>
+              )}
             </>
           ) : null}
           {nativeResEnabled ? (
@@ -502,7 +496,7 @@ export function ExportPage() {
               isSelected={nativeResBuffers}
               onChange={setNativeResBuffers}
               isDisabled={busy || (mode === 'sr' && parallelSegments >= 2 && !nativeResBuffers)}>
-              使用原生分辨率缓冲
+              原生分辨率缓冲
             </Checkbox>
           ) : null}
           <Picker
@@ -573,7 +567,7 @@ export function ExportPage() {
                     ? `ImDisk ${probe?.imdisk.path ?? '已安装'}`
                     : userErrorMessage(probe?.imdisk.message ?? '请安装 ImDisk Toolkit')}
                 </span>
-                <ActionButton size="S" aria-label="刷新探测" onPress={() => refreshProbe()}>
+                <ActionButton size="S" aria-label="刷新环境状态" onPress={() => refreshProbe()}>
                   <Refresh />
                 </ActionButton>
               </div>

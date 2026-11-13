@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Content, Heading, IllustratedMessage} from '@react-spectrum/s2/IllustratedMessage';
+import {Heading, IllustratedMessage} from '@react-spectrum/s2/IllustratedMessage';
 import {ListView, ListViewItem, Text} from '@react-spectrum/s2/ListView';
 import {ActionMenu, MenuItem} from '@react-spectrum/s2/ActionMenu';
 import FolderOpen from '@react-spectrum/s2/icons/FolderOpen';
@@ -117,8 +117,7 @@ export function JobsPage() {
         renderEmptyState={() => (
           <IllustratedMessage size="L">
             <FileVideo />
-            <Heading>还没有导出产物</Heading>
-            <Content>导出后，这里会列出项目生成的序列与视频。</Content>
+            <Heading>暂无导出记录</Heading>
           </IllustratedMessage>
         )}>
         {rows.map((row) => (

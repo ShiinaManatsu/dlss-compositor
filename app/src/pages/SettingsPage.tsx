@@ -2,7 +2,6 @@ import {Content, InlineAlert} from '@react-spectrum/s2/InlineAlert';
 import {LabeledValue} from '@react-spectrum/s2/LabeledValue';
 import {Link} from '@react-spectrum/s2/Link';
 import {Picker, PickerItem} from '@react-spectrum/s2/Picker';
-import {StatusLight} from '@react-spectrum/s2/StatusLight';
 import {Switch} from '@react-spectrum/s2/Switch';
 import {Button} from '@react-spectrum/s2/Button';
 import {getAppVersion, useApp, type ColorSchemePref} from '../appState';
@@ -26,7 +25,7 @@ export function SettingsPage() {
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>外观</h3>
         <Picker
-          label="颜色方案"
+          label="主题"
           size="S"
           styles={style({width: 200})}
           items={SCHEME_OPTIONS}
@@ -51,23 +50,15 @@ export function SettingsPage() {
         <LabeledValue label="Blender" value={probe?.blender.path || '未检测到'} />
         <LabeledValue label="CLI" value={probe?.cli.path || '未检测到'} />
         <LabeledValue label="ImDisk" value={imdiskOk ? (probe?.imdisk.path ?? '已安装') : userErrorMessage(probe?.imdisk.message ?? '请安装 ImDisk Toolkit')} />
-        <div className="settings-row">
-          <LabeledValue
-            label="内存盘"
-            value={
-              ramOk
-                ? `${probe?.ramdisk.letter}: ${probe?.ramdisk.label || 'DLSSRAM'}`
-                : '未挂载'
-            }
-          />
-          {ramOk ? (
-            <StatusLight size="S" variant="positive">就绪</StatusLight>
-          ) : null}
-        </div>
+        <LabeledValue
+          label="内存盘"
+          value={ramOk ? `${probe?.ramdisk.letter}: ${probe?.ramdisk.label || 'DLSSRAM'}` : '未挂载'}
+        />
         <InlineAlert variant="informative" styles={style({width: 'full'})}>
           <Content>
-            渲染帧的高速中转缓冲：任务开始自动创建、软件退出自动卸载。依赖{' '}
-            <Link href="https://github.com/LTRData/ImDisk" target="_blank" rel="noreferrer">ImDisk</Link>。
+            通过{' '}
+            <Link href="https://github.com/LTRData/ImDisk" target="_blank" rel="noreferrer">ImDisk</Link>
+            {' '}自动挂载内存盘，退出时卸载。
           </Content>
         </InlineAlert>
         <Switch size="S" isSelected={app.cliLog} onChange={app.setCliLog} isDisabled={app.busy}>
@@ -77,7 +68,7 @@ export function SettingsPage() {
 
       <section className="settings-group">
         <h3 className={style({font: 'heading-sm'})}>DLSS</h3>
-        <LabeledValue label="SR / RR / FG DLL" value="310.7.129.0（锁定）" />
+        <LabeledValue label="SR / RR / FG DLL" value="310.9.16.0" />
       </section>
 
       <section className="settings-group">

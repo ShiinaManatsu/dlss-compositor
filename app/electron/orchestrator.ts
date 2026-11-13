@@ -159,7 +159,7 @@ export type PipelineEvent = {
   [key: string]: unknown;
 };
 
-const NR_RESERVED = 'DLSS5-NR 模型未到，接口已预留';
+const NR_RESERVED = '请在 NR / FG 工具中导出';
 
 /** RR 渲染比例（dcp.ts RR_RECOMMENDED_PERCENT 同步）：性能档 51% 避开
  *  Blender floor(50%) 比 NGX ceil 下限低 1px；超高质量/超高性能不为 RR 提供百分
@@ -466,7 +466,7 @@ export class PipelineOrchestrator {
 
   async start(req: ExportRequest): Promise<{ok: boolean; error?: string}> {
     if (this.running) {
-      return {ok: false, error: '已有任务在跑'};
+      return {ok: false, error: '已有导出任务'};
     }
     if (req.mode !== 'sr' && req.mode !== 'rr') {
       return {ok: false, error: req.mode === ('nr' as string) ? NR_RESERVED : '未知模式'};
@@ -493,7 +493,7 @@ export class PipelineOrchestrator {
     } catch (err) {
       const code = err && typeof err === 'object' && 'code' in err ? String((err as {code?: string}).code) : '';
       if (code === 'EPERM' || code === 'EACCES') {
-        return {ok: false, error: `无法创建导出目录 ${exportDir}（不能选盘符根目录，请选一个子文件夹）`};
+        return {ok: false, error: `无法创建导出目录 ${exportDir}，请选择其他目录`};
       }
       throw err;
     }
@@ -523,12 +523,12 @@ export class PipelineOrchestrator {
         return {ok: false, error: message};
       }
       if (path.parse(exportDir).root.toUpperCase().startsWith(`${letter}:`)) {
-        return {ok: false, error: '导出目录不能写在内存盘上'};
+        return {ok: false, error: '请选择内存盘以外的导出目录'};
       }
     } else {
       const cacheRoot = path.resolve((req.cachePath || '').trim());
       if (!cacheRoot || cacheRoot === path.parse(cacheRoot).root.replace(/\\$/, '')) {
-        return {ok: false, error: '请先在 高级 → 缓存路径 里选择缓存目录'};
+        return {ok: false, error: '请选择缓存目录'};
       }
       this.ramdiskManaged = false;
       this.lastRamdiskBytes = 0;
@@ -585,7 +585,7 @@ export class PipelineOrchestrator {
         const rrQuality = req.quality.toUpperCase();
         if (!RR_QUALITY_IDS.has(rrQuality)) {
           throw new Error(
-            `RR 不支持质量档 ${req.quality}（NGX RR 仅提供 DLAA/高质量/平衡/性能），请回导出页重选`,
+            `RR 不支持 ${req.quality}，请选择 DLAA、高质量、平衡或性能`,
           );
         }
         pct = RR_QUALITY_PERCENT[rrQuality] ?? 58;
@@ -593,7 +593,7 @@ export class PipelineOrchestrator {
       const dual = native && req.mode === 'sr' && pct < 100;
       const workerCount = Math.min(6, Math.trunc(req.parallelSegments ?? 0));
       if (workerCount >= 2 && dual) {
-        throw new Error('滚动并行暂不支持 SR 的 Beauty + Guides 双趟，请关闭原生分辨率缓冲');
+        throw new Error('SR 滚动并行需要关闭原生分辨率缓冲');
       }
       const colorDir = path.join(ramDir, 'color');
       const guidesDir = path.join(ramDir, 'guides');
@@ -867,7 +867,7 @@ export class PipelineOrchestrator {
     settings: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
-    if (!this.nrRpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    if (!this.nrRpc?.writable()) return {ok: false, error: '请先打开色彩源'};
     return this.nrRpc.request('nrtool_preview', {frame, ...settings}, 120000);
   }
 
@@ -876,7 +876,7 @@ export class PipelineOrchestrator {
   async nrExport(params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (this.nrExportActive) return {ok: false, error: 'NR / FG 正在导出'};
     const rpc = this.nrRpc;
-    if (!rpc?.writable()) return {ok: false, error: 'NR 引擎未启动（先打开媒体）'};
+    if (!rpc?.writable()) return {ok: false, error: '请先打开色彩源'};
     this.nrExportActive = true;
     this.nrStopRequested = false;
     this.nrPollFailures = 0;
@@ -1034,7 +1034,7 @@ export class PipelineOrchestrator {
     if (!this.autoRamdisk) {
       return {
         ok: false,
-        error: '未找到内存盘（DLSSRAM）。开发环境请用 ImDisk Toolkit 手动挂载，或改用导出页的缓存路径模式。',
+        error: '请用 ImDisk 挂载 DLSSRAM，或选择缓存目录',
       };
     }
     const created = await createRamdisk(`${sizeGb}G`);

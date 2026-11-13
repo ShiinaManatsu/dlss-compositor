@@ -54,7 +54,7 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
   const [exporting, setExporting] = useState(false);
   const exportingRef = useRef(false);
   const [exportPercent, setExportPercent] = useState(0);
-  const [message, setMessage] = useState('选择色彩源后自动打开会话，预览调整 NR / FG');
+  const [message, setMessage] = useState('');
   const [error, setError] = useState(null as string | null);
   const [exportTrigger, setExportTriggerState] = useState<(() => void) | null>(null);
   const setExportTrigger = useCallback((trigger: (() => void) | null) => {
@@ -131,11 +131,9 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
         return;
       }
       setInfo(result);
-      setMessage(
-        `${result.frames} 帧 · ${result.width}×${result.height} · ${
-          result.color_kind === 'video' ? '视频' : 'PNG 序列'
-        }${result.buffer_width > 0 ? ' · 有引导缓冲' : ''}`
-      );
+      const source = result.color_kind === 'video' ? '视频' : 'PNG 序列';
+      const buffer = result.buffer_width > 0 ? ` · 引导 ${result.buffer_width}×${result.buffer_height}` : '';
+      setMessage(`${source} · ${result.width}×${result.height}${buffer}`);
     } catch (err) {
       setError(userErrorMessage(err instanceof Error ? err.message : '打开失败'));
     } finally {
@@ -151,7 +149,7 @@ export function NrSessionProvider({children}: {children: ReactNode}) {
     });
     setInfo(null);
     setError(null);
-    setMessage('选择色彩源后自动打开会话，预览调整 NR / FG');
+    setMessage('');
   }, []);
 
   const stopExport = useCallback(async () => {
