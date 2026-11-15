@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createInterface} from 'node:readline';
 import {phaseLabel, type planRollingRender} from '../src/ramWindows';
+import {captureBlenderLog} from './blenderLog';
 
 type Plan = ReturnType<typeof planRollingRender>;
 type Window = {start: number; end: number; published: number};
@@ -18,6 +19,7 @@ type Options = {
   blender: string;
   cwd: string;
   inputDir: string;
+  logDirectory?: string;
   start: number;
   end: number;
   plan: Plan;
@@ -58,6 +60,9 @@ export class RollingRender {
       this.stagingDirs.push(staging);
       const cmd = this.options.args(staging);
       const proc = spawn(blender, cmd, {cwd, windowsHide: true});
+      if (this.options.logDirectory) {
+        captureBlenderLog(proc, cmd, this.options.logDirectory, `worker-${id + 1}`);
+      }
       const worker: Worker = {id, proc, ready: false, window: null,
         closed: new Promise((resolve) => proc.once('close', () => resolve()))};
       this.workers.push(worker);

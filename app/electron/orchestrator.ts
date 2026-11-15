@@ -7,6 +7,7 @@ import {parseFg} from '../src/dcp';
 import {userErrorMessage} from '../src/errors';
 import {estimateRollingFrameBytes, estimateWindowFrameBytes, phaseLabel, planRamWindows, planRollingRender, ramWindowBudget} from '../src/ramWindows';
 import {RollingRender} from './rollingRender';
+import {captureBlenderLog} from './blenderLog';
 import {StdioRpcClient} from './rpc';
 import {createRamdisk, discoverRamdisk, findImdisk, IMDISK_MISSING, unmountRamdisk, VOLUME_LABEL} from './ramdisk';
 
@@ -645,6 +646,7 @@ export class PipelineOrchestrator {
         const rollingDir = fs.mkdtempSync(path.join(ramDir, '.roll-'));
         inputDir = rollingDir;
         this.rolling = new RollingRender({blender, cwd: backendRoot(), inputDir: rollingDir,
+          logDirectory: this.cliLog ? logRoot() : undefined,
           start: req.frameStart, end: req.frameEnd, plan,
           args: (staging) => [
             ...this.buildInjectArgs(req, staging, 'combined', pct, {
@@ -1141,6 +1143,7 @@ export class PipelineOrchestrator {
       cwd: backendRoot(),
       windowsHide: true,
     });
+    if (this.cliLog) captureBlenderLog(this.blender, blenderArgs, logRoot(), 'render');
     this.emit({type: 'blender_pid', pid: this.blender.pid, cmd: blenderArgs});
     this.blender.stdout?.on('data', (chunk: Buffer) => this.onBlenderChunk(chunk.toString('utf8')));
     this.blender.stderr?.on('data', (chunk: Buffer) => this.onBlenderChunk(chunk.toString('utf8')));
@@ -1164,6 +1167,7 @@ export class PipelineOrchestrator {
     });
     debug(`bake ${JSON.stringify(args)}`);
     const proc = spawn(blender, args, {cwd: backendRoot(), windowsHide: true});
+    if (this.cliLog) captureBlenderLog(proc, args, logRoot(), 'config');
     this.blender = proc;
     proc.on('error', (err) => debug(`bake Blender spawn: ${err.message}`));
     proc.stdout?.on('data', (chunk: Buffer) => this.onBlenderChunk(chunk.toString('utf8')));
