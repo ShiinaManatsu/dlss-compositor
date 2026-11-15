@@ -1,6 +1,7 @@
 #include "core/dlssconfig.h"
 
 #include "core/log.h"
+#include "core/path_encoding.h"
 
 #include <algorithm>
 #include <array>
@@ -166,11 +167,11 @@ std::expected<std::string, LoadError> parseOptionalPathString(
         return std::string{};
     }
 
-    std::filesystem::path path(raw);
+    std::filesystem::path path = pathFromUtf8(raw);
     if (path.is_relative()) {
         path = baseDir / path;
     }
-    return path.lexically_normal().string();
+    return pathToUtf8(path.lexically_normal());
 }
 
 std::expected<bool, LoadError> parseBool(const json& root, std::string_view key) {
@@ -316,12 +317,12 @@ std::expected<std::map<std::string, CameraData>, LoadError> parseFrames(const js
 std::expected<DlssConfig, LoadError> DlssConfigLoader::Load(std::filesystem::path filePath) {
     std::error_code ec;
     if (!std::filesystem::exists(filePath, ec) || ec) {
-        return std::unexpected(makeError(LoadErrorCode::FileNotFound, "Config file was not found", filePath.string()));
+        return std::unexpected(makeError(LoadErrorCode::FileNotFound, "Config file was not found", pathToUtf8(filePath)));
     }
 
     std::ifstream input(filePath, std::ios::binary);
     if (!input.is_open()) {
-        return std::unexpected(makeError(LoadErrorCode::FileNotFound, "Config file could not be opened", filePath.string()));
+        return std::unexpected(makeError(LoadErrorCode::FileNotFound, "Config file could not be opened", pathToUtf8(filePath)));
     }
 
     json root;

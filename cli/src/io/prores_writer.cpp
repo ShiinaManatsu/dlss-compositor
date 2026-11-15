@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 #include "encoder_registry.h"
 
 extern "C" {
@@ -322,7 +323,8 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     }
 
     const char* muxer = videoCodec == VideoCodec::H265Hevc ? "mp4" : "mov";
-    int err = avformat_alloc_output_context2(&m_impl->format, nullptr, muxer, outputPath.string().c_str());
+    const std::string outputFilename = pathToUtf8(outputPath);
+    int err = avformat_alloc_output_context2(&m_impl->format, nullptr, muxer, outputFilename.c_str());
     if (err < 0 || !m_impl->format) {
         throw std::runtime_error("ProResWriter: cannot create video muxer: " + fferr(err));
     }
@@ -417,7 +419,7 @@ ProResWriter::ProResWriter(const std::filesystem::path& outputPath,
     // accumulate in RAM for the whole sequence (4K ProRes 4x FG would OOM).
     m_impl->format->flags |= AVFMT_FLAG_FLUSH_PACKETS;
     if (!(m_impl->format->oformat->flags & AVFMT_NOFILE)) {
-        err = avio_open(&m_impl->format->pb, outputPath.string().c_str(), AVIO_FLAG_WRITE);
+        err = avio_open(&m_impl->format->pb, outputFilename.c_str(), AVIO_FLAG_WRITE);
         if (err < 0) {
             throw std::runtime_error("ProResWriter: cannot open output: " + fferr(err));
         }

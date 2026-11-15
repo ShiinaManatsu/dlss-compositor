@@ -19,6 +19,6 @@ await build({
     // electron-builder merges this array with package.json. Supply only the
     // extra DLL so the backend files aren't copied twice in parallel.
     extraResources: [{from: dll, to: `backend/cli/${dllName}`}],
-    nsis: {include: null, differentialPackage: false, artifactName: 'DLSS-Compositor-Setup-${version}-NR.${ext}'},
+    nsis: {include: null, differentialPackage: false, artifactName: 'DLSS-Compositor-Setup-${version}.${ext}'},
   },
 });

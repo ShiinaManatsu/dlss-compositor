@@ -8,6 +8,7 @@
 
 #include "../core/dlssconfig.h"
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 #include "../dlss/ngx_wrapper.h"
 #include "../gpu/vulkan_context.h"
 #include "../io/encoder_registry.h"
@@ -481,8 +482,8 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
     const std::string outputDir = p.at("output_dir").get<std::string>();
 
     // ── Load dlssconfig.json ─────────────────────────────────────────────────
-    const std::string configPath = p.value("config", (std::filesystem::path(inputDir) / "dlssconfig.json").string());
-    auto loadResult = DlssConfigLoader::Load(configPath);
+    const std::string configPath = p.value("config", pathToUtf8(pathFromUtf8(inputDir) / "dlssconfig.json"));
+    auto loadResult = DlssConfigLoader::Load(pathFromUtf8(configPath));
     if (!loadResult) {
         throw std::runtime_error("dlssconfig.json load failed: " + loadResult.error().message);
     }
@@ -562,7 +563,7 @@ PipelineConfig RpcDispatcher::buildPipelineConfig(const nlohmann::json& p) {
             cfg.nrBufferDir = cfg.outputDir;
         }
         std::error_code mkdirEc;
-        std::filesystem::create_directories(cfg.nrBufferDir, mkdirEc);
+        std::filesystem::create_directories(pathFromUtf8(cfg.nrBufferDir), mkdirEc);
         if (mkdirEc) {
             throw std::runtime_error("cannot create nr_buffer_dir " + cfg.nrBufferDir +
                                      ": " + mkdirEc.message());

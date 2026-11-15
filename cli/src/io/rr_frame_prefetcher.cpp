@@ -3,6 +3,7 @@
 
 #include "rr_frame_prefetcher.h"
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfFrameBuffer.h>
@@ -144,7 +145,7 @@ RrFrameResult decodeRrExr(const std::filesystem::path& path) {
             "File not found: " + path.string(), path});
     }
     try {
-        Imf::MultiPartInputFile multi(path.string().c_str());
+        Imf::MultiPartInputFile multi(pathToUtf8(path).c_str());
         const int nParts = multi.parts();
         if (nParts < 1) {
             return std::unexpected(RrReadError{RrReadErrorCode::ParseFailed,

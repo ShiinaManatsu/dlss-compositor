@@ -11,6 +11,7 @@
 #include "pipeline.h"
 #include "fg_camera.h"
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 #include "../core/lut_loader.h"
 #include "../gpu/passes/prores_convert_pass.h"
 #include "../gpu/passes/preview_pass.h"
@@ -426,7 +427,7 @@ void Pipeline::run(const PipelineConfig& config) {
 
     std::filesystem::path inputDir = config.inputDir.empty()
         ? std::filesystem::current_path()
-        : std::filesystem::path(config.inputDir);
+        : pathFromUtf8(config.inputDir);
 
     m_stop.store(false, std::memory_order_release);
     m_running.store(true, std::memory_order_release);
@@ -474,12 +475,12 @@ void Pipeline::run(const PipelineConfig& config) {
         std::unique_ptr<LutTonemapPass>  lutTonemap;
         std::unique_ptr<LutInversePass>  lutInverse;
         if (!dlssCfg.tonemap_lut.empty()) {
-            auto lut = LutLoader::LoadCube(dlssCfg.tonemap_lut);
+            auto lut = LutLoader::LoadCube(pathFromUtf8(dlssCfg.tonemap_lut));
             if (!lut) throw std::runtime_error("Pipeline: failed to load tonemap_lut: " + lut.error().message);
             lutTonemap = std::make_unique<LutTonemapPass>(m_ctx, lut.value());
         }
         if (!dlssCfg.inverse_lut.empty()) {
-            auto lut = LutLoader::LoadCube(dlssCfg.inverse_lut);
+            auto lut = LutLoader::LoadCube(pathFromUtf8(dlssCfg.inverse_lut));
             if (!lut) throw std::runtime_error("Pipeline: failed to load inverse_lut: " + lut.error().message);
             lutInverse = std::make_unique<LutInversePass>(m_ctx, lut.value());
         }
@@ -521,7 +522,7 @@ void Pipeline::run(const PipelineConfig& config) {
         AsyncFrameWriter frameWriter(writerThreads, writerQueueHigh, writerThreads);
         std::unique_ptr<NrBufferVideoWriter> nrBufferWriter;
         if (config.nrBuffer) {
-            const auto bufferPath = std::filesystem::path(config.nrBufferDir) / kNrBufferVideoName;
+            const auto bufferPath = pathFromUtf8(config.nrBufferDir) / kNrBufferVideoName;
             nrBufferWriter = std::make_unique<NrBufferVideoWriter>(bufferPath, rW, rH, dlssCfg.fps);
         }
         std::unique_ptr<ProResProgressWriter> proresWriter;
@@ -529,7 +530,7 @@ void Pipeline::run(const PipelineConfig& config) {
         const bool useProRes = (config.outputFormat == OutputFormat::ProRes422HQ ||
                                 config.outputFormat == OutputFormat::H265Mp4);
         if (useProRes) {
-            const auto outPath = std::filesystem::path(config.outputDir) / config.filenameTemplate;
+            const auto outPath = pathFromUtf8(config.outputDir) / pathFromUtf8(config.filenameTemplate);
             proresWriter = std::make_unique<ProResProgressWriter>(
                 outPath, oW, oH,
                 dlssCfg.fps * fgMult,
@@ -627,8 +628,8 @@ void Pipeline::run(const PipelineConfig& config) {
 
             WriteJob job;
             job.format         = config.outputFormat;
-            job.outputPath     = std::filesystem::path(config.outputDir) /
-                                 AsyncFrameWriter::formatPath(config.filenameTemplate, outputFrameIdx);
+            job.outputPath     = pathFromUtf8(config.outputDir) /
+                                 pathFromUtf8(AsyncFrameWriter::formatPath(config.filenameTemplate, outputFrameIdx));
             job.width          = oW;
             job.height         = oH;
             job.fps            = dlssCfg.fps;
@@ -660,7 +661,7 @@ void Pipeline::run(const PipelineConfig& config) {
             const std::string pattern =
                 dlssCfg.filename_pattern.empty() ? "####.exr" : dlssCfg.filename_pattern;
             for (const auto& [num, _] : frameKeys) {
-                framePaths.emplace_back(inputDir / AsyncFrameWriter::formatPath(pattern, num));
+                framePaths.emplace_back(inputDir / pathFromUtf8(AsyncFrameWriter::formatPath(pattern, num)));
             }
         }
         const int prefetchDepth = std::max(1, config.prefetchDepth);
@@ -672,7 +673,7 @@ void Pipeline::run(const PipelineConfig& config) {
         else       rrPrefetcher = std::make_unique<RrFramePrefetcher>(framePaths, prefetchDepth, config.watchInput,
                                                                    &m_stop, config.atomicInputFiles);
         if (config.watchInput) {
-            LOG_INFO("[Pipeline] Watch mode on {} (prefetch depth {})", inputDir.string(), prefetchDepth);
+            LOG_INFO("[Pipeline] Watch mode on {} (prefetch depth {})", pathToUtf8(inputDir), prefetchDepth);
         }
 
         int processedInputs = 0;

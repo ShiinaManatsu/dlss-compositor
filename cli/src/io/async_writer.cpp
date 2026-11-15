@@ -9,6 +9,7 @@
 #include "async_writer.h"
 
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 
 #include <OpenImageIO/filesystem.h>
 #include <OpenImageIO/imageio.h>
@@ -112,21 +113,21 @@ void encodeExrLinear(const EncodeParams& p, const std::filesystem::path& outputP
                    static_cast<float>(std::clamp(p.options.exrCompressionLevelPercent, 0, 100)));
     spec.attribute("oiio:ColorSpace", "lin_rec709");
 
-    auto out = OIIO::ImageOutput::create(outputPath.string());
+    auto out = OIIO::ImageOutput::create(pathToUtf8(outputPath));
     if (!out) {
-        throw std::runtime_error("encodeExrLinear: cannot create OIIO output: " + outputPath.string());
+        throw std::runtime_error("encodeExrLinear: cannot create OIIO output: " + pathToUtf8(outputPath));
     }
-    if (!out->open(outputPath.string(), spec)) {
-        throw std::runtime_error("encodeExrLinear: cannot open output: " + outputPath.string()
+    if (!out->open(pathToUtf8(outputPath), spec)) {
+        throw std::runtime_error("encodeExrLinear: cannot open output: " + pathToUtf8(outputPath)
                                  + ": " + out->geterror());
     }
     if (!out->write_image(OIIO::TypeDesc::HALF, p.pixels)) {
         const std::string err = out->geterror();
         out->close();
-        throw std::runtime_error("encodeExrLinear: write failed: " + outputPath.string() + ": " + err);
+        throw std::runtime_error("encodeExrLinear: write failed: " + pathToUtf8(outputPath) + ": " + err);
     }
     if (!out->close()) {
-        throw std::runtime_error("encodeExrLinear: close failed: " + outputPath.string()
+        throw std::runtime_error("encodeExrLinear: close failed: " + pathToUtf8(outputPath)
                                  + ": " + out->geterror());
     }
 }
@@ -222,21 +223,21 @@ void encodePng16(const EncodeParams& p, const std::filesystem::path& outputPath)
     spec.channelnames = {"R", "G", "B", "A"};
     spec.attribute("png:compressionLevel", percentToZlibLevel(p.options.pngQualityPercent));
 
-    auto out = OIIO::ImageOutput::create(outputPath.string());
+    auto out = OIIO::ImageOutput::create(pathToUtf8(outputPath));
     if (!out) {
-        throw std::runtime_error("encodePng16: cannot create OIIO output: " + outputPath.string());
+        throw std::runtime_error("encodePng16: cannot create OIIO output: " + pathToUtf8(outputPath));
     }
-    if (!out->open(outputPath.string(), spec)) {
+    if (!out->open(pathToUtf8(outputPath), spec)) {
         const std::string err = out->geterror();
-        throw std::runtime_error("encodePng16: cannot open output: " + outputPath.string() + ": " + err);
+        throw std::runtime_error("encodePng16: cannot open output: " + pathToUtf8(outputPath) + ": " + err);
     }
     if (!out->write_image(OIIO::TypeDesc::UINT16, rgba16.data())) {
         const std::string err = out->geterror();
         out->close();
-        throw std::runtime_error("encodePng16: write failed: " + outputPath.string() + ": " + err);
+        throw std::runtime_error("encodePng16: write failed: " + pathToUtf8(outputPath) + ": " + err);
     }
     if (!out->close()) {
-        throw std::runtime_error("encodePng16: close failed: " + outputPath.string() + ": " + out->geterror());
+        throw std::runtime_error("encodePng16: close failed: " + pathToUtf8(outputPath) + ": " + out->geterror());
     }
 }
 
@@ -354,10 +355,10 @@ std::filesystem::path insertVersionSuffix(const std::filesystem::path& path, int
         return path;
     }
     const std::filesystem::path parent = path.parent_path();
-    const std::string           stem   = path.stem().string();
-    const std::string           ext    = path.extension().string();
+    const std::string           stem   = pathToUtf8(path.stem());
+    const std::string           ext    = pathToUtf8(path.extension());
     const std::string suffix = "_v" + zeroPad(version, 2);
-    return parent / (stem + suffix + ext);
+    return parent / pathFromUtf8(stem + suffix + ext);
 }
 
 } // namespace
@@ -533,7 +534,7 @@ std::filesystem::path AsyncFrameWriter::resolveOutputPath(const WriteJob& job,
         return job.outputPath;
     case OverwriteMode::Skip:
         if (exists) {
-            LOG_WARN("AsyncFrameWriter: skipping existing file {}", job.outputPath.string());
+            LOG_WARN("AsyncFrameWriter: skipping existing file {}", pathToUtf8(job.outputPath));
             outShouldSkip = true;
         }
         return job.outputPath;
@@ -631,8 +632,8 @@ std::string AsyncFrameWriter::formatPath(const std::string& tmpl, int frameNum, 
 
     // 3. Apply optional version suffix.
     if (version > 0) {
-        const std::filesystem::path p(out);
-        out = insertVersionSuffix(p, version).string();
+        const std::filesystem::path p = pathFromUtf8(out);
+        out = pathToUtf8(insertVersionSuffix(p, version));
     }
     return out;
 }
@@ -646,7 +647,7 @@ int AsyncFrameWriter::checkOutputCollisions(const std::filesystem::path& outputD
     std::error_code ec;
     for (int frame = 0; frame < frameCount; ++frame) {
         const std::string       name = formatPath(filenameTemplate, frame);
-        const std::filesystem::path p = outputDir / name;
+        const std::filesystem::path p = outputDir / pathFromUtf8(name);
         if (std::filesystem::exists(p, ec)) {
             ++collisions;
         }

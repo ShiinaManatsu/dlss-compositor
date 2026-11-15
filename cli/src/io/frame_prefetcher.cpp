@@ -5,6 +5,7 @@
 #include "frame_prefetcher.h"
 
 #include "../core/log.h"
+#include "../core/path_encoding.h"
 
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfFrameBuffer.h>
@@ -184,7 +185,7 @@ bool readMultipart(const std::filesystem::path& filePath,
                    DecodedFrame& frame,
                    const ImageLayout& layout)
 {
-    Imf::MultiPartInputFile multi(filePath.string().c_str());
+    Imf::MultiPartInputFile multi(pathToUtf8(filePath).c_str());
     if (multi.parts() <= 1) {
         return false;
     }
@@ -303,7 +304,7 @@ FrameResult decodeExr(const std::filesystem::path& filePath)
     }
 
     try {
-        Imf::InputFile      file(filePath.string().c_str());
+        Imf::InputFile      file(pathToUtf8(filePath).c_str());
         const Imf::Header&  header = file.header();
         const Imath::Box2i  dw     = header.dataWindow();
 

@@ -1,7 +1,7 @@
 {
   "name": "dlss-compositor-app",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "DLSS SR/RR/FG compositor GUI",
   "author": {
     "name": "dlss-compositor"
